@@ -56,6 +56,7 @@ English versions live in `docs/en/`, Chinese originals in `docs/zh_cn/`.
 |---|---|
 | [docs/en/02_architecture.md](docs/en/02_architecture.md) | Package layout, State/Params/Forcing pytrees, `@process`, runtime, IO, calibration, report API |
 | [docs/en/03_development_plan.md](docs/en/03_development_plan.md) | Week-by-week proof-of-concept plan, later milestones, risks |
+| [docs/en/04_reference_validation.md](docs/en/04_reference_validation.md) | Validation methodology against the DSSAT-CSM and RZWQM2 reference models: subroutine-level instrumentation, tolerance tiers, whole-model comparison |
 | [docs/en/05_maintenance_pipeline.md](docs/en/05_maintenance_pipeline.md) | Tooling, lint rules, test tiers, CI, cluster workflow, releases |
 | [docs/en/06_open_source_ecosystem.md](docs/en/06_open_source_ecosystem.md) | Survey of related open-source work and chosen dependencies |
 | [docs/en/08_throughput_comparison.md](docs/en/08_throughput_comparison.md) | Reference model (CPU) vs GPU throughput measurements |

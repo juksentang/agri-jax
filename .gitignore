@@ -20,6 +20,6 @@ site/
 # internal strategy / group-internal ops notes, never published
 docs/internal/
 
-# porting / oracle tooling and differential tests live in the private repo, never here
-src/agri_jax/port/
-tests/diff/
+# RZWQM/DSSAT reference-model dumps are data, not code: keep them out of git
+dumps/
+*.npz
