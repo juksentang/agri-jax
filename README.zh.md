@@ -9,12 +9,12 @@
 
 | 文档 | 内容 |
 |---|---|
-| [docs/02_architecture.md](docs/02_architecture.md) | 项目架构：目录、State/Params/Forcing、`@process`、Model、runtime、io、calib、port |
-| [docs/03_development_plan.md](docs/03_development_plan.md) | 开发规划：第 0 周脚手架、PoC 逐周任务与里程碑、第二/三阶段、风险 |
-| [docs/04_porting_and_diff_testing.md](docs/04_porting_and_diff_testing.md) | 移植方法学与差分测试手册：两个 oracle、七步流程、容差三级、整模型验证 |
-| [docs/05_maintenance_pipeline.md](docs/05_maintenance_pipeline.md) | 维护管线：仓库/许可、工具链、lint、测试分层、CI、集群分工（rorqual GPU / narval Fortran）、发布 |
-| [docs/06_open_source_ecosystem.md](docs/06_open_source_ecosystem.md) | 开源生态与选型：可直接用的库、设计参考、与 diffWOFOST 等的尺度区分 |
-| [docs/08_throughput_comparison.md](docs/08_throughput_comparison.md) | 大规模批量耗时对比：Fortran 实测 vs H100 骨架实测 |
+| [docs/zh_cn/02_architecture.md](docs/zh_cn/02_architecture.md) | 项目架构：目录、State/Params/Forcing、`@process`、Model、runtime、io、calib、port |
+| [docs/zh_cn/03_development_plan.md](docs/zh_cn/03_development_plan.md) | 开发规划：第 0 周脚手架、PoC 逐周任务与里程碑、第二/三阶段、风险 |
+| [docs/zh_cn/04_porting_and_diff_testing.md](docs/zh_cn/04_porting_and_diff_testing.md) | 移植方法学与差分测试手册：两个 oracle、七步流程、容差三级、整模型验证 |
+| [docs/zh_cn/05_maintenance_pipeline.md](docs/zh_cn/05_maintenance_pipeline.md) | 维护管线：仓库/许可、工具链、lint、测试分层、CI、集群分工（rorqual GPU / narval Fortran）、发布 |
+| [docs/zh_cn/06_open_source_ecosystem.md](docs/zh_cn/06_open_source_ecosystem.md) | 开源生态与选型：可直接用的库、设计参考、与 diffWOFOST 等的尺度区分 |
+| [docs/zh_cn/08_throughput_comparison.md](docs/zh_cn/08_throughput_comparison.md) | 大规模批量耗时对比：Fortran 实测 vs H100 骨架实测 |
 
 **对本文假设的更正**：RZWQM2 4.6 的 Fortran 源码在 narval `sharing/RZWQM_Linux_Ver45/`，二进制在本机 16 s 跑完 CA-TPA 九年；dssat-csm-os 4.8.5 源码与静态二进制在本机 `~/AFSoil`；CA-TPA 的 10 万次 LHS 已全部跑完；`agri-jax` 名字可用；GPU 作业去 rorqual H100 而非 narval。
 

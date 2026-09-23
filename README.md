@@ -38,7 +38,7 @@ A computational skeleton with the same per-day shape as the planned model (37-no
 | float64 | 243 s | 411 sims/s |
 | float32 | 101 s | 993 sims/s |
 
-The Fortran reference (RZWQM2, one CPU core) takes 24 s per run: 667 core-hours and roughly 10 wall-clock hours for the same 10⁵ runs on a cluster. Most of the remaining GPU time is sequential depth (days × sub-steps × iterations), so it falls further as the numerical scheme is tuned. Quantifying that accuracy–throughput–gradient trade-off against the Fortran oracle is the core of the first paper. See `docs/08_throughput_comparison.md`.
+The Fortran reference (RZWQM2, one CPU core) takes 24 s per run: 667 core-hours and roughly 10 wall-clock hours for the same 10⁵ runs on a cluster. At this batch size the GPU is saturated and time scales with the number of implicit solves per day: halving sub-steps and Newton iterations (12 × 2) gives 82 s for 10⁵ runs and 14 minutes for 10⁶ runs on one H100. How far the scheme can be thinned without losing agreement with the Fortran oracle is the core question of the first paper. See `docs/en/08_throughput_comparison.md`.
 
 ## Roadmap
 
@@ -50,16 +50,16 @@ The Fortran reference (RZWQM2, one CPU core) takes 24 s per run: 667 core-hours 
 
 ## Documentation
 
-Design documents are currently in Chinese; English versions will follow with the first release.
+English versions live in `docs/en/`, Chinese originals in `docs/zh_cn/`.
 
 | Document | Content |
 |---|---|
-| [docs/02_architecture.md](docs/02_architecture.md) | Package layout, State/Params/Forcing pytrees, `@process`, runtime, IO, calibration, report API |
-| [docs/03_development_plan.md](docs/03_development_plan.md) | Week-by-week proof-of-concept plan, later milestones, risks |
-| [docs/04_porting_and_diff_testing.md](docs/04_porting_and_diff_testing.md) | Fortran-to-JAX porting procedure and subroutine-level differential testing |
-| [docs/05_maintenance_pipeline.md](docs/05_maintenance_pipeline.md) | Tooling, lint rules, test tiers, CI, cluster workflow, releases |
-| [docs/06_open_source_ecosystem.md](docs/06_open_source_ecosystem.md) | Survey of related open-source work and chosen dependencies |
-| [docs/08_throughput_comparison.md](docs/08_throughput_comparison.md) | Fortran vs GPU throughput measurements |
+| [docs/en/02_architecture.md](docs/en/02_architecture.md) | Package layout, State/Params/Forcing pytrees, `@process`, runtime, IO, calibration, report API |
+| [docs/en/03_development_plan.md](docs/en/03_development_plan.md) | Week-by-week proof-of-concept plan, later milestones, risks |
+| [docs/en/04_porting_and_diff_testing.md](docs/en/04_porting_and_diff_testing.md) | Fortran-to-JAX porting procedure and subroutine-level differential testing |
+| [docs/en/05_maintenance_pipeline.md](docs/en/05_maintenance_pipeline.md) | Tooling, lint rules, test tiers, CI, cluster workflow, releases |
+| [docs/en/06_open_source_ecosystem.md](docs/en/06_open_source_ecosystem.md) | Survey of related open-source work and chosen dependencies |
+| [docs/en/08_throughput_comparison.md](docs/en/08_throughput_comparison.md) | Fortran vs GPU throughput measurements |
 | [README.zh.md](README.zh.md) | Original plan (Chinese) |
 
 ## Install

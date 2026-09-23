@@ -14,14 +14,17 @@ a = ap.parse_args()
 jax.config.update("jax_enable_x64", bool(a.x64))
 NN = 37; dz = jnp.full(NN, 150.0 / NN); DT = 1.0 / a.sub
 
+def _x(h, p):  # safe argument for the power law: both jnp.where branches must stay finite under grad
+    return jnp.where(h < -p["hb"], -h / p["hb"], 1.0)
 def bc_theta(h, p):  # Brooks-Corey
-    se = jnp.where(h < -p["hb"], (-h / p["hb"]) ** (-p["lam"]), 1.0)
+    se = _x(h, p) ** (-p["lam"])
     return p["tr"] + (p["ts"] - p["tr"]) * se
 def bc_k(h, p):
-    se = jnp.where(h < -p["hb"], (-h / p["hb"]) ** (-p["lam"]), 1.0)
+    se = _x(h, p) ** (-p["lam"])
     return p["ks"] * se ** (3.0 + 2.0 / p["lam"])
 def bc_c(h, p):  # dtheta/dh
-    return jnp.where(h < -p["hb"], (p["ts"] - p["tr"]) * p["lam"] / p["hb"] * (-h / p["hb"]) ** (-p["lam"] - 1), 1e-6)
+    c = (p["ts"] - p["tr"]) * p["lam"] / p["hb"] * _x(h, p) ** (-p["lam"] - 1)
+    return jnp.where(h < -p["hb"], c, 1e-6)
 
 def richards_substep(h, p, top_flux, sink):
     def newton(h_new, _):

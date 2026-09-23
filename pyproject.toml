@@ -1,11 +1,11 @@
 [project]
 name = "agri-jax"
-version = "0.0.2"
+version = "0.0.3"
 description = "Differentiable, batch-parallel field-scale crop-soil process models in JAX (CERES-Maize + RZWQM-style soil water and PET)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-authors = [{ name = "Yushen Tang", email = "yushen.tang@outlook.com" }]
+authors = [{ name = "Juk-Sen TANG", email = "juksen.tang@mail.mcgill.ca" }]
 keywords = ["jax", "differentiable", "crop model", "DSSAT", "RZWQM", "CERES-Maize", "agriculture"]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
