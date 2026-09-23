@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+title: "Agri-JAX: a differentiable, batch-parallel field-scale crop-soil model framework"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Tang
+    given-names: Yushen
+    email: yushen.tang@outlook.com
+license: Apache-2.0
+repository-code: "https://github.com/juksentang/agri-jax"
+keywords: [jax, differentiable programming, crop model, DSSAT, RZWQM, CERES-Maize, soil water]
+version: 0.0.2
+date-released: 2026-09-23

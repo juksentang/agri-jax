@@ -1,0 +1,21 @@
+# data & runs never enter git
+*.npz
+*.parquet
+*.tar.zst
+*.OUT
+*.ana
+run/
+dumps/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+site/
+.ipynb_checkpoints/
+
+# internal strategy / group-internal ops notes, never published
+docs/internal/

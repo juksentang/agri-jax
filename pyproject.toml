@@ -1,0 +1,45 @@
+[project]
+name = "agri-jax"
+version = "0.0.2"
+description = "Differentiable, batch-parallel field-scale crop-soil process models in JAX (CERES-Maize + RZWQM-style soil water and PET)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "Yushen Tang", email = "yushen.tang@outlook.com" }]
+keywords = ["jax", "differentiable", "crop model", "DSSAT", "RZWQM", "CERES-Maize", "agriculture"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = ["jax>=0.8,<0.12", "equinox>=0.13", "jaxtyping", "numpy", "pandas", "xarray", "pyyaml"]
+
+[project.optional-dependencies]
+cuda = ["jax[cuda12]"]
+calib = ["optax", "optimistix", "lineax", "blackjax", "numpyro", "salib", "arviz"]
+report = ["jax", "pandas", "jinja2"]
+port = ["fparser>=0.2.5"]
+dev = ["pytest", "pytest-cov", "pytest-regressions", "hypothesis", "pytest-benchmark", "chex", "beartype", "ruff", "pyright", "pre-commit", "towncrier"]
+docs = ["mkdocs-material", "mkdocstrings[python]", "mkdocs-jupyter"]
+
+[project.urls]
+Homepage = "https://github.com/juksentang/agri-jax"
+Documentation = "https://juksentang.github.io/agri-jax"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agri_jax"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "README.md", "README.zh.md", "LICENSE", "CITATION.cff", "pyproject.toml"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
