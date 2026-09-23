@@ -23,3 +23,8 @@ docs/internal/
 # RZWQM/DSSAT reference-model dumps are data, not code: keep them out of git
 dumps/
 *.npz
+
+# validation evidence is archived in the private repo (~/agri-jax-internal), not published
+docs/en/validation_matrix.md
+docs/zh_cn/validation_matrix.md
+docs/validation/
