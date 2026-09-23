@@ -11,20 +11,27 @@ Conventions (docs/en/02_architecture.md section 3.1):
 * ``Params`` holds everything that is constant over a run (may be batched).
 * ``Forcing`` holds time-varying inputs with the time axis first ``[T, ...]``;
   ``lax.scan`` slices it into a per-day forcing of the same class.
+
+The within-crop organ queue :class:`~agri_jax.core.organs.OrganQueue` (section 3.7) lives in
+``agri_jax.core.organs`` and is re-exported here (lazily, since it builds on :func:`field`).
 """
 
 from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import equinox as eqx
 import jax.tree_util as jtu
 from jax.core import Tracer
 
+if TYPE_CHECKING:
+    from agri_jax.core.organs import OrganQueue
+
 __all__ = [
     "Forcing",
+    "OrganQueue",
     "Params",
     "State",
     "field",
@@ -160,6 +167,15 @@ class Forcing(_Base):
         if not leaves:
             raise ValueError("Forcing has no array leaves")
         return int(leaves[0].shape[0])
+
+
+def __getattr__(name: str) -> Any:
+    # lazy re-export: organs imports ``field`` from this module, so a top-level import would be circular
+    if name == "OrganQueue":
+        from agri_jax.core.organs import OrganQueue
+
+        return OrganQueue
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ---------------------------------------------------------------------------
