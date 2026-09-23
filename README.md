@@ -2,11 +2,11 @@
 
 **Differentiable, batch-parallel field-scale crop–soil process models in JAX.**
 
-Agri-JAX ports the CERES-Maize crop module from [DSSAT-CSM](https://github.com/DSSAT/dssat-csm-os) and re-implements RZWQM2-style soil physics (Brooks–Corey Richards equation, Shuttleworth–Wallace potential evapotranspiration, tile drainage) as pure JAX functions, so that a full multi-year field simulation can be run for 10⁵ parameter sets in one `vmap`, differentiated with `jax.grad`, and embedded in gradient-based calibration, Hamiltonian Monte Carlo, ensemble data assimilation, or hybrid process–ML training loops.
+Agri-JAX is an independent JAX implementation of the CERES-Maize crop module from the open-source [DSSAT-CSM](https://github.com/DSSAT/dssat-csm-os) (BSD-3), and of RZWQM2-style soil water and potential evapotranspiration from the published equations (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985): Brooks–Corey Richards equation, Shuttleworth–Wallace potential evapotranspiration and tile drainage, written as pure JAX functions so that a full multi-year field simulation can be run for 10⁵ parameter sets in one `vmap`, differentiated with `jax.grad`, and embedded in gradient-based calibration, Hamiltonian Monte Carlo, ensemble data assimilation, or hybrid process–ML training loops. It is validated by comparing its outputs against the DSSAT-CSM and RZWQM2 reference models.
 
 The goal is not speed for its own sake. It is to make a *field-scale* model, with real soil physics and management events, as cheap to run in bulk and as differentiable as the regional-scale bucket models that already exist in this space, while staying compatible with the DSSAT and RZWQM parameter files that agronomists have built up over decades.
 
-> **Status: design stage (September 2026).** The package on PyPI is a placeholder that reserves the name and installs an empty module. The design documents below are complete; the proof of concept starts now. Nothing here has been validated against a Fortran model yet. Do not use it for science until the validation report exists.
+> **Status: design stage (September 2026).** The package on PyPI is a placeholder that reserves the name and installs an empty module. The design documents below are complete; the proof of concept starts now. Nothing here has been validated against the reference models yet. Do not use it for science until the validation report exists.
 
 ## Why
 
@@ -38,14 +38,14 @@ A computational skeleton with the same per-day shape as the planned model (37-no
 | float64 | 243 s | 411 sims/s |
 | float32 | 101 s | 993 sims/s |
 
-The Fortran reference (RZWQM2, one CPU core) takes 24 s per run: 667 core-hours and roughly 10 wall-clock hours for the same 10⁵ runs on a cluster. At this batch size the GPU is saturated and time scales with the number of implicit solves per day: halving sub-steps and Newton iterations (12 × 2) gives 82 s for 10⁵ runs and 14 minutes for 10⁶ runs on one H100. How far the scheme can be thinned without losing agreement with the Fortran oracle is the core question of the first paper. See `docs/en/08_throughput_comparison.md`.
+The Fortran reference (RZWQM2, one CPU core) takes 24 s per run: 667 core-hours and roughly 10 wall-clock hours for the same 10⁵ runs on a cluster. At this batch size the GPU is saturated and time scales with the number of implicit solves per day: halving sub-steps and Newton iterations (12 × 2) gives 82 s for 10⁵ runs and 14 minutes for 10⁶ runs on one H100. How far the scheme can be thinned without losing agreement with the reference model is the core question of the first paper. See `docs/en/08_throughput_comparison.md`.
 
 ## Roadmap
 
 | Phase | Deliverable |
 |---|---|
-| Proof of concept (4 weeks) | RZWQM water balance + Shuttleworth–Wallace PET + CERES-Maize on one site, validated day by day against the RZWQM2 and DSSAT-CSM binaries; 10⁵-sample `vmap` timing; gradient check and one NUTS run |
-| Framework + first models (6 months) | pip package, docs, validation report, differential-testing tools, Sobol and multi-site calibration, intercropping, an economist-facing report API (posterior intervals, marginal effects, elasticities, identifiability diagnostics) with Stata/R front ends |
+| Proof of concept (4 weeks) | RZWQM water balance + Shuttleworth–Wallace PET + CERES-Maize on one site, validated day by day against RZWQM2 and DSSAT-CSM reference-model outputs; 10⁵-sample `vmap` timing; gradient check and one NUTS run |
+| Framework + first models (6 months) | pip package, docs, validation report, reference-model comparison tools, Sobol and multi-site calibration, intercropping, an economist-facing report API (posterior intervals, marginal effects, elasticities, identifiability diagnostics) with Stata/R front ends |
 | Applications | Multi-site joint gradient calibration and parameter identifiability; hybrid process–ML models on held-out flux-tower sites |
 
 ## Documentation
@@ -56,10 +56,9 @@ English versions live in `docs/en/`, Chinese originals in `docs/zh_cn/`.
 |---|---|
 | [docs/en/02_architecture.md](docs/en/02_architecture.md) | Package layout, State/Params/Forcing pytrees, `@process`, runtime, IO, calibration, report API |
 | [docs/en/03_development_plan.md](docs/en/03_development_plan.md) | Week-by-week proof-of-concept plan, later milestones, risks |
-| [docs/en/04_porting_and_diff_testing.md](docs/en/04_porting_and_diff_testing.md) | Fortran-to-JAX porting procedure and subroutine-level differential testing |
 | [docs/en/05_maintenance_pipeline.md](docs/en/05_maintenance_pipeline.md) | Tooling, lint rules, test tiers, CI, cluster workflow, releases |
 | [docs/en/06_open_source_ecosystem.md](docs/en/06_open_source_ecosystem.md) | Survey of related open-source work and chosen dependencies |
-| [docs/en/08_throughput_comparison.md](docs/en/08_throughput_comparison.md) | Fortran vs GPU throughput measurements |
+| [docs/en/08_throughput_comparison.md](docs/en/08_throughput_comparison.md) | Reference model (CPU) vs GPU throughput measurements |
 | [README.zh.md](README.zh.md) | Original plan (Chinese) |
 
 ## Install
@@ -70,7 +69,7 @@ pip install agri-jax        # placeholder 0.0.x: reserves the name, no model cod
 
 ## Licensing and provenance
 
-Apache-2.0. CERES-Maize is ported from DSSAT-CSM (BSD-3). Soil water and PET are re-implemented from the published RZWQM2 equations (Ahuja et al., 2000, and related papers); no RZWQM2 source code is included or redistributed. Validation against the RZWQM2 binary is done privately and reported as numbers only; validation against DSSAT-CSM is public and reproducible.
+Apache-2.0. CERES-Maize is implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained. Soil water and PET are implemented from the published RZWQM2 equations (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985); no RZWQM2 code is included or redistributed. RZWQM2 is used only as a reference model: the comparison against its outputs is run privately and reported as numbers only. The comparison against DSSAT-CSM is public and reproducible.
 
 ## Citation
 

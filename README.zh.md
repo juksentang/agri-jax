@@ -9,14 +9,13 @@
 
 | 文档 | 内容 |
 |---|---|
-| [docs/zh_cn/02_architecture.md](docs/zh_cn/02_architecture.md) | 项目架构：目录、State/Params/Forcing、`@process`、Model、runtime、io、calib、port |
+| [docs/zh_cn/02_architecture.md](docs/zh_cn/02_architecture.md) | 项目架构：目录、State/Params/Forcing、`@process`、Model、runtime、io、calib、report |
 | [docs/zh_cn/03_development_plan.md](docs/zh_cn/03_development_plan.md) | 开发规划：第 0 周脚手架、PoC 逐周任务与里程碑、第二/三阶段、风险 |
-| [docs/zh_cn/04_porting_and_diff_testing.md](docs/zh_cn/04_porting_and_diff_testing.md) | 移植方法学与差分测试手册：两个 oracle、七步流程、容差三级、整模型验证 |
-| [docs/zh_cn/05_maintenance_pipeline.md](docs/zh_cn/05_maintenance_pipeline.md) | 维护管线：仓库/许可、工具链、lint、测试分层、CI、集群分工（rorqual GPU / narval Fortran）、发布 |
+| [docs/zh_cn/05_maintenance_pipeline.md](docs/zh_cn/05_maintenance_pipeline.md) | 维护管线：仓库/许可、工具链、lint、测试分层、CI、集群分工（rorqual 计算 / narval 旧数据）、发布 |
 | [docs/zh_cn/06_open_source_ecosystem.md](docs/zh_cn/06_open_source_ecosystem.md) | 开源生态与选型：可直接用的库、设计参考、与 diffWOFOST 等的尺度区分 |
-| [docs/zh_cn/08_throughput_comparison.md](docs/zh_cn/08_throughput_comparison.md) | 大规模批量耗时对比：Fortran 实测 vs H100 骨架实测 |
+| [docs/zh_cn/08_throughput_comparison.md](docs/zh_cn/08_throughput_comparison.md) | 大规模批量耗时对比：参考模型（CPU）实测 vs H100 骨架实测 |
 
-**对本文假设的更正**：RZWQM2 4.6 的 Fortran 源码在 narval `sharing/RZWQM_Linux_Ver45/`，二进制在本机 16 s 跑完 CA-TPA 九年；dssat-csm-os 4.8.5 源码与静态二进制在本机 `~/AFSoil`；CA-TPA 的 10 万次 LHS 已全部跑完；`agri-jax` 名字可用；GPU 作业去 rorqual H100 而非 narval。
+**对本文假设的更正**：RZWQM2 4.6 参考模型在本机 16 s 跑完 CA-TPA 九年；dssat-csm-os 4.8.5 源码与静态二进制在本机 `~/AFSoil`；CA-TPA 的 10 万次 LHS 已全部跑完；`agri-jax` 名字可用；GPU 作业去 rorqual H100 而非 narval。
 
 ---
 
@@ -33,7 +32,7 @@
 
 JAX 的 `scan`（时间）+ `vmap`（样本）+ `jit` + 自动微分正好对应这个形状。这条路线在水文里已经证明有效（differentiable modeling，Shen 等 2023，Nat. Rev. Earth Environ.），作物模型里还是空白。
 
-**什么不是目的**：让农学家写 JAX；把单块田的模拟跑得更快；做一个通用 Fortran→JAX 编译器。
+**什么不是目的**：让农学家写 JAX；把单块田的模拟跑得更快。
 
 ## 2. 直接动机（我们自己的需求）
 
@@ -64,7 +63,7 @@ def leaf_growth(state, params, forcing):
 
 `scan`、`vmap`、`jit`、`lax.cond` 对过程作者不可见。lint 规则在 CI 里拦截违规写法（traced 值上的 `if`、原地赋值、Python `for` 遍历土层）。
 
-这三条比 Fortran 的 common 块和 OOP 框架（APSIM NG、PCSE）的事件回调都简单：每个过程读什么、改什么，签名上一目了然。DSSAT 之所以难维护，根因是无接口、无测试、全局状态，不是语言；这三条规则正是补这三样。
+这三条比全局变量和 OOP 框架（APSIM NG、PCSE）的事件回调都简单：每个过程读什么、改什么，签名上一目了然。DSSAT 之所以难维护，根因是无接口、无测试、全局状态，不是语言；这三条规则正是补这三样。
 
 ### 3.2 三层接口
 
@@ -72,7 +71,7 @@ def leaf_growth(state, params, forcing):
 |---|---|---|
 | 顶层 | 用模型的人 | `load_dssat_experiment()`、`calibrate(model, obs, method="hmc")`、`sensitivity()`、`ensemble()` |
 | 中层 | 建模者 | 模型 = 状态定义 + 有序过程列表；可替换任一过程 |
-| 底层 | 我们 | 运行时（scan/vmap/jit）、差分测试、移植工具 |
+| 底层 | 我们 | 运行时（scan/vmap/jit）、对照参考模型输出的验证工具 |
 
 预期 90% 用户停在顶层和参数文件。
 
@@ -86,21 +85,21 @@ def leaf_growth(state, params, forcing):
 
 ### 3.5 精度与数值
 
-- 验证阶段 `jax_enable_x64`，对照 Fortran 双精度。
-- 数据相关的迭代（Richards 方程收敛、根系吸水迭代）改为固定迭代数或固定步长隐式格式，接受与 Fortran 的小差异，差异写进验证报告。
+- 验证阶段 `jax_enable_x64`，对照参考模型的双精度输出。
+- 数据相关的迭代（Richards 方程收敛、根系吸水迭代）改为固定迭代数或固定步长隐式格式，接受与参考模型的小差异，差异写进验证报告。
 
-## 4. 基础模型选择：DSSAT-CSM 作物模块 + RZWQM 土壤/ET（按公式重写）
+## 4. 基础模型选择：DSSAT-CSM 作物模块 + RZWQM2 土壤/ET（按已发表公式独立实现）
 
 | 候选 | 优点 | 问题 |
 |---|---|---|
 | 原版 DSSAT-CSM | 源码公开（GitHub `DSSAT/dssat-csm-os`），版本新，社区大，品种文件生态完整 | 土壤水是 tipping bucket，ET 选项简单，没有 Richards、大孔隙、SHAW |
-| RZWQM2（组里的 Linux 版） | 土壤物理强（Richards + Green-Ampt、大孔隙、SHAW 能量平衡、S-W PET），氮磷碳循环完整，组里的标定流程都建在它上面 | 源码受限分发（USDA-ARS），内嵌的 DSSAT 作物模块是旧版；开源移植需许可 |
+| RZWQM2 | 土壤物理强（Richards + Green-Ampt、大孔隙、SHAW 能量平衡、S-W PET），氮磷碳循环完整，组里的标定流程都建在它上面 | 由 USDA-ARS 分发，只作为参考模型使用；内嵌的 DSSAT 作物模块是旧版 |
 
 **决定**：
-- 作物模块从 **DSSAT-CSM 开源仓库** 移植（先 CERES-Maize），版本新且许可干净。
-- 土壤水、PET、能量平衡按 **RZWQM 的公式**（Ahuja 等 2000《Root Zone Water Quality Model》及相关论文）重写，不翻译组里那份源码。公式是公开的，实现是我们的。
+- 作物模块基于 **DSSAT-CSM 开源仓库**（BSD-3）独立实现（先 CERES-Maize），版本新且许可干净，保留 DSSAT-CSM 署名。
+- 土壤水、PET、能量平衡按 **已发表的 RZWQM2 公式**（Ahuja 等 2000《Root Zone Water Quality Model》；Farahani & Ahuja 1996；Shuttleworth & Wallace 1985）独立实现。公式是公开的，实现是我们的。
 - 土壤水模块做成可插拔：`tipping_bucket`（复现 DSSAT）和 `richards`（复现 RZWQM）两套，同一作物模块可以对照两种土壤物理，本身就是一个可发表的比较。
-- 验证对象两个：DSSAT-CSM 二进制（作物部分）和组里的 RZWQM 二进制（土壤 + 作物整体，用现有 15 个 scenario）。
+- 验证对象两个参考模型：DSSAT-CSM（作物部分）和 RZWQM2（土壤 + 作物整体，用现有 15 个 scenario），比较两者的输出。
 
 ## 5. 间作：DSSAT 不原生支持，这是设计机会而不是障碍
 
@@ -119,35 +118,34 @@ Agri-JAX 从第一天就把作物当作状态的一个维度：
 范围：**RZWQM 水分平衡 + Shuttleworth-Wallace PET + CERES-Maize，单站 CA-TPA（玉米）**。
 
 验收标准：
-1. 同一组参数下，逐日 ET、LAI、各层土壤含水量、产量与 RZWQM 二进制对比，定量容差（初定：日 ET RMSE < 0.1 mm/d，产量差 < 2%）。
+1. 同一组参数下，逐日 ET、LAI、各层土壤含水量、产量与 RZWQM2 参考模型输出对比，定量容差（初定：日 ET RMSE < 0.1 mm/d，产量差 < 2%）。
 2. `vmap` 10 万组参数（现成的 `parameter.csv`）在一块 GPU 上的墙钟时间，对比 narval/rorqual 上 Fortran 的核时。
 3. 对 6 个土壤水力参数的梯度数值稳定（有限差分核对），能跑通一次梯度标定或 NUTS。
 
 不做：大豆/小麦、氮循环、SHAW、大孔隙流、管理事件之外的任何东西。
 
-## 7. 移植方法学：半自动翻译 + 差分测试
+## 7. 验证方法：对照参考模型输出
 
-不做通用 Fortran→JAX 编译器（`goto`、common 块、数据相关的 `do while` 无法自动变成可 vmap 的纯函数）。做的是可复用的流水线：
+每个过程按已发表的公式写成符合 3.1 规则的纯函数，再分三步验证：
 
-1. 用 Fortran 前端（LFortran / fparser）拆子程序，生成调用图和每个子程序的读/写变量清单。
-2. 逐子程序用 LLM 翻译为符合 3.1 规则的过程函数。
-3. **差分测试**：在 Fortran 二进制里插桩，真实模拟中 dump 每个子程序的输入/输出，作为对应 JAX 函数的单元测试。翻译错误定位到子程序级。
-4. 自底向上组装，最后整模型逐日对比。
+1. **单元测试**：守恒、单调、边界、有限差分梯度；闭式关系（如 Brooks-Corey θ(h)、K(h)）核对到 1e-10。
+2. **模块对照**：单独驱动一个模块（例如给定 PET 和根系吸水时的土壤水剖面），与参考模型输出逐日对比。
+3. **整模型对照**：同一组参数下逐日对比 ET、LAI、各层土壤含水量、产量，容差写成数字（初定：日 ET RMSE < 0.1 mm/d，产量差 < 2%）；差异归因写进验证报告。
 
-这套流水线本身可复用到其他 Fortran 作物模型（STICS、WOFOST、老版 APSIM），是方法学贡献的一部分。
+作物部分对照 DSSAT-CSM（公开、可复现），土壤水与 ET 对照 RZWQM2（私下运行，只报告数字）。
 
 ## 8. 路线图
 
 | 阶段 | 产出 | 去处 |
 |---|---|---|
 | PoC（1 个月） | 第 6 节验收报告 | 内部决策 |
-| 框架 + 首批模型（6 个月） | pip 包、文档、验证报告、差分测试工具 | GMD 或 Environmental Modelling & Software |
+| 框架 + 首批模型（6 个月） | pip 包、文档、验证报告、参考模型对照工具 | GMD 或 Environmental Modelling & Software |
 | 应用（之后） | 多站点联合梯度标定与参数可辨识性；机理-ML 混合模型在留出站点上的表现 | Nature Food / Nature Sustainability 级别取决于结果 |
 
 ## 9. 开放问题
 
-- PoC 的 Fortran 对照：RZWQM 二进制不能开源，但用它做私有验证没有问题；公开的验证报告只放对比数字。需确认 USDA 对"按公式重写"的态度。
-- CERES-Maize 从 DSSAT-CSM 哪个版本移植：最新主线，还是 RZWQM 内嵌的旧版（便于和现有 RZWQM 结果对齐）？倾向主线，旧版差异写进报告。
+- PoC 的 RZWQM2 对照：RZWQM2 不随本项目分发，对照在私下运行；公开的验证报告只放对比数字。需确认 USDA 对"按公开公式独立实现"的态度。
+- CERES-Maize 以 DSSAT-CSM 哪个版本为准：最新主线，还是 RZWQM 内嵌的旧版（便于和现有 RZWQM 结果对齐）？倾向主线，旧版差异写进报告。
 - 管理事件（播种、收获、施肥、灌溉）在 `scan` 里的表示：逐日展开的事件表是最简单的，但灌溉决策（自动灌溉）依赖状态，需要作为过程处理。
 - 状态定义的稳定性：状态字段一旦公开就难改，PoC 阶段刻意不承诺。
 - 名字：`agri-jax` 在 PyPI 是否可用，未查。
@@ -164,8 +162,7 @@ Agri_JAX/
 │   ├── models/            ← 用过程拼出的模型：rzwqm_water_maize, dssat_maize, ...
 │   ├── io/                ← DSSAT / RZWQM 参数与气象文件读取
 │   ├── calib/             ← 标定、敏感性、UQ 顶层接口
-│   └── port/              ← Fortran 拆解、差分测试插桩与比对
-├── tests/
-│   └── diff/              ← 对 Fortran dump 的差分测试
+│   └── report/            ← 面向农经的一页报告
+├── tests/                 ← unit / integration / gpu / benchmark 四层
 └── poc/                   ← 第 6 节 PoC 的脚本与结果
 ```
