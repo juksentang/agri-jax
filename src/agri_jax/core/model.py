@@ -1,0 +1,128 @@
+"""``Model`` = a state definition plus an ordered list of processes; ``compile()`` builds ``day_step``.
+
+Replacing a process is editing the list. The compiled day step is a single pure
+function ``(state, params, forcing_t) -> (state, outputs_t)`` suitable for
+``lax.scan``; the runtime never sees individual processes.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable, Sequence
+from typing import Any
+
+from agri_jax.core.process import Process, process
+from agri_jax.core.state import get_path
+
+__all__ = ["DayStep", "Model"]
+
+DayStep = Callable[[Any, Any, Any], tuple[Any, Any]]
+OutputFn = Callable[[Any, Any, Any], Any]
+
+
+class Model:
+    """A state class and an ordered pipeline of processes.
+
+    Parameters
+    ----------
+    state_spec:
+        The ``State`` subclass this model evolves (documentation and validation only;
+        the runtime works on whatever pytree ``state0`` is).
+    processes:
+        Ordered processes. Plain callables are wrapped with ``writes=("*",)`` so
+        they are accepted but not write-checked.
+    outputs:
+        What the day step emits per day. ``None`` emits the full state; a sequence of
+        dotted paths emits ``{path: value}``; a callable ``(state, params, forcing_t) -> pytree``
+        emits whatever it returns.
+    name:
+        Optional label used in reports.
+    """
+
+    def __init__(
+        self,
+        state_spec: type | None,
+        processes: Iterable[Process | Callable[..., Any]],
+        *,
+        outputs: Sequence[str] | OutputFn | None = None,
+        name: str = "",
+    ) -> None:
+        self.state_spec = state_spec
+        self.processes: tuple[Process, ...] = tuple(self._as_process(p) for p in processes)
+        names = [p.name for p in self.processes]
+        if len(set(names)) != len(names):
+            dup = sorted({n for n in names if names.count(n) > 1})
+            raise ValueError(f"duplicate process names in model: {dup}")
+        self.name = name or (state_spec.__name__ if state_spec is not None else "Model")
+        self._outputs = outputs
+
+    @staticmethod
+    def _as_process(p: Process | Callable[..., Any]) -> Process:
+        if isinstance(p, Process):
+            return p
+        if callable(p):
+            return process(p, writes=("*",), register=False)
+        raise TypeError(f"not a process or callable: {p!r}")
+
+    # ------------------------------------------------------------------ introspection
+    @property
+    def names(self) -> tuple[str, ...]:
+        return tuple(p.name for p in self.processes)
+
+    def replace(self, old: str, new: Process | Callable[..., Any]) -> Model:
+        """Return a new model with process ``old`` (by name) replaced by ``new``."""
+        if old not in self.names:
+            raise KeyError(old)
+        procs = [self._as_process(new) if p.name == old else p for p in self.processes]
+        return Model(self.state_spec, procs, outputs=self._outputs, name=self.name)
+
+    def dataflow(self) -> list[tuple[str, str, str]]:
+        """Edges ``(writer, reader, path)`` within one day: a
+        later process reads what an earlier one wrote."""
+        edges: list[tuple[str, str, str]] = []
+        for i, reader in enumerate(self.processes):
+            for r in reader.reads:
+                for writer in self.processes[:i]:
+                    if any(r == w or r.startswith(w + ".") or w.startswith(r + ".") for w in writer.writes):
+                        edges.append((writer.name, reader.name, r))
+        return edges
+
+    def stale_reads(self) -> list[tuple[str, str]]:
+        """``(process, path)`` pairs read before any process of the day writes them.
+
+        Such reads see the previous day's value, which is legitimate for true state but
+        a bug for daily diagnostics. Returned for inspection, never raised.
+        """
+        written: set[str] = set()
+        stale: list[tuple[str, str]] = []
+        for p in self.processes:
+            for r in p.reads:
+                if not any(r == w or r.startswith(w + ".") or w.startswith(r + ".") for w in written):
+                    stale.append((p.name, r))
+            written.update(p.writes)
+        return stale
+
+    # ------------------------------------------------------------------ compile
+    def _output_fn(self) -> OutputFn:
+        outputs = self._outputs
+        if outputs is None:
+            return lambda state, params, forcing_t: state
+        if callable(outputs):
+            return outputs
+        paths = tuple(outputs)
+        return lambda state, params, forcing_t: {p: get_path(state, p) for p in paths}
+
+    def compile(self) -> DayStep:
+        """Chain the processes into one pure ``day_step(state, params, forcing_t) -> (state, outputs_t)``."""
+        procs = self.processes
+        out_fn = self._output_fn()
+
+        def day_step(state: Any, params: Any, forcing_t: Any) -> tuple[Any, Any]:
+            for p in procs:  # Python loop over a static list of processes, unrolled at trace time
+                state = p(state, params, forcing_t)
+            return state, out_fn(state, params, forcing_t)
+
+        day_step.__name__ = f"{self.name}_day_step"
+        return day_step
+
+    def __repr__(self) -> str:
+        return f"Model({self.name}, processes=[{', '.join(self.names)}])"

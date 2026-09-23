@@ -11,17 +11,42 @@ classifiers = [
   "Development Status :: 2 - Pre-Alpha",
   "Intended Audience :: Science/Research",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
 ]
-dependencies = ["jax>=0.8,<0.12", "equinox>=0.13", "jaxtyping", "numpy", "pandas", "xarray", "pyyaml"]
+dependencies = [
+  "jax>=0.8,<0.12",
+  "equinox>=0.13",
+  "jaxtyping",
+  "numpy",
+  "pandas",
+  "xarray",
+  "pyyaml",
+  "scipy",
+]
 
 [project.optional-dependencies]
-cuda = ["jax[cuda12]"]
+cuda = ["jax[cuda12]>=0.8,<0.12"]
 calib = ["optax", "optimistix", "lineax", "blackjax", "numpyro", "salib", "arviz"]
-report = ["jax", "pandas", "jinja2"]
+report = ["jinja2"]
 port = ["fparser>=0.2.5"]
-dev = ["pytest", "pytest-cov", "pytest-regressions", "hypothesis", "pytest-benchmark", "chex", "beartype", "ruff", "pyright", "pre-commit", "towncrier"]
-docs = ["mkdocs-material", "mkdocstrings[python]", "mkdocs-jupyter"]
+dev = [
+  "pytest",
+  "pytest-cov",
+  "pytest-regressions",
+  "hypothesis",
+  "pytest-benchmark",
+  "chex",
+  "beartype",
+  "ruff",
+  "pyright",
+  "pre-commit",
+  "pyet",
+  "pyarrow",
+]
+docs = ["mkdocs-material", "mkdocstrings[python]"]
 
 [project.urls]
 Homepage = "https://github.com/juksentang/agri-jax"
@@ -37,9 +62,64 @@ packages = ["src/agri_jax"]
 [tool.hatch.build.targets.sdist]
 only-include = ["src", "README.md", "README.zh.md", "LICENSE", "CITATION.cff", "pyproject.toml"]
 
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 110
 target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["poc", "dist", "docs", "scripts"]
 
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "NPY", "RUF"]
+ignore = [
+  "E741",   # ambiguous variable names: physics uses l, I, O legitimately
+  "RUF012", # mutable class attributes: equinox modules
+  "B905",   # zip without strict: fine on py311+ but noisy
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011", "E501"]
+"src/agri_jax/core/lint.py" = ["UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agri_jax"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# pyright
+# ---------------------------------------------------------------------------
+[tool.pyright]
+include = ["src"]
+exclude = ["**/__pycache__", ".venv", "poc", "dist"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportPrivateImportUsage = false
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+  "unit: pure-function tests, no data (every push)",
+  "diff: differential tests against Fortran dumps; skipped when dumps are absent",
+  "integration: whole-model comparison on scenario directories (PR + nightly)",
+  "gpu: GPU-only throughput and vmap tests (manual label + weekly)",
+  "slow: takes more than a few seconds",
+]
+filterwarnings = [
+  "ignore::DeprecationWarning:jax.*",
+]
+
+[tool.coverage.run]
+source = ["agri_jax"]
+branch = true
