@@ -10,6 +10,7 @@ ap.add_argument("--n", type=int, nargs="+", default=[1000]); ap.add_argument("--
 ap.add_argument("--sub", type=int, default=24); ap.add_argument("--newton", type=int, default=3)
 ap.add_argument("--x64", type=int, default=1); ap.add_argument("--grad", type=int, default=0)
 ap.add_argument("--solver", default="tridiag", choices=["tridiag", "dense"])
+ap.add_argument("--remat", type=int, default=1, help="jax.checkpoint each day_step (needed for reverse-mode memory)")
 a = ap.parse_args()
 jax.config.update("jax_enable_x64", bool(a.x64))
 NN = 37; dz = jnp.full(NN, 150.0 / NN); DT = 1.0 / a.sub
@@ -81,7 +82,9 @@ def run(params, forcing):
     p0 = {**params, "p": params}
     state0 = (jnp.full(NN, -200.0), 0.0, 0.0, 0.0, 5.0)
     fin = {k: forcing[k] for k in ("t", "rh", "rad", "u", "rain", "sow", "harv")}
-    _, out = jax.lax.scan(lambda s, f: day_step(s, {**f, "p": params}), state0, fin)
+    step = lambda s, f: day_step(s, {**f, "p": params})
+    if a.remat: step = jax.checkpoint(step)   # store only per-day state; recompute sub-steps in the backward pass
+    _, out = jax.lax.scan(step, state0, fin)
     return out  # [days, 4]
 
 key = jax.random.PRNGKey(0); T = a.days; d = jnp.arange(T)
