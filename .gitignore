@@ -28,3 +28,7 @@ dumps/
 docs/en/validation_matrix.md
 docs/zh_cn/validation_matrix.md
 docs/validation/
+
+# symlink to the private archive and coverage data
+docs/internal
+.coverage
