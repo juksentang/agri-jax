@@ -239,7 +239,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
   </section>
 
   <section class="act" id="a4" data-act="4">
-    <div class="meta"><b>04</b><span>求导</span><span class="n">9 帧</span></div>
+    <div class="meta"><b>04</b><span>求导</span><span class="n">10 帧</span></div>
     <h2>沿同一条路倒着走一遍，全部参数、全部输入的导数一次得到</h2>
     <ol class="steps">
       <li class="step" data-f="0"><span class="i">4.1</span><span>前向：列从左到右扫一遍，每一天的状态留下来</span><i class="pg"></i></li>
@@ -249,10 +249,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="4"><span class="i">4.5</span><span>归因：对每一天的降雨求导，哪场雨决定收成，峰在吐丝期</span><i class="pg"></i></li>
       <li class="step" data-f="5"><span class="i">4.6</span><span>撒点与下降：拉丁超立方每个点一次前向，看不出方向；梯度每一步都指向坡下。Agri-JAX 两样都成批：先撒 10⁵ 个点，再从最好的几个点并行下降</span><i class="pg"></i></li>
       <li class="step" data-f="6"><span class="i">4.7</span><span>多链 <span class="tag real">实测·骨架</span>：行从“田块”换成“链”，一千条链与四条链每步的墙钟几乎一样。1024 条短链合并后的后验与 4 条长链参照接近，每秒有效样本多约 17 倍；但 R-hat 约 1.2，单条链混合不足，还不能直接替代长链</span><i class="pg"></i></li>
-      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag real">实测·骨架</span>：用一个分布 q 去贴后验，每步抽一大批参数，一次批量前向加反向。每步从 1 个样本加到 1024 个，墙钟几乎不变，损失噪声降约 80 倍；但高斯近似把弱可辨识参数的标准差低估 2.6–4 倍，均值也偏，须与 MCMC 对照</span><i class="pg"></i></li>
-      <li class="step" data-f="8"><span class="i">4.9</span><span>嵌入网络：把气孔阻力换成小网络，梯度穿过机理过程流进权重</span><i class="pg"></i></li>
+      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag real">实测·骨架</span>：用一个分布 q 去贴后验，每步抽一大批参数，一次批量前向加反向。每步从 1 个样本加到 1024 个，墙钟几乎不变，损失噪声降约 80 倍；但高斯近似把弱可辨识参数的标准差低估 2.6–4 倍，均值也偏，须与 MCMC 对照。后验里 λ、h_b、K_sat 两两相关 0.97–0.99，是一条又窄又弯的脊：高斯 SVI（反向 KL）停在脊上，但沿脊短了约 3 倍且位置偏移；加粒子只降梯度噪声，去不掉这个偏差。满秩 SVI 的年排水 90 % 区间覆盖率只有 0.22（宽度比 0.44，均值偏 1.3 个标准差），重要性重采样也修不回来。低配的替代办法见下一帧</span><i class="pg"></i></li>
+      <li class="step" data-f="8"><span class="i">4.9</span><span>低配快速不确定性分析：Laplace + PSIS <span class="tag real">实测·骨架</span>：先求 MAP 和 Hessian（约 100 次梯度），把标准差放大一倍（协方差 ×4）作重要性采样的建议分布，一批跑 4000 次前向，用 PSIS 算权重并重采样。笔记本 CPU 约 35 s，NUTS 参照约 1 h（rorqual 8 核 57–65 min）；逐日 AET 与剖面储水的预测区间达到 NUTS 的噪声底，年排水 90 % 区间窄约 17 %（覆盖率 0.85，宽度比 0.83）。回退规则：Pareto k̂ 至少用 4000 个样本计算，样本加倍后复查；k̂ &lt; 0.5 直接用，0.5–0.7 放宽或重拟，&gt; 0.7 改跑 NUTS（从 Laplace 结果出发）。把坐标拉直成数据约束的参数组合后，脊的条件数从 35 降到 5；在拉直坐标里拟合流是第二选择（笔记本 10–15 min），用 SVI 结果初始化的 NUTS 收敛快 6.2 倍</span><i class="pg"></i></li>
+      <li class="step" data-f="9"><span class="i">4.10</span><span>嵌入网络：把气孔阻力换成小网络，梯度穿过机理过程流进权重</span><i class="pg"></i></li>
     </ol>
-    <p class="note">采样式标定与梯度法的相对代价取决于目标函数、参数相关性与所用算法；梯度在每一步给出下降方向，其代价与参数个数无关。多链与 SVI 两帧的结论来自计算骨架上的孪生实验（4 个参数、一年合成观测，参照为 4 条链 × 1500 个样本的 NUTS）：比较以相同有效样本量（ESS）为准，原始样本数不代表推断质量。参数柱、损失谷、归因曲线、撒点与下降路径、SVI 动画为示意。</p>
+    <p class="note">采样式标定与梯度法的相对代价取决于目标函数、参数相关性与所用算法；梯度在每一步给出下降方向，其代价与参数个数无关。多链、SVI 与 Laplace + PSIS 三帧的结论来自计算骨架上的孪生实验（4 个参数、一年合成观测，参照为 4 条链 × 1500 个样本的 NUTS）：比较以相同有效样本量（ESS）为准，原始样本数不代表推断质量。参数柱、损失谷、归因曲线、撒点与下降路径、SVI 与 Laplace + PSIS 动画（椭圆、样本点、k̂ 指针位置）为示意。</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
@@ -273,7 +274,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
 
 <section class="measured" id="a6">
   <div class="head">
-    <div class="meta"><b>06</b><span>实测与来源</span><span class="n">9 行</span></div>
+    <div class="meta"><b>06</b><span>实测与来源</span><span class="n">11 行</span></div>
     <h2>标了实测的数字都能重跑</h2>
     <p class="note">计算骨架 = 与目标模型同计算形状的基准程序，不是最终模型。</p>
   </div>
@@ -290,6 +291,8 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td class="c">集群单核；10⁵ 次批量实跑约 10 h 墙钟（每节点 8 任务阵列，含排队与读写）、80 GB 输出；32 核工作站按此估算 20.8 h</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>ASCE 参考 ET 对 RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td class="c">CA-TPA 2015，逐日</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>S-W 潜在蒸发 / 蒸腾对 RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td class="c">生长季 RMSE，未调参</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>Laplace + PSIS 不确定性分析，年排水 90 % 区间覆盖率 0.85</td><td class="num">≈35 s</td><td class="c">笔记本 CPU，4000 次前向；NUTS 参照约 1 h（rorqual 8 核 57–65 min）；宽度比 0.83，逐日 AET 与储水在 NUTS 噪声底。计算骨架，孪生实验</td><td><span class="tag real">实测·骨架</span></td></tr>
+      <tr><td>满秩 SVI（原始坐标），年排水 90 % 区间覆盖率</td><td class="num">0.22</td><td class="c">宽度比 0.44，均值偏 1.3 个标准差；重要性重采样修不回来。计算骨架，孪生实验</td><td><span class="tag real">实测·骨架</span></td></tr>
       <tr><td>整模型（Richards + CERES-Maize）</td><td class="num">—</td><td class="c">开发中，先把已有模块验证到位</td><td><span class="tag">待测</span></td></tr>
     </tbody>
   </table></div>
@@ -387,11 +390,53 @@ function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,
     const x=x0+(x1-x0)*k/TOT, y=y1-12-(y1-y0-24)*clamp(tk+nz,0,1); d+=(k?' L':'M')+x.toFixed(1)+' '+y.toFixed(1); }
   P(d,c.vio,{sw:2.5});
   T(Z.res,px,516,{c:'ink s b'}); T(Z.why,px,548,{c:'s'}); T(Z.caveat,px,580,{c:'xs'}); }
+/* Laplace + PSIS on the same ridge (illustrative geometry; the numbers in the text are measured on the skeleton) */
+const LAP_N=320, LAP=(()=>{ let a=29; const rnd=()=>{ a=(a*1103515245+12345)&0x7fffffff; return (a+1)/0x80000000; }; const out=[];
+  for(let i=0;i<LAP_N;i++){ const r1=Math.sqrt(-2*Math.log(rnd())), th=2*Math.PI*rnd(); out.push([r1*Math.cos(th),r1*Math.sin(th)]); } return out; })();
+function drawLap(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpP');
+  const p1=clamp(q/0.14,0,1), p1b=clamp((q-0.14)/0.06,0,1), p2=clamp((q-0.22)/0.1,0,1), p3=clamp((q-0.34)/0.18,0,1), p4=clamp((q-0.56)/0.14,0,1), p5=clamp((q-0.74)/0.18,0,1);
+  const LA=0.6*Po.s1, LB=Po.s2, PA=2*LA, PB=2*LB; /* Laplace sd along / across the ridge; proposal = sd x2 */
+  const ell=(a,b,o)=>S.push(`<ellipse cx="${Po.cx.toFixed(1)}" cy="${Po.cy.toFixed(1)}" rx="${a.toFixed(1)}" ry="${b.toFixed(1)}" transform="rotate(${ANG} ${Po.cx.toFixed(1)} ${Po.cy.toFixed(1)})" fill="${o.fill||'none'}" fill-opacity="${o.fo??0}" stroke="${c.vio}" stroke-width="${o.sw}" opacity="${o.op}" ${o.dash?`stroke-dasharray="${o.dash}"`:''}/>`);
+  S.push(`<clipPath id="cpP2"><rect x="${px}" y="${py}" width="${pw}" height="${pw}"/></clipPath><g clip-path="url(#cpP2)">`);
+  /* 1: gradient descent to the MAP */
+  if(p1b<1){ let [a,b]=Po.rot(px+0.16*pw,py+0.8*pw); const path=[Po.unrot(a,b)], sk=Math.floor(p1*12+1e-9); for(let s=0;s<sk;s++){ a*=0.7; b*=-0.5; path.push(Po.unrot(a,b)); }
+    P(path.map((pt,j)=>(j?'L':'M')+pt[0].toFixed(1)+' '+pt[1].toFixed(1)).join(' '),c.vio,{sw:2.5,op:1-p1b}); path.forEach(pt=>DOT(pt[0],pt[1],3.2,c.vio,{op:1-p1b})); }
+  /* Laplace ellipse, then its doubled version */
+  if(p1b>0) ell(LA,LB,{sw:3,op:p1b*(1-0.6*p5),fill:c.vio,fo:0.12});
+  if(p2>0){ const k=1+p2; ell(LA*k,LB*k,{sw:2,op:1-0.6*p5,dash:'7 5'}); }
+  /* proposal draws; weight = posterior / proposal, shown by size; then resampled */
+  const W=LAP.map(([u,v])=>{ const a=u*PA,b=v*PB; return Math.exp(-0.5*(a*a/(Po.s1*Po.s1)+b*b/(Po.s2*Po.s2))+0.5*(u*u+v*v)); }); const wmax=Math.max(...W);
+  const pos=LAP.map(([u,v])=>Po.unrot(u*PA,v*PB)); const kN=Math.ceil(p3*LAP_N);
+  if(p5<1) for(let i=0;i<kN;i++){ const w=W[i]/wmax; const r=2.4+p4*(4.2*w-1.4), op=(0.75-p4*(0.45-0.55*w))*(1-p5); DOT(pos[i][0],pos[i][1],Math.max(0.8,r).toFixed(2),p4>0?mix(c.muted,c.teal,p4):c.muted,{op}); }
+  if(p5>0){ const sum=W.reduce((s,w)=>s+w,0); let cum=0, j=0; for(let i=0;i<LAP_N;i++){ const u=(i+0.37)/LAP_N*sum; while(j<LAP_N-1&&cum+W[j]<u){ cum+=W[j]; j++; } DOT(pos[j][0],pos[j][1],2.6,c.teal,{op:0.8*p5}); } }
+  if(p1>=1) DOT(Po.cx,Po.cy,5,c.ink);
+  S.push('</g>');
+  T(Z.post,px+pw,py-12,{a:'right',c:'xs'}); const dl= q<0.34? '' : q<0.56? Z.dProp : q<0.74? Z.dW : Z.dRes; if(dl) T(dl,px,py-12,{c:(q<0.74?'xs b':'t xs b')});
+  T(Z.legend,px,py+pw+26,{c:'xs'});
+  /* right: the recipe, k-hat gauge, wall clock */
+  const x0=540, x1=940, cur=q<0.22?0:q<0.34?1:q<0.56?2:3;
+  T(Z.recipe,x0,92,{c:'ink b'});
+  Z.steps4.forEach((s,i)=>{ const y=128+i*30; DOT(x0+7,y-6,6,i<cur?c.vio:'none',{stroke:i<=cur?c.vio:c.muted,sw:2}); T(s,x0+24,y,{c:i===cur?'ink s b':i<cur?'ink s':'s'}); });
+  const gy=276, gx=v=>x0+v*(x1-x0); T(Z.kTitle,x0,gy-26,{c:'ink s b'});
+  R(gx(0),gy,gx(0.5)-gx(0),14,c.ts); R(gx(0.5),gy,gx(0.7)-gx(0.5),14,c.neu,{op:0.45}); R(gx(0.7),gy,gx(1)-gx(0.7),14,c.rs); R(x0,gy,x1-x0,14,'none',{stroke:c.line});
+  [0.5,0.7].forEach(v=>{ L(gx(v),gy-4,gx(v),gy+18,c.ink,{sw:1.5}); T(v.toFixed(1),gx(v),gy+36,{a:'center',c:'xs mono'}); });
+  T(Z.kUse,gx(0.25),gy+58,{a:'center',c:'t xs b'}); T(Z.kWiden,gx(0.6),gy+58,{a:'center',c:'xs'}); T(Z.kNuts,gx(0.85),gy+58,{a:'center',c:'r xs b'});
+  if(p4>0){ const xk=gx(0.2); P(`M${xk} ${gy-2} L${xk-7} ${gy-14} L${xk+7} ${gy-14} Z`,c.ink,{fill:c.ink,sw:1,op:p4}); }
+  T(Z.kRule,x0,gy+82,{c:'xs'});
+  const ty=404, full=x1-x0-70, tn=clamp((q-0.56)/0.36,0,1); T(Z.clock,x0,ty,{c:'ink s b'});
+  T(Z.lapT,x0,ty+26,{c:'xs'}); if(p4>0){ R(x0,ty+34,Math.max(3,full*35/3600),14,c.teal,{rx:1}); T('≈ 35 s',x0+12,ty+47,{c:'t s b mono'}); }
+  T(Z.nutsT,x0,ty+72,{c:'xs'}); if(p4>0){ R(x0,ty+80,full*tn,14,c.rust,{rx:1,op:0.85}); if(tn>=1) T('≈ 1 h',x0+full+10,ty+93,{c:'r s b mono'}); }
+  T(Z.lRes,px,544,{c:'ink s b'}); T(Z.lWhy,px,574,{c:'s'}); T(Z.lCav,px,604,{c:'xs'}); T(Z.lCav2,px,628,{c:'xs'}); }
 const Z4={lhsT:'拉丁超立方撒点', gdT:'梯度下降', nPts:k=>`已撒 ${k} 个点`, lhsSub:'每个点一次前向，点与点之间不共享信息', best:'红圈：最好的点只是离谷底最近的那个样本',
   steps:k=>`第 ${k} 步`, gdSub:'每步 1 次前向 + 1 次反向，沿坡往下走', multi:'从每个象限最好的撒点出发：4 行矩阵同时下降', min:'谷底',
   fort:'Fortran：只能撒点或做有限差分，每个点 24 s，逐个排队', jax:'Agri-JAX：撒点和下降都成批', jax2:'10⁵ 个撒点一次跑完（计算骨架实测 82 s），再从最好的点出发，多条路径同时下降',
   post:'等高线 = 后验', qLab:'紫色椭圆 = q(θ)', stepN:k=>`第 ${k} 步`, evals:n=>`已评估 ${n} 组参数`, batch:'每步从 q 抽 1000 组参数，一次批量前向 + 反向', stepAxis:'步数 →',
-  res:'SVI：让分布 q 去贴后验，得到的是均值、方差和参数间的相关', why:'样本越多梯度噪声越小；GPU 吃满之前，每步多抽样本几乎不加墙钟', caveat:'实测（骨架）：弱可辨识参数的标准差被低估 2.6–4 倍，须与 MCMC 对照'};
+  res:'SVI：让分布 q 去贴后验，得到的是均值、方差和参数间的相关', why:'样本越多梯度噪声越小；GPU 吃满之前，每步多抽样本几乎不加墙钟', caveat:'实测（骨架）：弱可辨识参数的标准差低估 2.6–4 倍；加样本也去不掉这个偏差，替代办法见下一帧',
+  recipe:'笔记本上的低配流程', steps4:['MAP + Hessian：约 100 次梯度','标准差 ×2（协方差 ×4）作建议分布','4000 次前向，一批跑完','PSIS 权重，重采样'],
+  dProp:'灰点 = 建议分布的样本', dW:'点的大小 = PSIS 权重', dRes:'绿点 = 重采样后', legend:'● MAP · 紫线 = Laplace 椭圆 · 虚线 = 标准差 ×2',
+  kTitle:'Pareto k̂：能不能用', kUse:'直接用', kWiden:'放宽或重拟', kNuts:'改跑 NUTS', kRule:'至少 4000 个样本，样本加倍后复查',
+  clock:'墙钟', lapT:'Laplace + PSIS · 笔记本 CPU', nutsT:'NUTS 参照 · rorqual 8 核（57–65 min）',
+  lRes:'实测（骨架）：逐日 AET 与储水的预测区间达到 NUTS 的噪声底', lWhy:'年排水 90 % 区间覆盖率：此法 0.85（窄约 17 %），满秩 SVI 只有 0.22', lCav:'k̂ > 0.7 时改跑 NUTS，从 Laplace 结果出发', lCav2:'孪生实验：4 个参数、一年合成观测，参照为 NUTS'};
 
 const ACTS=[
 /* ===== 0 opening: Fortran fills row by row, looping ===== */
@@ -476,8 +521,8 @@ const ACTS=[
       return; }
   } },
 /* ===== 4 the gradient ===== */
-{ name:'求导', frames:[{dur:3,text:'前向'},{dur:5,text:'反向'},{dur:2.5,text:'代价'},{dur:2.5,text:'辨识'},{dur:4,text:'归因'},{dur:6,text:'撒点'},{dur:4,text:'多链'},{dur:7,text:'SVI'},{dur:3,text:'网络'}], real:'反向 / 前向耗时比、56 s', ill:'参数柱、损失谷、归因曲线、撒点与下降路径、SVI',
-  draw(f,p){ const c=C(); const q=ease(p); if(f===5){ drawSearch(q,Z4); return; } if(f===7){ drawSVI(q,Z4); return; } if(f===6) f=5; else if(f===8) f=6;
+{ name:'求导', frames:[{dur:3,text:'前向'},{dur:5,text:'反向'},{dur:2.5,text:'代价'},{dur:2.5,text:'辨识'},{dur:4,text:'归因'},{dur:6,text:'撒点'},{dur:4,text:'多链'},{dur:7,text:'SVI'},{dur:9,text:'低配'},{dur:3,text:'网络'}], real:'反向 / 前向耗时比、56 s、SVI 与 Laplace + PSIS 的耗时和区间', ill:'参数柱、损失谷、归因曲线、撒点与下降路径、SVI 与 Laplace 动画',
+  draw(f,p){ const c=C(); const q=ease(p); if(f===5){ drawSearch(q,Z4); return; } if(f===7){ drawSVI(q,Z4); return; } if(f===8){ drawLap(q,Z4); return; } if(f===6) f=5; else if(f===9) f=6;
     const Mg= f===4? {x:60,y:150,w:880,h:200} : {x:60,y:64,w:880,h:280}; const cw2=Mg.w/COLS,ch2=Mg.h/ROWS;
     const PAR=['λ','h_b','K_sat','θ_r','θ_s','反照率','r_s','r_ss','P1','P5','G2','G3'], SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
     if(f===6){ T('嵌入网络：气孔阻力换成小网络',60,40,{c:'ink b'});

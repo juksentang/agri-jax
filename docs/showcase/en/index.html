@@ -239,7 +239,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
   </section>
 
   <section class="act" id="a4" data-act="4">
-    <div class="meta"><b>04</b><span>Gradients</span><span class="n">9 frames</span></div>
+    <div class="meta"><b>04</b><span>Gradients</span><span class="n">10 frames</span></div>
     <h2>Walk the same path once in reverse, and obtain the derivatives with respect to every parameter and every input in a single pass</h2>
     <ol class="steps">
       <li class="step" data-f="0"><span class="i">4.1</span><span>Forward: the column sweeps from left to right, and the state of every day is kept</span><i class="pg"></i></li>
@@ -249,10 +249,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="4"><span class="i">4.5</span><span>Attribution: differentiate with respect to each day’s rainfall to see which rain decides the yield; the peak falls at silking</span><i class="pg"></i></li>
       <li class="step" data-f="5"><span class="i">4.6</span><span>Sampling versus descent: Latin hypercube sampling spends one forward run per point and learns no direction; every gradient step points downhill. Agri-JAX batches both: sample 10⁵ points first, then descend in parallel from the best few</span><i class="pg"></i></li>
       <li class="step" data-f="6"><span class="i">4.7</span><span>Many chains <span class="tag real">measured · skeleton</span>: the rows change from “fields” to “chains”; a step with a thousand chains takes almost the same wall time as a step with four. Pooled over 1024 short chains, the posterior is close to a 4-long-chain reference with about 17× more effective samples per second, but R-hat is about 1.2: single chains are not mixed yet, so they cannot replace long chains as they stand</span><i class="pg"></i></li>
-      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag real">measured · skeleton</span>: fit a distribution q to the posterior; each step draws a batch of parameter sets and runs one batched forward and reverse pass. Going from 1 to 1024 samples per step leaves the wall time almost unchanged and cuts loss noise about 80×, but the Gaussian approximation understates the spread of weakly identified parameters 2.6–4× and shifts their means, so it must be checked against MCMC</span><i class="pg"></i></li>
-      <li class="step" data-f="8"><span class="i">4.9</span><span>Embedded network: replace stomatal resistance with a small network; the gradient passes through the process model into its weights</span><i class="pg"></i></li>
+      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag real">measured · skeleton</span>: fit a distribution q to the posterior; each step draws a batch of parameter sets and runs one batched forward and reverse pass. Going from 1 to 1024 samples per step leaves the wall time almost unchanged and cuts loss noise about 80×, but the Gaussian approximation understates the spread of weakly identified parameters 2.6–4× and shifts their means, so it must be checked against MCMC. In the posterior, λ, h_b and K_sat are correlated 0.97–0.99: a thin, curved ridge. Gaussian SVI (reverse KL) stays on the ridge but is about 3× too short along it and shifted; more particles cut gradient noise but do not remove this bias. For full-rank SVI the 90 % interval of annual drainage covers only 0.22 (width ratio 0.44, mean off by 1.3 sd), and importance resampling cannot repair it. The low-end alternative is in the next frame</span><i class="pg"></i></li>
+      <li class="step" data-f="8"><span class="i">4.9</span><span>Fast uncertainty on a laptop: Laplace + PSIS <span class="tag real">measured · skeleton</span>: find the MAP and the Hessian (about 100 gradient evaluations), double the standard deviation (covariance ×4) to get an importance-sampling proposal, run 4000 forward simulations in one batch, then compute PSIS weights and resample. About 35 s on a laptop CPU, against about 1 h for the NUTS reference (57–65 min on 8 rorqual cores). Predictive intervals for daily AET and profile storage are at the NUTS noise floor; the 90 % interval of annual drainage is about 17 % too narrow (coverage 0.85, width ratio 0.83). Fallback rule: compute Pareto k̂ from at least 4000 draws and re-check after doubling; k̂ &lt; 0.5 use it, 0.5–0.7 widen or refit, &gt; 0.7 run NUTS (started from the Laplace fit). Straightening the coordinates into the parameter combinations the data constrain cuts the ridge condition number from 35 to 5; a flow fitted in those coordinates is the second choice (10–15 min on a laptop), and SVI-initialised NUTS reached convergence 6.2× faster</span><i class="pg"></i></li>
+      <li class="step" data-f="9"><span class="i">4.10</span><span>Embedded network: replace stomatal resistance with a small network; the gradient passes through the process model into its weights</span><i class="pg"></i></li>
     </ol>
-    <p class="note">The relative cost of sampling-based calibration and gradient methods depends on the objective, the parameter correlations and the algorithm; a gradient gives a descent direction at every step, at a cost independent of the number of parameters. The many-chains and SVI results come from twin experiments on the computational skeleton (4 parameters, one year of synthetic observations, reference NUTS with 4 chains × 1500 samples); comparisons use equal effective sample size (ESS), since raw sample counts do not measure inference quality. Parameter bars, loss valley, attribution curve, sampling and descent paths and the SVI animation are illustrative.</p>
+    <p class="note">The relative cost of sampling-based calibration and gradient methods depends on the objective, the parameter correlations and the algorithm; a gradient gives a descent direction at every step, at a cost independent of the number of parameters. The many-chains, SVI and Laplace + PSIS results come from twin experiments on the computational skeleton (4 parameters, one year of synthetic observations, reference NUTS with 4 chains × 1500 samples); comparisons use equal effective sample size (ESS), since raw sample counts do not measure inference quality. Parameter bars, loss valley, attribution curve, sampling and descent paths and the SVI and Laplace + PSIS animations (ellipses, sample points, k̂ pointer position) are illustrative.</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
@@ -273,7 +274,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
 
 <section class="measured" id="a6">
   <div class="head">
-    <div class="meta"><b>06</b><span>Measurements and sources</span><span class="n">9 rows</span></div>
+    <div class="meta"><b>06</b><span>Measurements and sources</span><span class="n">11 rows</span></div>
     <h2>Every number marked measured can be rerun</h2>
     <p class="note">Computational skeleton = a benchmark program with the same computational shape as the target model; it is not the final model.</p>
   </div>
@@ -290,6 +291,8 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <tr><td>Fortran RZWQM2, one nine-year simulation</td><td class="num">24 s</td><td class="c">One cluster core; the 10⁵-run cluster batch took about 10 h wall clock (job array, 8 tasks per node, including queueing and I/O) and 80 GB of output; a 32-core workstation is estimated at 20.8 h</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>ASCE reference ET vs. RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td class="c">CA-TPA 2015, daily</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>S-W potential evaporation / transpiration vs. RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td class="c">Growing-season RMSE, uncalibrated</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>Laplace + PSIS uncertainty analysis; annual drainage 90 % coverage 0.85</td><td class="num">≈35 s</td><td class="c">Laptop CPU, 4000 forward runs; NUTS reference about 1 h (57–65 min on 8 rorqual cores); width ratio 0.83, daily AET and storage at the NUTS noise floor. Computational skeleton, twin experiment</td><td><span class="tag real">measured · skeleton</span></td></tr>
+      <tr><td>Full-rank SVI (original coordinates), annual drainage 90 % coverage</td><td class="num">0.22</td><td class="c">Width ratio 0.44, mean off by 1.3 sd; importance resampling cannot repair it. Computational skeleton, twin experiment</td><td><span class="tag real">measured · skeleton</span></td></tr>
       <tr><td>Full model (Richards + CERES-Maize)</td><td class="num">—</td><td class="c">In development; the existing modules are validated first</td><td><span class="tag">pending</span></td></tr>
     </tbody>
   </table></div>
@@ -336,12 +339,17 @@ const TX={
        whereCode:'where(vegetative, growth, 0)', grow:'growth', both:'Compute both, pick per row', stillOne:'Still one array operation',
        f4Title:'Rule 3: no loops; the runtime owns the loops', fLoop:'Fortran: loop over layers', jCol:'Agri-JAX: whole column at once', layer:n=>'Layer '+n,
        fLayers:'37 layers, one after another', jLayers:'37 layers × all fields, one operation', eachCol:'Each thin column = one field' },
-  a4:{ name:'Gradients', frames:['Forward','Reverse','Cost','Identifiability','Attribution','Sampling','Chains','SVI','Network'], real:'reverse/forward time ratio, 56 s', ill:'parameter bars, loss valley, attribution curve, sampling and descent paths, SVI',
+  a4:{ name:'Gradients', frames:['Forward','Reverse','Cost','Identifiability','Attribution','Sampling','Chains','SVI','Laplace','Network'], real:'reverse/forward time ratio, 56 s, SVI and Laplace + PSIS timings and intervals', ill:'parameter bars, loss valley, attribution curve, sampling and descent paths, SVI and Laplace animations',
        lhsT:'Latin hypercube sampling', gdT:'Gradient descent', nPts:k=>`${k} points sampled`, lhsSub:'One forward run per point, no shared information', best:'Red ring: best sample, merely the one nearest the floor',
        steps:k=>`step ${k}`, gdSub:'Forward + reverse pass per step, downhill', multi:'Best sample per quadrant: 4 rows at once', min:'minimum',
        fort:'Fortran: sampling or finite differences only, 24 s per point, queued one by one', jax:'Agri-JAX: both sampling and descent run as batches', jax2:'10⁵ samples in one pass (82 s measured on the skeleton), then parallel descent from the best points',
        post:'contours = posterior', qLab:'violet ellipse = q(θ)', stepN:k=>`step ${k}`, evals:n=>`${n} parameter sets evaluated`, batch:'Per step: 1000 draws from q, one batched pass', stepAxis:'steps →',
-       res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'Measured (skeleton): spread of weakly identified parameters understated 2.6–4×; check against MCMC',
+       res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'Measured (skeleton): spreads understated 2.6–4×; more particles do not remove the bias (next frame)',
+       recipe:'Low-end recipe on a laptop', steps4:['MAP + Hessian: about 100 gradients','sd ×2 (covariance ×4) as proposal','4000 forward runs in one batch','PSIS weights, then resample'],
+       dProp:'grey dots = proposal draws', dW:'dot size = PSIS weight', dRes:'teal dots = resampled', legend:'● MAP · violet = Laplace ellipse · dashed = sd ×2',
+       kTitle:'Pareto k̂: can we use it?', kUse:'use', kWiden:'widen/refit', kNuts:'run NUTS', kRule:'At least 4000 draws; re-check after doubling',
+       clock:'Wall clock', lapT:'Laplace + PSIS · laptop CPU', nutsT:'NUTS reference · 8 rorqual cores (57–65 min)',
+       lRes:'Measured (skeleton): daily AET and storage intervals at the NUTS noise floor', lWhy:'Annual drainage 90 % coverage: 0.85 here (about 17 % narrow), 0.22 for full-rank SVI', lCav:'k̂ > 0.7: run NUTS, started from the Laplace fit', lCav2:'Twin experiment: 4 parameters, one year of synthetic observations, NUTS reference',
        albedo:'α',
        netTitle:'Embedded network: stomatal resistance replaced by a small network', procs:['Weather','PET','Stomata','Light','Crop','Uptake','Soil water','Output'], smallNet:'small net',
        fwdArrow:'forward →', loss:'loss = (ET_sim − ET_tower)²', backflow:'← gradient flows back along the chain',
@@ -452,6 +460,43 @@ function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,
   P(d,c.vio,{sw:2.5});
   T(Z.res,px,516,{c:'ink s b'}); T(Z.why,px,548,{c:'s'}); T(Z.caveat,px,580,{c:'xs'}); }
 
+/* Laplace + PSIS on the same ridge (illustrative geometry; the numbers in the text are measured on the skeleton) */
+const LAP_N=320, LAP=(()=>{ let a=29; const rnd=()=>{ a=(a*1103515245+12345)&0x7fffffff; return (a+1)/0x80000000; }; const out=[];
+  for(let i=0;i<LAP_N;i++){ const r1=Math.sqrt(-2*Math.log(rnd())), th=2*Math.PI*rnd(); out.push([r1*Math.cos(th),r1*Math.sin(th)]); } return out; })();
+function drawLap(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpP');
+  const p1=clamp(q/0.14,0,1), p1b=clamp((q-0.14)/0.06,0,1), p2=clamp((q-0.22)/0.1,0,1), p3=clamp((q-0.34)/0.18,0,1), p4=clamp((q-0.56)/0.14,0,1), p5=clamp((q-0.74)/0.18,0,1);
+  const LA=0.6*Po.s1, LB=Po.s2, PA=2*LA, PB=2*LB; /* Laplace sd along / across the ridge; proposal = sd x2 */
+  const ell=(a,b,o)=>S.push(`<ellipse cx="${Po.cx.toFixed(1)}" cy="${Po.cy.toFixed(1)}" rx="${a.toFixed(1)}" ry="${b.toFixed(1)}" transform="rotate(${ANG} ${Po.cx.toFixed(1)} ${Po.cy.toFixed(1)})" fill="${o.fill||'none'}" fill-opacity="${o.fo??0}" stroke="${c.vio}" stroke-width="${o.sw}" opacity="${o.op}" ${o.dash?`stroke-dasharray="${o.dash}"`:''}/>`);
+  S.push(`<clipPath id="cpP2"><rect x="${px}" y="${py}" width="${pw}" height="${pw}"/></clipPath><g clip-path="url(#cpP2)">`);
+  /* 1: gradient descent to the MAP */
+  if(p1b<1){ let [a,b]=Po.rot(px+0.16*pw,py+0.8*pw); const path=[Po.unrot(a,b)], sk=Math.floor(p1*12+1e-9); for(let s=0;s<sk;s++){ a*=0.7; b*=-0.5; path.push(Po.unrot(a,b)); }
+    P(path.map((pt,j)=>(j?'L':'M')+pt[0].toFixed(1)+' '+pt[1].toFixed(1)).join(' '),c.vio,{sw:2.5,op:1-p1b}); path.forEach(pt=>DOT(pt[0],pt[1],3.2,c.vio,{op:1-p1b})); }
+  /* Laplace ellipse, then its doubled version */
+  if(p1b>0) ell(LA,LB,{sw:3,op:p1b*(1-0.6*p5),fill:c.vio,fo:0.12});
+  if(p2>0){ const k=1+p2; ell(LA*k,LB*k,{sw:2,op:1-0.6*p5,dash:'7 5'}); }
+  /* proposal draws; weight = posterior / proposal, shown by size; then resampled */
+  const W=LAP.map(([u,v])=>{ const a=u*PA,b=v*PB; return Math.exp(-0.5*(a*a/(Po.s1*Po.s1)+b*b/(Po.s2*Po.s2))+0.5*(u*u+v*v)); }); const wmax=Math.max(...W);
+  const pos=LAP.map(([u,v])=>Po.unrot(u*PA,v*PB)); const kN=Math.ceil(p3*LAP_N);
+  if(p5<1) for(let i=0;i<kN;i++){ const w=W[i]/wmax; const r=2.4+p4*(4.2*w-1.4), op=(0.75-p4*(0.45-0.55*w))*(1-p5); DOT(pos[i][0],pos[i][1],Math.max(0.8,r).toFixed(2),p4>0?mix(c.muted,c.teal,p4):c.muted,{op}); }
+  if(p5>0){ const sum=W.reduce((s,w)=>s+w,0); let cum=0, j=0; for(let i=0;i<LAP_N;i++){ const u=(i+0.37)/LAP_N*sum; while(j<LAP_N-1&&cum+W[j]<u){ cum+=W[j]; j++; } DOT(pos[j][0],pos[j][1],2.6,c.teal,{op:0.8*p5}); } }
+  if(p1>=1) DOT(Po.cx,Po.cy,5,c.ink);
+  S.push('</g>');
+  T(Z.post,px+pw,py-12,{a:'right',c:'xs'}); const dl= q<0.34? '' : q<0.56? Z.dProp : q<0.74? Z.dW : Z.dRes; if(dl) T(dl,px,py-12,{c:(q<0.74?'xs b':'t xs b')});
+  T(Z.legend,px,py+pw+26,{c:'xs'});
+  /* right: the recipe, k-hat gauge, wall clock */
+  const x0=540, x1=940, cur=q<0.22?0:q<0.34?1:q<0.56?2:3;
+  T(Z.recipe,x0,92,{c:'ink b'});
+  Z.steps4.forEach((s,i)=>{ const y=128+i*30; DOT(x0+7,y-6,6,i<cur?c.vio:'none',{stroke:i<=cur?c.vio:c.muted,sw:2}); T(s,x0+24,y,{c:i===cur?'ink s b':i<cur?'ink s':'s'}); });
+  const gy=276, gx=v=>x0+v*(x1-x0); T(Z.kTitle,x0,gy-26,{c:'ink s b'});
+  R(gx(0),gy,gx(0.5)-gx(0),14,c.ts); R(gx(0.5),gy,gx(0.7)-gx(0.5),14,c.neu,{op:0.45}); R(gx(0.7),gy,gx(1)-gx(0.7),14,c.rs); R(x0,gy,x1-x0,14,'none',{stroke:c.line});
+  [0.5,0.7].forEach(v=>{ L(gx(v),gy-4,gx(v),gy+18,c.ink,{sw:1.5}); T(v.toFixed(1),gx(v),gy+36,{a:'center',c:'xs mono'}); });
+  T(Z.kUse,gx(0.25),gy+58,{a:'center',c:'t xs b'}); T(Z.kWiden,gx(0.6),gy+58,{a:'center',c:'xs'}); T(Z.kNuts,gx(0.85),gy+58,{a:'center',c:'r xs b'});
+  if(p4>0){ const xk=gx(0.2); P(`M${xk} ${gy-2} L${xk-7} ${gy-14} L${xk+7} ${gy-14} Z`,c.ink,{fill:c.ink,sw:1,op:p4}); }
+  T(Z.kRule,x0,gy+82,{c:'xs'});
+  const ty=404, full=x1-x0-70, tn=clamp((q-0.56)/0.36,0,1); T(Z.clock,x0,ty,{c:'ink s b'});
+  T(Z.lapT,x0,ty+26,{c:'xs'}); if(p4>0){ R(x0,ty+34,Math.max(3,full*35/3600),14,c.teal,{rx:1}); T('≈ 35 s',x0+12,ty+47,{c:'t s b mono'}); }
+  T(Z.nutsT,x0,ty+72,{c:'xs'}); if(p4>0){ R(x0,ty+80,full*tn,14,c.rust,{rx:1,op:0.85}); if(tn>=1) T('≈ 1 h',x0+full+10,ty+93,{c:'r s b mono'}); }
+  T(Z.lRes,px,544,{c:'ink s b'}); T(Z.lWhy,px,574,{c:'s'}); T(Z.lCav,px,604,{c:'xs'}); T(Z.lCav2,px,628,{c:'xs'}); }
 const X0=TX.a0, X1=TX.a1, X2=TX.a2, X3=TX.a3, X4=TX.a4, X5=TX.a5;
 const ACTS=[
 /* ===== 0 opening: Fortran fills row by row, looping ===== */
@@ -536,8 +581,8 @@ const ACTS=[
       return; }
   } },
 /* ===== 4 the gradient ===== */
-{ name:X4.name, frames:frames(X4.frames,[3,5,2.5,2.5,4,6,4,7,3]), real:X4.real, ill:X4.ill,
-  draw(f,p){ const c=C(); const q=ease(p); if(f===5){ drawSearch(q,X4); return; } if(f===7){ drawSVI(q,X4); return; } if(f===6) f=5; else if(f===8) f=6;
+{ name:X4.name, frames:frames(X4.frames,[3,5,2.5,2.5,4,6,4,7,9,3]), real:X4.real, ill:X4.ill,
+  draw(f,p){ const c=C(); const q=ease(p); if(f===5){ drawSearch(q,X4); return; } if(f===7){ drawSVI(q,X4); return; } if(f===8){ drawLap(q,X4); return; } if(f===6) f=5; else if(f===9) f=6;
     const Mg= f===4? {x:60,y:150,w:880,h:200} : {x:60,y:64,w:880,h:280}; const cw2=Mg.w/COLS,ch2=Mg.h/ROWS;
     const PAR=['λ','h_b','K_sat','θ_r','θ_s',X4.albedo,'r_s','r_ss','P1','P5','G2','G3'], SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
     if(f===6){ T(X4.netTitle,60,40,{c:'ink b'});
