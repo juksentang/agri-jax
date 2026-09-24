@@ -239,7 +239,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
   </section>
 
   <section class="act" id="a4" data-act="4">
-    <div class="meta"><b>04</b><span>Gradients</span><span class="n">7 frames</span></div>
+    <div class="meta"><b>04</b><span>Gradients</span><span class="n">9 frames</span></div>
     <h2>Walk the same path once in reverse, and obtain the derivatives with respect to every parameter and every input in a single pass</h2>
     <ol class="steps">
       <li class="step" data-f="0"><span class="i">4.1</span><span>Forward: the column sweeps from left to right, and the state of every day is kept</span><i class="pg"></i></li>
@@ -247,10 +247,12 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="2"><span class="i">4.3</span><span>Cost: finite differences need 31 forward runs; reverse mode needs only 1 forward plus 1 reverse pass</span><i class="pg"></i></li>
       <li class="step" data-f="3"><span class="i">4.4</span><span>Identifiability: the flat directions of the loss valley are parameter combinations the data cannot separate, visible at a glance</span><i class="pg"></i></li>
       <li class="step" data-f="4"><span class="i">4.5</span><span>Attribution: differentiate with respect to each day’s rainfall to see which rain decides the yield; the peak falls at silking</span><i class="pg"></i></li>
-      <li class="step" data-f="5"><span class="i">4.6</span><span>Many chains <span class="tag">to be tested</span>: the rows change from “fields” to “chains”; a step with a thousand chains takes the same time as a step with four. Whether many short chains can replace a few long ones must be compared at equal effective sample size (ESS)</span><i class="pg"></i></li>
-      <li class="step" data-f="6"><span class="i">4.7</span><span>Embedded network: replace stomatal resistance with a small network; the gradient passes through the process model into its weights</span><i class="pg"></i></li>
+      <li class="step" data-f="5"><span class="i">4.6</span><span>Sampling versus descent: Latin hypercube sampling spends one forward run per point and learns no direction; every gradient step points downhill. Agri-JAX batches both: sample 10⁵ points first, then descend in parallel from the best few</span><i class="pg"></i></li>
+      <li class="step" data-f="6"><span class="i">4.7</span><span>Many chains <span class="tag">to be tested</span>: the rows change from “fields” to “chains”; a step with a thousand chains takes the same time as a step with four. Whether many short chains can replace a few long ones must be compared at equal effective sample size (ESS)</span><i class="pg"></i></li>
+      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag">to be tested</span>: fit a distribution q to the posterior; each step draws a large batch of parameter sets, runs one batched forward and reverse pass, and updates the mean and covariance of q. The result approximates the whole posterior, not just a best point</span><i class="pg"></i></li>
+      <li class="step" data-f="8"><span class="i">4.9</span><span>Embedded network: replace stomatal resistance with a small network; the gradient passes through the process model into its weights</span><i class="pg"></i></li>
     </ol>
-    <p class="note">The relative cost of sampling-based calibration and gradient methods depends on the objective, the parameter correlations and the algorithm; a gradient gives a descent direction at every step, at a cost independent of the number of parameters. The many-chains frame is a hypothesis to be tested: MCMC samples are autocorrelated, so inference efficiency must be compared at equal effective sample size (ESS); raw sample counts are not a measure of inference quality. Parameter bars, loss valley and attribution curve are illustrative.</p>
+    <p class="note">The relative cost of sampling-based calibration and gradient methods depends on the objective, the parameter correlations and the algorithm; a gradient gives a descent direction at every step, at a cost independent of the number of parameters. The many-chains frame is a hypothesis to be tested: MCMC samples are autocorrelated, so inference efficiency must be compared at equal effective sample size (ESS); raw sample counts are not a measure of inference quality. Parameter bars, loss valley, attribution curve, sampling and descent paths and the SVI animation are illustrative; variational approximations can understate posterior variance and must be checked against MCMC.</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
@@ -264,7 +266,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <div><label for="prec">Precision</label><select id="prec"><option value="f64">float64</option><option value="f32">float32</option></select></div>
     </div>
     <p class="result" id="ratio"></p>
-    <p class="note">Other GPUs are extrapolated from the H100 measurements by memory bandwidth; Fortran is estimated as 24 s per run divided by the number of cores (20.8 h on a 32-core workstation; the cluster batch as actually run took about 10 h, job array with 8 tasks per node, including queueing and I/O); the full model is already discounted by a factor of 3.</p>
+    <p class="note">Other GPUs are extrapolated from the H100 measurements using the slower of memory bandwidth and double-precision throughput (assuming compute is about half of the H100 time; consumer GPUs run float64 at 1/64 of float32 speed); Fortran is estimated as 24 s per run divided by the number of cores (20.8 h on a 32-core workstation; the cluster batch as actually run took about 10 h, job array with 8 tasks per node, including queueing and I/O); the full model is already discounted by a factor of 3.</p>
   </section>
 </div>
 </div>
@@ -333,7 +335,12 @@ const TX={
        whereCode:'where(vegetative, growth, 0)', grow:'growth', both:'Compute both, pick per row', stillOne:'Still one array operation',
        f4Title:'Rule 3: no loops; the runtime owns the loops', fLoop:'Fortran: loop over layers', jCol:'Agri-JAX: whole column at once', layer:n=>'Layer '+n,
        fLayers:'37 layers, one after another', jLayers:'37 layers × all fields, one operation', eachCol:'Each thin column = one field' },
-  a4:{ name:'Gradients', frames:['Forward','Reverse','Cost','Identifiability','Attribution','Chains','Network'], real:'reverse/forward time ratio, 56 s', ill:'parameter bars, loss valley, attribution curve',
+  a4:{ name:'Gradients', frames:['Forward','Reverse','Cost','Identifiability','Attribution','Sampling','Chains','SVI','Network'], real:'reverse/forward time ratio, 56 s', ill:'parameter bars, loss valley, attribution curve, sampling and descent paths, SVI',
+       lhsT:'Latin hypercube sampling', gdT:'Gradient descent', nPts:k=>`${k} points sampled`, lhsSub:'One forward run per point, no shared information', best:'Red ring: best sample, merely the one nearest the floor',
+       steps:k=>`step ${k}`, gdSub:'Forward + reverse pass per step, downhill', multi:'Best sample per quadrant: 4 rows at once', min:'minimum',
+       fort:'Fortran: sampling or finite differences only, 24 s per point, queued one by one', jax:'Agri-JAX: both sampling and descent run as batches', jax2:'10⁵ samples in one pass (82 s measured on the skeleton), then parallel descent from the best points',
+       post:'contours = posterior', qLab:'q(θ)', stepN:k=>`step ${k}`, evals:n=>`${n} parameter sets evaluated`, batch:'Per step: 1000 draws from q, one batched pass', stepAxis:'steps →',
+       res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'To be tested: variational approximations can understate uncertainty and must be checked against MCMC',
        albedo:'α',
        netTitle:'Embedded network: stomatal resistance replaced by a small network', procs:['Weather','PET','Stomata','Light','Crop','Uptake','Soil water','Output'], smallNet:'small net',
        fwdArrow:'forward →', loss:'loss = (ET_sim − ET_tower)²', backflow:'← gradient flows back along the chain',
@@ -348,11 +355,13 @@ const TX={
        chRows:'Chains are matrix rows; from 4 to 1000 rows, each step is still one column operation', shortLong:'To be tested: can many short chains replace a few long ones?', essNote:'MCMC samples are autocorrelated: compare at equal ESS; raw sample counts do not measure inference quality',
        notYet:'Parameter derivatives: not started yet', dPar:'∂yield / ∂parameter',
        valley:'Loss valley (λ, K_sat plane)', grey:'Grey: flat, λ and K_sat co-vary:', green:'unidentifiable. Green: steep, constrained' },
-  a5:{ name:'Your hardware', frames:['Estimate'], ext:'from H100 measurements via memory bandwidth; 3× full-model factor applied',
+  a5:{ name:'Your hardware', frames:['Estimate'], ext:'from H100 measurements via memory bandwidth and FP64 throughput; 3× full-model factor applied',
        idle:'Drag the slider and change the options on the left; both time bars update.',
-       title:n=>n+' nine-year simulations, wall time required (log scale)', faster:r=>`about ${r}× faster`,
+       title:n=>n+' nine-year simulations, wall time required (log scale)', verdict:{jax:x=>`Agri-JAX about ${x}× faster`,fort:x=>`Fortran about ${x}× faster`,tie:()=>'About the same'},
+       fp64:'Consumer GPUs run float64 at 1/64 of float32 speed, so compute limits; try float32',
+       fp64Hint:'This card is weak in double precision; float32 is the better choice (its accuracy is still to be validated).',
        under:'Below 10⁴ runs the GPU is under-utilized and the ratio drops; above, memory bandwidth limits',
-       result:(n,f,j,r)=>`${n} nine-year simulations: Fortran ${f}, Agri-JAX ${j}, about ${r}× faster.` },
+       result:(n,f,j,v)=>`${n} nine-year simulations: Fortran ${f}, Agri-JAX ${j}. ${v}.` },
 };
 const frames=(names,durs)=>names.map((text,i)=>({dur:durs[i],text}));
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -389,6 +398,57 @@ const seeds=new Float32Array(ROWS*COLS); { let a=7; for(let i=0;i<seeds.length;i
 function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function mix(a,b,t){ const A=hexToRgb(a),B=hexToRgb(b); return `rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`; }
 const laiColor=(c,q,base,strong)=>{ const doy=(c/COLS*DAYS)%365, s=Math.max(0,Math.sin(Math.PI*clamp((doy-125)/150,0,1))); return mix(base,strong,0.25+0.5*s*q); };
+
+/* ---------- act 4 extra frames: sampling vs descent, SVI (illustrative) ---------- */
+const DOT=(x,y,r,fill,o={})=>S.push(`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r}" fill="${fill}" opacity="${o.op??1}" stroke="${o.stroke||'none'}" stroke-width="${o.sw||1}"/>`);
+const ANG=-32;
+function lossPanel(px,py,pw,c,id){ const cx=px+0.64*pw, cy=py+0.44*pw, A=ANG*Math.PI/180, s1=0.40*pw, s2=0.07*pw;
+  S.push(`<clipPath id="${id}"><rect x="${px}" y="${py}" width="${pw}" height="${pw}"/></clipPath><g clip-path="url(#${id})">`);
+  R(px,py,pw,pw,c.cell,{op:0.45});
+  [24,12,6,3,1.4,0.5].forEach((k,i)=>{ const f=Math.sqrt(k); S.push(`<ellipse cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" rx="${(s1*f).toFixed(1)}" ry="${(s2*f).toFixed(1)}" transform="rotate(${ANG} ${cx.toFixed(1)} ${cy.toFixed(1)})" fill="${c.vs}" fill-opacity="${(0.25+0.12*i).toFixed(2)}" stroke="${c.muted}" stroke-width="1" stroke-opacity="0.55"/>`); });
+  S.push('</g>'); R(px,py,pw,pw,'none',{stroke:c.line,sw:1});
+  T('λ →',px+pw-8,py+pw-10,{a:'right',c:'xs'}); T('↑ K_sat',px+8,py+22,{c:'xs'});
+  const rot=(x,y)=>{ const dx=x-cx,dy=y-cy; return [dx*Math.cos(A)+dy*Math.sin(A), -dx*Math.sin(A)+dy*Math.cos(A)]; };
+  const unrot=(a,b)=>[cx+a*Math.cos(A)-b*Math.sin(A), cy+a*Math.sin(A)+b*Math.cos(A)];
+  const loss=(x,y)=>{ const [a,b]=rot(x,y); return a*a/(s1*s1)+b*b/(s2*s2); };
+  return {cx,cy,s1,s2,rot,unrot,loss}; }
+const LHS_N=24, LHS=(()=>{ let a=11; const rnd=()=>{ a=(a*1103515245+12345)&0x7fffffff; return a/0x7fffffff; }; const perm=[...Array(LHS_N).keys()];
+  for(let i=LHS_N-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); [perm[i],perm[j]]=[perm[j],perm[i]]; } return perm.map((pj,i)=>[(i+rnd())/LHS_N,(pj+rnd())/LHS_N]); })();
+function drawSearch(q,Z){ const c=C(), pw=340, lx=70, rx=560, py=92;
+  T(Z.lhsT,lx,64,{c:'ink b'}); T(Z.gdT,rx,64,{c:'ink b'});
+  const La=lossPanel(lx,py,pw,c,'cpL'); const pts=LHS.map(([u,v])=>[lx+u*pw,py+v*pw]);
+  const k=Math.min(LHS_N,Math.ceil(clamp(q/0.45,0,1)*LHS_N)); let best=-1;
+  for(let i=0;i<k;i++){ DOT(pts[i][0],pts[i][1],5,c.teal); if(best<0||La.loss(...pts[i])<La.loss(...pts[best])) best=i; }
+  if(best>=0) DOT(pts[best][0],pts[best][1],11,'none',{stroke:c.rust,sw:2.5});
+  T(Z.nPts(k),lx,462,{c:'s ink b'}); T(Z.lhsSub,lx,488,{c:'xs'}); if(k===LHS_N) T(Z.best,lx,512,{c:'xs'});
+  const Ra=lossPanel(rx,py,pw,c,'cpR'); const quad=i=>(pts[i][0]<lx+pw/2?0:1)+(pts[i][1]<py+pw/2?0:2); const starts=[0,1,2,3].map(g=>[...pts.keys()].filter(i=>quad(i)===g).sort((i,j)=>La.loss(...pts[i])-La.loss(...pts[j]))[0]).filter(i=>i!==undefined);
+  const STEPS=14, t=clamp((q-0.5)/0.45,0,1), sk=Math.floor(t*STEPS+1e-9);
+  if(q>=0.45) starts.forEach(i=>{ const x0=pts[i][0]-lx+rx, y0=pts[i][1]; let [a,b]=Ra.rot(x0,y0); const path=[[x0,y0]];
+    for(let s=0;s<sk;s++){ a*=0.74; b*=-0.5; path.push(Ra.unrot(a,b)); }
+    P(path.map((pt,j)=>(j?'L':'M')+pt[0].toFixed(1)+' '+pt[1].toFixed(1)).join(' '),c.vio,{sw:2.5});
+    path.forEach((pt,j)=>DOT(pt[0],pt[1],j===path.length-1?6:3.2,c.vio));
+    DOT(x0,y0,11,'none',{stroke:c.rust,sw:2,op:0.8}); });
+  if(sk===STEPS){ DOT(Ra.cx,Ra.cy,9,'none',{stroke:c.teal,sw:3}); TP(Z.min,Ra.cx-16,Ra.cy+36,{a:'right',c:'t xs b'}); }
+  T(Z.steps(sk),rx,462,{c:'s ink b'}); T(Z.gdSub,rx,488,{c:'xs'}); T(Z.multi,rx,512,{c:'xs'});
+  T(Z.fort,lx,564,{c:'r s b'}); T(Z.jax,lx,596,{c:'t s b'}); T(Z.jax2,lx,624,{c:'s'}); }
+function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpS');
+  TP(Z.post,px+pw-16,py+44,{a:'right',c:'xs'});
+  const TOT=60, st=Math.floor(q*TOT+1e-9), t=(1-Math.exp(-st/11))/(1-Math.exp(-TOT/11));
+  const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(Po.cx-mx0)*t, my=my0+(Po.cy-my0)*t;
+  const ra=0.2*pw+(Po.s1-0.2*pw)*t, rb=0.2*pw+(Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
+  let s=st*7919+3; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return (s+1)/0x80000000; };
+  S.push(`<clipPath id="cpS2"><rect x="${px}" y="${py}" width="${pw}" height="${pw}"/></clipPath><g clip-path="url(#cpS2)">`);
+  [2,1].forEach(k=>S.push(`<ellipse cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" rx="${(ra*k).toFixed(1)}" ry="${(rb*k).toFixed(1)}" transform="rotate(${ang.toFixed(2)} ${mx.toFixed(1)} ${my.toFixed(1)})" fill="${c.vio}" fill-opacity="${k===1?0.16:0.07}" stroke="${c.vio}" stroke-width="${k===1?3:1.5}" ${k===2?'stroke-dasharray="6 5"':''}/>`));
+  for(let i=0;i<180;i++){ const r1=Math.sqrt(-2*Math.log(rnd())), th=2*Math.PI*rnd(); const z1=r1*Math.cos(th)*ra, z2=r1*Math.sin(th)*rb;
+    DOT(mx+z1*Math.cos(A)-z2*Math.sin(A), my+z1*Math.sin(A)+z2*Math.cos(A), 2.6, c.vio, {op:0.8}); }
+  S.push('</g>'); TP(Z.qLab,clamp(mx+10,px+10,px+pw-60),clamp(my-rb*2-12,py+50,py+pw-10),{c:'v s b'});
+  const x0=540, x1=940, y0=236, y1=420;
+  T(Z.stepN(st),x0,108,{c:'ink b l'}); T(Z.evals(fmt(st*1000)),x0,148,{c:'v b s'}); T(Z.batch,x0,178,{c:'xs'});
+  L(x0,y1,x1,y1,c.muted,{sw:1}); L(x0,y0-10,x0,y1,c.muted,{sw:1}); T('ELBO',x0+8,y0+6,{c:'xs'}); T(Z.stepAxis,x1,y1+24,{a:'right',c:'xs'});
+  let d='', a2=5; for(let k=0;k<=st;k++){ a2=(a2*1103515245+12345)&0x7fffffff; const tk=(1-Math.exp(-k/11))/(1-Math.exp(-TOT/11)); const nz=(a2/0x7fffffff-0.5)*0.12*(1-tk);
+    const x=x0+(x1-x0)*k/TOT, y=y1-12-(y1-y0-24)*clamp(tk+nz,0,1); d+=(k?' L':'M')+x.toFixed(1)+' '+y.toFixed(1); }
+  P(d,c.vio,{sw:2.5});
+  T(Z.res,px,516,{c:'ink s b'}); T(Z.why,px,548,{c:'s'}); T(Z.caveat,px,580,{c:'xs'}); }
 
 const X0=TX.a0, X1=TX.a1, X2=TX.a2, X3=TX.a3, X4=TX.a4, X5=TX.a5;
 const ACTS=[
@@ -474,8 +534,8 @@ const ACTS=[
       return; }
   } },
 /* ===== 4 the gradient ===== */
-{ name:X4.name, frames:frames(X4.frames,[3,5,2.5,2.5,4,4,3]), real:X4.real, ill:X4.ill,
-  draw(f,p){ const c=C(); const q=ease(p);
+{ name:X4.name, frames:frames(X4.frames,[3,5,2.5,2.5,4,6,4,7,3]), real:X4.real, ill:X4.ill,
+  draw(f,p){ const c=C(); const q=ease(p); if(f===5){ drawSearch(q,X4); return; } if(f===7){ drawSVI(q,X4); return; } if(f===6) f=5; else if(f===8) f=6;
     const Mg= f===4? {x:60,y:150,w:880,h:200} : {x:60,y:64,w:880,h:280}; const cw2=Mg.w/COLS,ch2=Mg.h/ROWS;
     const PAR=['λ','h_b','K_sat','θ_r','θ_s',X4.albedo,'r_s','r_ss','P1','P5','G2','G3'], SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
     if(f===6){ T(X4.netTitle,60,40,{c:'ink b'});
@@ -529,17 +589,21 @@ const ACTS=[
     T('Fortran · '+document.getElementById('cores').selectedOptions[0].text,x,150,{c:'r b'}); R(x,166,w,28,c.cell,{rx:2}); R(x,166,wf(e.fort),28,c.rust,{rx:2}); T(e.fortH,x+w,150,{a:'right',c:'ink b l'});
     T('Agri-JAX · '+document.getElementById('gpu').selectedOptions[0].text,x,262,{c:'t b'}); R(x,278,w,28,c.cell,{rx:2}); R(x,278,wf(e.jax),28,c.teal,{rx:2}); T(e.jaxH,x+w,262,{a:'right',c:'ink b l'});
     L(x,330,x+w,330,c.muted,{sw:1}); TX.time.ticks.forEach((lb,i)=>{ const s=[1,60,3600,86400,7*86400][i]; const xx=x+wf(s); L(xx,324,xx,336,c.muted,{sw:1.5}); T(lb,xx,362,{a:i===0?'start':'center',c:'xs'}); });
-    T(X5.faster(e.ratio.toLocaleString(LOCALE)),x,444,{c:'ink b xl'}); T(X5.under,x,484,{c:'s'});
+    T(X5.verdict[e.verdict](e.mx),x,444,{c:'ink b xl'}); T(e.fp64Bound?X5.fp64:X5.under,x,484,{c:'s'});
   } },
 ];
 /* ---------- estimator ---------- */
-const HW={h100:{bw:1,f64pen:1,floor:1},a100:{bw:0.46,f64pen:1,floor:1.2},'4090':{bw:0.30,f64pen:0.5,floor:1.3},'4060':{bw:0.08,f64pen:0.5,floor:1.6}};
-const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}}; const REAL=3, RUN_S=24;
+/* bw: memory bandwidth relative to H100; fp64: vector FP64 TFLOPS (consumer cards run FP64 at 1/64 of FP32).
+   float64 time = the slower of bandwidth-bound and FP64-compute-bound, assuming compute is half of H100 time. */
+const HW={h100:{bw:1,fp64:34,floor:1},a100:{bw:0.46,fp64:9.7,floor:1.2},'4090':{bw:0.30,fp64:1.29,floor:1.3},'4060':{bw:0.08,fp64:0.23,floor:1.6}};
+const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}}; const REAL=3, RUN_S=24, CSHARE=0.5;
 const TU=TX.time;
 const human=s=>s<60?TU.s(s.toFixed(s<10?1:0)):s<3600?TU.min((s/60).toFixed(1)):s<86400?TU.h((s/3600).toFixed(1)):s<7*86400?TU.d((s/86400).toFixed(1)):TU.wk((s/86400/7).toFixed(1));
 function estimate(){ const n=Math.round(Math.pow(10,+$('n').value)); const hw=HW[$('gpu').value],cfg=CFG[$('cfg').value],f32=$('prec').value==='f32',cores=+$('cores').value;
-  let per=cfg.ms/1000*REAL/hw.bw; if(f32) per*=0.42; else per/=hw.f64pen; const jax=cfg.floor*hw.floor+n*per, fort=n*RUN_S/cores; return {n,jax,fort,jaxH:human(jax),fortH:human(fort),ratio:Math.round(fort/jax)}; }
-function estUI(){ const e=estimate(); $('nLab').textContent=fmt(e.n); $('ratio').textContent=X5.result(fmt(e.n),e.fortH,e.jaxH,e.ratio.toLocaleString(LOCALE)); if(state.act===5) render(); }
+  const base=cfg.ms/1000*REAL, tb=base/hw.bw, tc=CSHARE*base*HW.h100.fp64/hw.fp64; const fp64Bound=!f32&&tc>tb; const per= f32? tb*0.42 : Math.max(tb,tc);
+  const jax=cfg.floor*hw.floor+n*per, fort=n*RUN_S/cores, r=fort/jax, m=r>=1?r:1/r;
+  return {n,jax,fort,jaxH:human(jax),fortH:human(fort),verdict:r>=1.25?'jax':r<=0.8?'fort':'tie',mx:m<10?m.toFixed(1):Math.round(m).toLocaleString(LOCALE),fp64Bound}; }
+function estUI(){ const e=estimate(); $('nLab').textContent=fmt(e.n); $('ratio').textContent=X5.result(fmt(e.n),e.fortH,e.jaxH,X5.verdict[e.verdict](e.mx))+(e.fp64Bound?' '+X5.fp64Hint:''); if(state.act===5) render(); }
 ['n','gpu','cfg','prec','cores'].forEach(id=>$(id).addEventListener('input',estUI));
 /* ---------- engine ---------- */
 const state={act:0,frame:0,p:0,playing:false};
