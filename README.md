@@ -4,7 +4,7 @@
 
 [中文](README.zh.md) · [Showcase](https://juksentang.github.io/agri-jax/)
 
-> **Status (September 2026): early implementation.** The core runtime, file readers, reference-model runners and the potential-evapotranspiration processes are in place and tested. The Richards soil-water solver and the CERES-Maize crop module are the next two pieces. The PyPI package is a name-reserving placeholder.
+> **Status (September 2026): early implementation.** The core runtime, file readers, reference-model runners, potential evapotranspiration, the Richards soil-water solver and the CERES-Maize crop module are in place and each is validated against its reference model. Coupling them into one water–crop model is the next piece. The PyPI package is a name-reserving placeholder.
 
 ## Acknowledgements
 
@@ -28,9 +28,9 @@ Speed is not the goal in itself. The aim is a model with layered soil physics an
 | Brooks–Corey hydraulics | yes | reference-model field capacity and wilting point on 100+ horizons; gradient checks |
 | Shuttleworth–Wallace, ASCE and Priestley–Taylor PET | yes | ASCE to 5e-6 mm/d; Shuttleworth–Wallace growing-season RMSE 0.02 / 0.17 mm/d vs RZWQM2 on one site-year |
 | Organ queue, event table, AmeriFlux loader | yes | conservation properties; AmeriFlux CA-TPA data |
-| Richards soil-water solver | next | — |
-| CERES-Maize crop module | next | — |
-| Coupled water–crop model, calibration, uncertainty quantification | after the two above | — |
+| Richards soil-water solver | yes | CA-TPA 2015 daily profile storage RMSE 0.026 cm (96×8) / 0.048 cm (24×3) vs RZWQM2; per-step mass balance < 1e-10 cm; gradients vs finite differences |
+| CERES-Maize crop module (nitrogen off) | yes | 58 maize treatments vs DSSAT-CSM v4.8.6: daily LAI within 0.50 %, biomass 0.63 %, yield 0.030 %, stages equal every day; DSSAT's hard-coded coefficients are calibratable parameters |
+| Coupled water–crop model, calibration, uncertainty quantification | next | — |
 
 New modules are added only after the existing ones pass automated, deterministic comparisons against an independent reference.
 
@@ -71,7 +71,7 @@ The RZWQM2 reference binary takes 24 s per run on one CPU core. The same 10⁵ r
 
 ## Roadmap
 
-1. **Richards solver and CERES-Maize.** Each is validated day by day against RZWQM2 and DSSAT-CSM outputs before coupling.
+1. **Richards solver and CERES-Maize** (done). Each is validated day by day against RZWQM2 and DSSAT-CSM outputs before coupling.
 2. **Coupled model on one site.** AmeriFlux CA-TPA maize, 10⁵-sample timing, gradient checks at three levels: plausible outputs, correct derivatives, and derivatives fit for inference.
 3. **Calibration and uncertainty.** Gradient-based and HMC calibration, Sobol sensitivity, multi-site joint calibration and parameter identifiability.
 4. **Extensions.** Intercropping, nitrogen and carbon cycling, hybrid process–ML models, and a report interface for agricultural economists with Stata and R front ends.
