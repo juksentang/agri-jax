@@ -150,6 +150,28 @@ def root_length_growth(
     writes=("roots",),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_ROOTS.for (BSD-3)",
     fortran_name="MZ_ROOTGR",
+    key="crop/ceres_maize.roots@dssat-4.8.6.0:faithful",
+    provenance="translated_bsd3",
+    grid="dssat_layers",
+    ref_build="dscsm048 v4.8.6.0 (build486)",
+    sources=(
+        ("root length at emergence", "MZ_ROOTS.for (MZ_ROOTGR) INTEGR, IF (YRDOY.EQ.STGDOY(9)) block"),
+        ("layer water deficit SWDF, waterlogging survival", "MZ_ROOTS.for (MZ_ROOTGR) INTEGR layer loop"),
+        ("root front advance RTDEP", "MZ_ROOTS.for (MZ_ROOTGR) INTEGR; J. T. Ritchie (1994)"),
+        ("new root length distribution TRLDF / RNLF", "MZ_ROOTS.for (MZ_ROOTGR) INTEGR (BSD-3)"),
+    ),
+    deviates=(
+        (
+            "nitrogen off: RNFAC = 1",
+            "M2 scope; the nitrogen module is not built",
+            "roots.py module docstring",
+        ),
+        (
+            "DSSAT single precision (REAL*4) is not reproduced",
+            "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
+            "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
 )
 def ceres_roots(state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing) -> CeresMaizeState:
     """One day of ``MZ_ROOTGR`` (``DYNAMIC = INTEGR``); runs from the sowing day on, only with

@@ -143,6 +143,32 @@ def saturation_factor(
     writes=("stress",),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for, MZ_CERES.for (BSD-3)",
     fortran_name="MZ_GROSUB",
+    key="crop/ceres_maize.stress@dssat-4.8.6.0:faithful",
+    provenance="translated_bsd3",
+    grid="dssat_layers",
+    ref_build="dscsm048 v4.8.6.0 (build486)",
+    sources=(
+        (
+            "water-stress factors SWFAC, TURFAC",
+            "MZ_GROSUB.for, Compute Water Stress Factors; MZ_CERES.for reset",
+        ),
+        (
+            "excess-water factor SATFAC and saturation-day counters TSS",
+            "MZ_GROSUB.for, Compute Water Saturation Factors",
+        ),
+    ),
+    deviates=(
+        (
+            "SWFAC and TURFAC are read from the forcing (the transpiration module's TRWUP / EP1 ratio)",
+            "isolates the crop from the soil-water model until the coupling (M3)",
+            "growth.py module docstring",
+        ),
+        (
+            "DSSAT single precision (REAL*4) is not reproduced",
+            "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
+            "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
 )
 def ceres_stress(
     state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing
@@ -949,6 +975,34 @@ def growth_totals(
     ),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for (BSD-3)",
     fortran_name="MZ_GROSUB",
+    key="crop/ceres_maize.growth@dssat-4.8.6.0:faithful",
+    provenance="translated_bsd3",
+    grid="point",
+    ref_build="dscsm048 v4.8.6.0 (build486)",
+    sources=(
+        ("stage-date initialisations, emergence initialisation", "MZ_GROSUB.for INTEGR (BSD-3)"),
+        ("assimilation CARBO (PAR x RUE x CO2 x temperature / water stress x SLPF)", "MZ_GROSUB.for INTEGR"),
+        (
+            "leaf appearance and the per-stage leaf, stem, ear, grain, root growth",
+            "MZ_GROSUB.for ISTAGE 1-5 blocks",
+        ),
+        ("ear growth", "MZ_GROSUB.for GROEAR; after J. I. Lizaso (2006)"),
+        ("leaf senescence, cold / drought failure, canopy height, totals", "MZ_GROSUB.for INTEGR"),
+        ("CERES-Maize model description", "Jones & Kiniry (1986)"),
+    ),
+    deviates=(
+        (
+            "nitrogen, phosphorus, potassium and pests off: AGEFAC = NSTRES = NDEF3 = PSTRES1 = PSTRES2 = "
+            "KSTRES = 1, no pest damage",
+            "M2 scope; the nutrient and pest modules are not built",
+            "growth.py module docstring",
+        ),
+        (
+            "DSSAT single precision (REAL*4) is not reproduced",
+            "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
+            "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
 )
 def ceres_growth(
     state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing

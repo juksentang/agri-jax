@@ -99,17 +99,19 @@ _EPS = 1e-12
 class PETParams(Params):
     """Parameters of the Shuttleworth-Wallace PET process (RZWQM ``rzwqm.dat`` PET block, ``/IPOTEV/``)."""
 
-    albedo_dry: Array = field(unit="-", description="albedo of dry soil", fortran_name="A0")
-    albedo_wet: Array = field(unit="-", description="albedo of wet soil", fortran_name="AW")
+    albedo_dry: Array = field(dims=(), unit="-", description="albedo of dry soil", fortran_name="A0")
+    albedo_wet: Array = field(dims=(), unit="-", description="albedo of wet soil", fortran_name="AW")
     albedo_maturity: Array = field(
-        unit="-", description="albedo of the crop canopy at maturity", fortran_name="AC"
+        dims=(), unit="-", description="albedo of the crop canopy at maturity", fortran_name="AC"
     )
-    albedo_residue: Array = field(unit="-", description="albedo of fresh residue", fortran_name="ARI")
+    albedo_residue: Array = field(
+        dims=(), unit="-", description="albedo of fresh residue", fortran_name="ARI"
+    )
     soil_resistance: Array = field(
-        unit="s m-1", description="soil surface resistance to evaporation", fortran_name="RSS"
+        dims=(), unit="s m-1", description="soil surface resistance to evaporation", fortran_name="RSS"
     )
     stomatal_resistance: Array = field(
-        unit="s m-1", description="minimum leaf stomatal resistance of the crop", fortran_name="RST"
+        dims=(), unit="s m-1", description="minimum leaf stomatal resistance of the crop", fortran_name="RST"
     )
 
 

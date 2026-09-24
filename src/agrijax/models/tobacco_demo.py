@@ -74,13 +74,15 @@ DEFAULT_PRIMINGS: tuple[tuple[int, tuple[int, int]], ...] = ((70, (0, 6)), (80, 
 class TobaccoParams(Params):
     """Run-constant parameters of the demo (all scalars; batch with a leading axis)."""
 
-    phyllochron: Array = field(unit="degC d", description="thermal time between two leaf appearances")
-    tbase: Array = field(unit="degC", description="base temperature of thermal time")
-    leaf_mass_max: Array = field(unit="g plant-1", description="asymptotic dry mass of one leaf")
-    growth_rate: Array = field(unit="(degC d)-1", description="logistic rate of leaf mass in age")
-    age_half: Array = field(unit="degC d", description="leaf age at the logistic inflection")
-    sla: Array = field(unit="cm2 g-1", description="specific leaf area")
-    density: Array = field(unit="plants m-2", description="plant density")
+    phyllochron: Array = field(
+        dims=(), unit="degC d", description="thermal time between two leaf appearances"
+    )
+    tbase: Array = field(dims=(), unit="degC", description="base temperature of thermal time")
+    leaf_mass_max: Array = field(dims=(), unit="g plant-1", description="asymptotic dry mass of one leaf")
+    growth_rate: Array = field(dims=(), unit="(degC d)-1", description="logistic rate of leaf mass in age")
+    age_half: Array = field(dims=(), unit="degC d", description="leaf age at the logistic inflection")
+    sla: Array = field(dims=(), unit="cm2 g-1", description="specific leaf area")
+    density: Array = field(dims=(), unit="plants m-2", description="plant density")
 
 
 class TobaccoCrop(State):
@@ -130,6 +132,11 @@ def leaf_mass(age_tt: ArrayLike, params: TobaccoParams) -> Array:
     reads=("crop.organs", "crop.active", "crop.tt_leaf"),
     writes=("crop.organs", "crop.active", "crop.tt_leaf"),
     source="bookkeeping; (rotation reuses the crop slot)",
+    key="crop/tobacco_demo.calendar@none:demo",
+    provenance="equations_only",
+    grid="point",
+    sources=(("sow event empties the organ queue and restarts the leaf clock", "bookkeeping"),),
+    deviates=(),
 )
 def crop_calendar(state: TobaccoState, params: TobaccoParams, forcing_t: TobaccoForcing) -> TobaccoState:
     """On a sow day: empty the organ queue, activate the crop, restart the leaf clock.
@@ -153,6 +160,14 @@ def crop_calendar(state: TobaccoState, params: TobaccoParams, forcing_t: Tobacco
     writes=("crop.organs", "crop.tt_leaf", "crop.mass_added"),
     source="phyllochron appearance + logistic leaf growth in thermal age (generic; e.g. CROPGRO / tobacco "
     "leaf-position models)",
+    key="crop/tobacco_demo.leaves@none:demo",
+    provenance="equations_only",
+    grid="point",
+    sources=(
+        ("one leaf appears per phyllochron of thermal time above tbase", "generic phyllochron model"),
+        ("leaf mass as a logistic function of thermal age", "generic logistic growth (module docstring)"),
+    ),
+    deviates=(),
 )
 def leaf_appearance_growth(
     state: TobaccoState, params: TobaccoParams, forcing_t: TobaccoForcing
@@ -187,6 +202,11 @@ def leaf_appearance_growth(
     reads=("crop.organs", "crop.active", "crop.harvested"),
     writes=("crop.organs", "crop.active", "crop.harvested", "crop.harvest_today"),
     source="(topping caps n_active, priming harvests a rank range)",
+    key="crop/tobacco_demo.management@none:demo",
+    provenance="equations_only",
+    grid="point",
+    sources=(("topping, priming of a rank range, final harvest from the event table", "bookkeeping"),),
+    deviates=(),
 )
 def management(state: TobaccoState, params: TobaccoParams, forcing_t: TobaccoForcing) -> TobaccoState:
     """Topping, priming of ranks ``[lo, hi)``, and the final harvest of every alive leaf.

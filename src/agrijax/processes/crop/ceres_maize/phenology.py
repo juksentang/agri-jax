@@ -428,6 +428,29 @@ def maturity_block(v: PhenDay, m: Array, cul: CeresCultivar, yrdoy: Array, c: Ph
     writes=("phen", "growth.pltpop"),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_PHENOL.for (BSD-3)",
     fortran_name="MZ_PHENOL",
+    key="crop/ceres_maize.phenology@dssat-4.8.6.0:faithful",
+    provenance="translated_bsd3",
+    grid="dssat_layers",
+    ref_build="dscsm048 v4.8.6.0 (build486)",
+    sources=(
+        ("thermal time (growing point, hourly branch)", "MZ_PHENOL.for INTEGR; J. T. Ritchie (CIMMYT 1998)"),
+        ("stage blocks ISTAGE 7, 8, 9, 1-6 (germination, emergence, P1-P5)", "MZ_PHENOL.for INTEGR (BSD-3)"),
+        ("photoperiod rate RATEIN, leaf number at tassel initiation", "MZ_PHENOL.for ISTAGE 2 block"),
+        ("grains per plant GPP and ears from SUMP", "MZ_PHENOL.for end of ISTAGE 4 block"),
+        ("CERES-Maize model description", "Jones & Kiniry (1986)"),
+    ),
+    deviates=(
+        (
+            "nitrogen off (ISWNIT = N): XSTAGE is kept but nothing reads it; VegFrac / SeedFrac not ported",
+            "M2 scope; the nitrogen and phosphorus modules are not built",
+            "phenology.py module docstring",
+        ),
+        (
+            "DSSAT single precision (REAL*4) is not reproduced",
+            "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
+            "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
 )
 def ceres_phenology(
     state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing

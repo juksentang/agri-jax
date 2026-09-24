@@ -61,29 +61,49 @@ class CeresCultivar(Params):
     """Cultivar (``*.CUL``) and ecotype (``*.ECO``) coefficients."""
 
     p1: Array = field(
-        unit="degC d", description="thermal time emergence -> end of juvenile", fortran_name="P1"
+        dims=(), unit="degC d", description="thermal time emergence -> end of juvenile", fortran_name="P1"
     )
-    p2: Array = field(unit="d h-1", description="photoperiod sensitivity", fortran_name="P2")
-    p5: Array = field(unit="degC d", description="thermal time silking -> maturity", fortran_name="P5")
-    g2: Array = field(unit="kernel plant-1", description="potential kernel number", fortran_name="G2")
-    g3: Array = field(unit="mg kernel-1 d-1", description="potential kernel growth rate", fortran_name="G3")
-    phint: Array = field(unit="degC d", description="phyllochron interval", fortran_name="PHINT")
-    tbase: Array = field(unit="degC", description="base temperature for development", fortran_name="TBASE")
-    topt: Array = field(unit="degC", description="optimum temperature, vegetative", fortran_name="TOPT")
-    ropt: Array = field(unit="degC", description="optimum temperature, reproductive", fortran_name="ROPT")
-    p2o: Array = field(unit="h", description="critical (twilight) daylength", fortran_name="P2O")
+    p2: Array = field(dims=(), unit="d h-1", description="photoperiod sensitivity", fortran_name="P2")
+    p5: Array = field(
+        dims=(), unit="degC d", description="thermal time silking -> maturity", fortran_name="P5"
+    )
+    g2: Array = field(
+        dims=(), unit="kernel plant-1", description="potential kernel number", fortran_name="G2"
+    )
+    g3: Array = field(
+        dims=(), unit="mg kernel-1 d-1", description="potential kernel growth rate", fortran_name="G3"
+    )
+    phint: Array = field(dims=(), unit="degC d", description="phyllochron interval", fortran_name="PHINT")
+    tbase: Array = field(
+        dims=(), unit="degC", description="base temperature for development", fortran_name="TBASE"
+    )
+    topt: Array = field(
+        dims=(), unit="degC", description="optimum temperature, vegetative", fortran_name="TOPT"
+    )
+    ropt: Array = field(
+        dims=(), unit="degC", description="optimum temperature, reproductive", fortran_name="ROPT"
+    )
+    p2o: Array = field(dims=(), unit="h", description="critical (twilight) daylength", fortran_name="P2O")
     djti: Array = field(
-        unit="d", description="minimum days end of juvenile -> tassel initiation", fortran_name="DJTI"
+        dims=(),
+        unit="d",
+        description="minimum days end of juvenile -> tassel initiation",
+        fortran_name="DJTI",
     )
     gdde: Array = field(
-        unit="degC d cm-1", description="thermal time per cm of sowing depth", fortran_name="GDDE"
+        dims=(), unit="degC d cm-1", description="thermal time per cm of sowing depth", fortran_name="GDDE"
     )
     dsgft: Array = field(
-        unit="degC d", description="thermal time silking -> effective grain filling", fortran_name="DSGFT"
+        dims=(),
+        unit="degC d",
+        description="thermal time silking -> effective grain filling",
+        fortran_name="DSGFT",
     )
-    rue: Array = field(unit="g MJ-1", description="radiation use efficiency (PAR)", fortran_name="RUE")
-    tsen: Array = field(unit="degC", description="cold-sensitivity temperature", fortran_name="TSEN")
-    cday: Array = field(unit="d", description="cold days that end the crop", fortran_name="CDAY")
+    rue: Array = field(
+        dims=(), unit="g MJ-1", description="radiation use efficiency (PAR)", fortran_name="RUE"
+    )
+    tsen: Array = field(dims=(), unit="degC", description="cold-sensitivity temperature", fortran_name="TSEN")
+    cday: Array = field(dims=(), unit="d", description="cold days that end the crop", fortran_name="CDAY")
 
 
 class CeresSpecies(Params):
@@ -101,49 +121,81 @@ class CeresSpecies(Params):
         fortran_name="RGFIL",
         dims=("4",),
     )
-    parsr: Array = field(unit="-", description="PAR fraction of solar radiation", fortran_name="PARSR")
+    parsr: Array = field(
+        dims=(), unit="-", description="PAR fraction of solar radiation", fortran_name="PARSR"
+    )
     co2x: Array = field(
         unit="ppm", description="CO2 abscissae of the photosynthesis table", fortran_name="CO2X", dims=("10",)
     )
     co2y: Array = field(
         unit="-", description="relative photosynthesis at co2x", fortran_name="CO2Y", dims=("10",)
     )
-    fslfw: Array = field(unit="d-1", description="leaf senescence at full water stress", fortran_name="FSLFW")
+    fslfw: Array = field(
+        dims=(), unit="d-1", description="leaf senescence at full water stress", fortran_name="FSLFW"
+    )
     rsgr: Array = field(
+        dims=(),
         unit="-",
         description="relative grain-fill rate below which the crop may mature early",
         fortran_name="RSGR",
     )
     rsgrt: Array = field(
-        unit="d", description="days below rsgr that trigger early maturity", fortran_name="RSGRT"
+        dims=(), unit="d", description="days below rsgr that trigger early maturity", fortran_name="RSGRT"
     )
     carbot: Array = field(
-        unit="d", description="days with no assimilation that trigger early maturity", fortran_name="CARBOT"
+        dims=(),
+        unit="d",
+        description="days with no assimilation that trigger early maturity",
+        fortran_name="CARBOT",
     )
-    dsgt: Array = field(unit="d", description="maximum days sowing -> germination", fortran_name="DSGT")
+    dsgt: Array = field(
+        dims=(), unit="d", description="maximum days sowing -> germination", fortran_name="DSGT"
+    )
     dget: Array = field(
-        unit="degC d", description="maximum thermal time germination -> emergence", fortran_name="DGET"
+        dims=(),
+        unit="degC d",
+        description="maximum thermal time germination -> emergence",
+        fortran_name="DGET",
     )
     swcg: Array = field(
-        unit="cm3 cm-3", description="available soil water needed to germinate", fortran_name="SWCG"
+        dims=(), unit="cm3 cm-3", description="available soil water needed to germinate", fortran_name="SWCG"
     )
-    stmwte: Array = field(unit="g plant-1", description="stem weight at emergence", fortran_name="STMWTE")
-    rtwte: Array = field(unit="g plant-1", description="root weight at emergence", fortran_name="RTWTE")
-    lfwte: Array = field(unit="g plant-1", description="leaf weight at emergence", fortran_name="LFWTE")
-    seedrve: Array = field(unit="g plant-1", description="seed reserve at emergence", fortran_name="SEEDRVE")
-    leafnoe: Array = field(unit="-", description="leaf number at emergence", fortran_name="LEAFNOE")
-    plae: Array = field(unit="cm2 plant-1", description="leaf area at emergence", fortran_name="PLAE")
+    stmwte: Array = field(
+        dims=(), unit="g plant-1", description="stem weight at emergence", fortran_name="STMWTE"
+    )
+    rtwte: Array = field(
+        dims=(), unit="g plant-1", description="root weight at emergence", fortran_name="RTWTE"
+    )
+    lfwte: Array = field(
+        dims=(), unit="g plant-1", description="leaf weight at emergence", fortran_name="LFWTE"
+    )
+    seedrve: Array = field(
+        dims=(), unit="g plant-1", description="seed reserve at emergence", fortran_name="SEEDRVE"
+    )
+    leafnoe: Array = field(dims=(), unit="-", description="leaf number at emergence", fortran_name="LEAFNOE")
+    plae: Array = field(
+        dims=(), unit="cm2 plant-1", description="leaf area at emergence", fortran_name="PLAE"
+    )
     pormin: Array = field(
-        unit="cm3 cm-3", description="minimum air-filled porosity for roots", fortran_name="PORMIN"
+        dims=(), unit="cm3 cm-3", description="minimum air-filled porosity for roots", fortran_name="PORMIN"
     )
-    rlwr: Array = field(unit="cm g-1 x 1e4", description="root length to weight ratio", fortran_name="RLWR")
+    rlwr: Array = field(
+        dims=(), unit="cm g-1 x 1e4", description="root length to weight ratio", fortran_name="RLWR"
+    )
     rwuep1: Array = field(
-        unit="-", description="uptake/demand ratio below which expansion is stressed", fortran_name="RWUEP1"
+        dims=(),
+        unit="-",
+        description="uptake/demand ratio below which expansion is stressed",
+        fortran_name="RWUEP1",
     )
     canht_pot: Array = field(
-        unit="m", description="potential canopy height (1.6 m in MZ_GROSUB)", fortran_name="CANHT_POT"
+        dims=(),
+        unit="m",
+        description="potential canopy height (1.6 m in MZ_GROSUB)",
+        fortran_name="CANHT_POT",
     )
     bsgdd: Array = field(
+        dims=(),
         unit="degC d",
         description="start of ear growth before silking (250 in MZ_GROSUB)",
         fortran_name="BSGDD",
@@ -160,7 +212,7 @@ class CeresSoil(Params):
     )
     sat: Array = field(unit="cm3 cm-3", description="saturation", fortran_name="SAT", dims=("n_layer",))
     shf: Array = field(unit="-", description="root growth factor", fortran_name="SHF", dims=("n_layer",))
-    slpf: Array = field(unit="-", description="soil photosynthesis factor", fortran_name="SLPF")
+    slpf: Array = field(dims=(), unit="-", description="soil photosynthesis factor", fortran_name="SLPF")
 
 
 class CeresMaizeParams(Params):
@@ -169,10 +221,12 @@ class CeresMaizeParams(Params):
     cultivar: CeresCultivar
     species: CeresSpecies
     soil: CeresSoil
-    pltpop: Array = field(unit="plant m-2", description="plant population at sowing", fortran_name="PLTPOP")
-    sdepth: Array = field(unit="cm", description="sowing depth", fortran_name="SDEPTH")
-    rowspc: Array = field(unit="cm", description="row spacing", fortran_name="ROWSPC")
-    yrplt: Array = field(unit="YYYYDDD", description="sowing date", fortran_name="YRPLT")
+    pltpop: Array = field(
+        dims=(), unit="plant m-2", description="plant population at sowing", fortran_name="PLTPOP"
+    )
+    sdepth: Array = field(dims=(), unit="cm", description="sowing depth", fortran_name="SDEPTH")
+    rowspc: Array = field(dims=(), unit="cm", description="row spacing", fortran_name="ROWSPC")
+    yrplt: Array = field(dims=(), unit="YYYYDDD", description="sowing date", fortran_name="YRPLT")
     iswwat: bool = field(
         description="water balance on (DSSAT ISWWAT = Y)", fortran_name="ISWWAT", static=True, default=True
     )

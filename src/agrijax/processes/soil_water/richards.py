@@ -164,11 +164,16 @@ class RichardsGrid(Params):
     """Vertex-centred finite-volume grid (RZWQM ``TL``, ``DELZ``)."""
 
     tl: Array = field(
-        unit="cm", description="cell (layer) thickness, sums to the profile depth", fortran_name="TL"
+        dims=("n_node",),
+        unit="cm",
+        description="cell (layer) thickness, sums to the profile depth",
+        fortran_name="TL",
     )
-    delz: Array = field(unit="cm", description="distance between node i and node i+1", fortran_name="DELZ")
+    delz: Array = field(
+        dims=("n_node-1",), unit="cm", description="distance between node i and node i+1", fortran_name="DELZ"
+    )
     dz_top: Array = field(
-        unit="cm", description="distance from the upper ghost node to node 0", fortran_name="DELZ(1)"
+        dims=(), unit="cm", description="distance from the upper ghost node to node 0", fortran_name="DELZ(1)"
     )
 
     @property
@@ -252,13 +257,14 @@ class RichardsParams(Params):
     soil: SoilHydraulicParams
     grid: RichardsGrid
     h_min: Array = field(
+        dims=(),
         unit="cm",
         description="dry-end head limit (ghost head of the dry BC, clamp)",
         fortran_name="HMIN",
         default=H_CLAMP_RZWQM,
     )
     pond_max: Array = field(
-        unit="cm", description="largest surface ponding depth before runoff (0 = RZWQM)", default=0.0
+        dims=(), unit="cm", description="largest surface ponding depth before runoff (0 = RZWQM)", default=0.0
     )
     config: RichardsConfig = eqx.field(static=True, default=RichardsConfig())
 
@@ -267,27 +273,38 @@ class SoilWaterFluxes(State):
     """Daily totals [cm d-1] and diagnostics of one Richards day."""
 
     infiltration: Array = field(
-        unit="cm d-1", description="water that entered the soil at the surface", fortran_name="TQF"
+        dims=(), unit="cm d-1", description="water that entered the soil at the surface", fortran_name="TQF"
     )
-    evaporation: Array = field(unit="cm d-1", description="actual soil evaporation", fortran_name="AEVAP")
+    evaporation: Array = field(
+        dims=(), unit="cm d-1", description="actual soil evaporation", fortran_name="AEVAP"
+    )
     drainage: Array = field(
-        unit="cm d-1", description="free drainage out of the profile bottom", fortran_name="DEEP"
+        dims=(), unit="cm d-1", description="free drainage out of the profile bottom", fortran_name="DEEP"
     )
-    uptake: Array = field(unit="cm d-1", description="actual root water uptake (sink after the h_min cut)")
-    runoff: Array = field(unit="cm d-1", description="supply that neither infiltrated nor stayed ponded")
+    uptake: Array = field(
+        dims=(), unit="cm d-1", description="actual root water uptake (sink after the h_min cut)"
+    )
+    runoff: Array = field(
+        dims=(), unit="cm d-1", description="supply that neither infiltrated nor stayed ponded"
+    )
     evaporation_deficit: Array = field(
-        unit="cm d-1", description="evaporation demand the soil could not supply"
+        dims=(), unit="cm d-1", description="evaporation demand the soil could not supply"
     )
-    uptake_cut: Array = field(unit="cm d-1", description="uptake removed because a node was at h_min")
+    uptake_cut: Array = field(
+        dims=(), unit="cm d-1", description="uptake removed because a node was at h_min"
+    )
     balance_error: Array = field(
-        unit="cm", description="d(storage + pond) - (supply - evaporation - drainage - uptake - runoff)"
+        dims=(),
+        unit="cm",
+        description="d(storage + pond) - (supply - evaporation - drainage - uptake - runoff)",
     )
     max_theta_residual: Array = field(
+        dims=(),
         unit="cm3 cm-3",
         description="max |theta - theta(h)| over the day's sub-steps (unconverged iterations)",
     )
     n_clamp: Array = field(
-        unit="-", description="clamp activations of the head iterate during the day (should be 0)"
+        dims=(), unit="-", description="clamp activations of the head iterate during the day (should be 0)"
     )
 
 
@@ -302,7 +319,7 @@ class SoilWater(State):
         fortran_name="THETA",
         dims="n_node",
     )
-    pond: Array = field(unit="cm", description="surface ponding depth")
+    pond: Array = field(dims=(), unit="cm", description="surface ponding depth")
 
     @classmethod
     def from_theta(cls, theta: Any, soil: SoilHydraulicParams) -> SoilWater:
@@ -735,6 +752,39 @@ def richards_day(
     writes=("soil_water",),
     source="Ahuja et al. (2000) RZWQM ch. 3; Celia et al. (1990); RZWQM2 Rzrich.for RICHRD",
     fortran_name="RICHRD",
+    key="soil_water/richards@rzwqm2-4.6:faithful",
+    provenance="reference_only_conventions",
+    grid="rzwqm2_nodes",
+    ref_build="RZWQM2 4.6 main_ryzen5_avx512",
+    sources=(
+        ("mixed-form residual, theta(h) storage term", "Celia, Bouloutas & Zarba (1990) WRR 26, 1483-1496"),
+        ("Richards equation, boundary switching, free drainage", "Ahuja et al. (2000) RZWQM, ch. 3"),
+        ("modified Brooks-Corey theta(h), K(h)", "Ahuja et al. (2000) ch. 3 (hydraulics.py)"),
+        (
+            "geometric-mean face K, CHKBC head limits, IREBOT=2 bottom, no uptake at Hmin",
+            "RZWQM2 RICHRD / CHKBC / NODFLX / POINTK (Rzrich.for), read for conventions",
+        ),
+    ),
+    deviates=(
+        (
+            "the surface supply is the water that infiltrates; the Green-Ampt INFIL step is not part of it",
+            "RZWQM2 fills the profile with INFIL and Richards only redistributes; INFIL is not ported yet",
+            "richards.py module docstring; tests/integration/test_richards_catpa.py (.ana column 5)",
+        ),
+        (
+            "ponded infiltration capacity uses the upstream conductivity K_s, not the geometric mean",
+            "the geometric mean makes the capacity grow as a dry surface node wets and sends Newton to the "
+            "dry end; RZWQM2 never meets the case because its rain goes through INFIL",
+            "richards.py comment at the ponded limit in the surface-flux function",
+        ),
+        (
+            "default time_scheme='implicit' (alpha = 1 on every sub-step) and Newton on a transformed head; "
+            "RZWQM2 uses alpha = 1/2 after the first sub-step and modified Picard",
+            "stable with a fixed small iteration count; time_scheme='rzwqm', jacobian='picard' give the "
+            "reference scheme",
+            "tests/unit/test_richards.py convergence study; tests/integration/test_richards_dump.py",
+        ),
+    ),
 )
 def richards_redistribution(
     state: RichardsState, params: RichardsParams, forcing_t: RichardsForcing

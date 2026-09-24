@@ -2,7 +2,7 @@
 
 All three are :class:`equinox.Module` subclasses: immutable dataclasses that are
 also JAX pytrees. Fields carry metadata (``unit``, ``description``,
-``fortran_name``) through :func:`field`, from which ``io.schema`` builds the
+``fortran_name``, ``dims``) through :func:`field`, from which ``io.schema`` builds the
 variable and parameter tables of the documentation and the file mapping.
 
 Conventions:
@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import equinox as eqx
 import jax.tree_util as jtu
 from jax.core import Tracer
+
+from agrijax.core.dims import parse_dims
 
 if TYPE_CHECKING:
     from agrijax.core.organs import OrganQueue
@@ -50,9 +52,16 @@ def field(
     unit: str = "",
     description: str = "",
     fortran_name: str = "",
-    dims: Sequence[str] | str | None = None,
+    dims: Sequence[str | int] | str | int | None = None,
     static: bool = False,
     converter: Callable[[Any], Any] | None = None,
+    grid: str | None = None,
+    category: str | None = None,
+    pcat: str | None = None,
+    bounds: tuple[float, float] | None = None,
+    ref: str | None = None,
+    icasa: str | None = None,
+    source: str | None = None,
     **kwargs: Any,
 ) -> Any:
     """Declare a pytree field with physical metadata.
@@ -66,22 +75,44 @@ def field(
     fortran_name:
         Name of the corresponding variable in the Fortran oracle (RZWQM or DSSAT), if any.
     dims:
-        Symbolic dimension names, e.g. ``("n_crop", "n_node")``; documentation only.
+        Axis names from the registry :data:`agrijax.core.dims.DIMS`, e.g. ``("n_crop", "n_node")``;
+        ``()`` for a scalar, ``None`` (the default) for undeclared. Validated here (an unknown
+        axis raises :class:`~agrijax.core.dims.DimsError` at class definition) and checked
+        against leaf shapes by :func:`agrijax.core.dims.check_tree_dims` when the runtime traces
+        a model.
     static:
         Passed through to :func:`equinox.field`; a static field is not a pytree leaf.
     converter:
         Passed through to :func:`equinox.field`.
+    grid, category, pcat, bounds, ref, icasa, source:
+        Optional metadata of the fixed field schema (plan A9): the grid a layered field lives on,
+        the variable category, the parameter category, physical ``(low, high)`` bounds, the
+        reference model and variable, the ICASA code and the literature source. Recorded only;
+        required as modules need them. Omitted keys are not stored.
     **kwargs:
         Any other :func:`dataclasses.field` keyword (``default``, ``default_factory``).
     """
-    if isinstance(dims, str):
+    if isinstance(dims, (str, int)):
         dims = (dims,)
-    metadata = {
+    if dims is not None:
+        dims = tuple(str(d) for d in dims)
+        parse_dims(dims)  # an unknown axis name fails at class definition (DimsError)
+    metadata: dict[str, Any] = {
         "unit": unit,
         "description": description,
         "fortran_name": fortran_name,
         "dims": tuple(dims) if dims is not None else None,
     }
+    optional = {
+        "grid": grid,
+        "category": category,
+        "pcat": pcat,
+        "bounds": bounds,
+        "ref": ref,
+        "icasa": icasa,
+        "source": source,
+    }
+    metadata.update({k: v for k, v in optional.items() if v is not None})
     if converter is not None:
         kwargs["converter"] = converter
     return eqx.field(static=static, metadata=metadata, **kwargs)

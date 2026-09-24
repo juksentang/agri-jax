@@ -58,7 +58,7 @@ def _c(value: float, unit: str, description: str, source: str, fortran: str, *, 
         "unit": unit,
         "description": description,
         "fortran_name": "",
-        "dims": None,
+        "dims": (),
         "source": f"DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/{source}",
         "fortran": fortran,
     }

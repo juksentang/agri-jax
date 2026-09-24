@@ -208,53 +208,74 @@ class SoilHydraulicParams(Params):
 
     # ---- rec1: primary retention and conductivity parameters -----------------
     hb: Array = field(
+        dims=("n_horizon?",),
         unit="cm",
         description="bubbling (air-entry) pressure of the theta(h) curve, > 0",
         fortran_name="SOILHP(1)",
     )
     lambda_: Array = field(
-        unit="-", description="Brooks-Corey pore size distribution index", fortran_name="SOILHP(2)"
+        dims=("n_horizon?",),
+        unit="-",
+        description="Brooks-Corey pore size distribution index",
+        fortran_name="SOILHP(2)",
     )
     eps: Array = field(
-        unit="-", description="exponent of the K(h) curve below hb_k (N2 in SOILPR)", fortran_name="SOILHP(3)"
+        dims=("n_horizon?",),
+        unit="-",
+        description="exponent of the K(h) curve below hb_k (N2 in SOILPR)",
+        fortran_name="SOILHP(3)",
     )
     ksat: Array = field(
-        unit="cm hr-1", description="saturated hydraulic conductivity", fortran_name="SOILHP(4)"
+        dims=("n_horizon?",),
+        unit="cm hr-1",
+        description="saturated hydraulic conductivity",
+        fortran_name="SOILHP(4)",
     )
-    theta_r: Array = field(unit="cm3 cm-3", description="residual water content", fortran_name="SOILHP(5)")
-    theta_s: Array = field(unit="cm3 cm-3", description="saturated water content", fortran_name="SOILHP(6)")
+    theta_r: Array = field(
+        dims=("n_horizon?",), unit="cm3 cm-3", description="residual water content", fortran_name="SOILHP(5)"
+    )
+    theta_s: Array = field(
+        dims=("n_horizon?",), unit="cm3 cm-3", description="saturated water content", fortran_name="SOILHP(6)"
+    )
     # ---- rec2 ----------------------------------------------------------------
     fc13: Array = field(
+        dims=("n_horizon?",),
         unit="cm3 cm-3",
         description="water content at 1/3 bar (-333 cm); derived from the curve by RZWQM at start-up",
         fortran_name="SOILHP(7)",
     )
     fc110: Array = field(
+        dims=("n_horizon?",),
         unit="cm3 cm-3",
         description="water content at 1/10 bar (-100 cm); derived from the curve by RZWQM at start-up",
         fortran_name="SOILHP(8)",
     )
     wp: Array = field(
+        dims=("n_horizon?",),
         unit="cm3 cm-3",
         description="water content at 15 bar (-15000 cm); derived from the curve by RZWQM at start-up",
         fortran_name="SOILHP(9)",
     )
     hb_k: Array = field(
+        dims=("n_horizon?",),
         unit="cm",
         description="bubbling pressure of the K(h) curve, > 0 (S1 in SOILPR)",
         fortran_name="SOILHP(10)",
     )
     c2: Array = field(
+        dims=("n_horizon?",),
         unit="cm hr-1 cm^eps",
         description="second intercept of the K(h) curve; RZWQM overwrites it with ksat * hb_k**(eps - n1)",
         fortran_name="SOILHP(11)",
     )
     n1: Array = field(
+        dims=("n_horizon?",),
         unit="-",
         description="exponent of the K(h) curve between -hb_k and 0 (0 in every RZWQM reference class)",
         fortran_name="SOILHP(12)",
     )
     a1: Array = field(
+        dims=("n_horizon?",),
         unit="cm3 cm-3 cm-1",
         description="slope of the linear theta(h) segment between -hb and 0 (0 = classical Brooks-Corey)",
         fortran_name="SOILHP(13)",

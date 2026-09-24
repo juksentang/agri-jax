@@ -39,6 +39,7 @@ from agrijax.core.model import Model
 from agrijax.core.process import process
 from agrijax.core.state import Forcing, State, field
 from agrijax.processes.pet import PETParams, PETSiteParams, shuttleworth_wallace
+from agrijax.processes.pet.daily import SW_DEVIATES, SW_SOURCES
 
 __all__ = [
     "OUTPUTS",
@@ -72,28 +73,32 @@ OUTPUTS: tuple[str, ...] = (
 class DemoFluxes(State):
     """Today's Shuttleworth-Wallace potential fluxes."""
 
-    transpiration: Array = field(unit="cm d-1", description="potential transpiration", fortran_name="PET")
+    transpiration: Array = field(
+        dims=(), unit="cm d-1", description="potential transpiration", fortran_name="PET"
+    )
     soil_evaporation: Array = field(
-        unit="cm d-1", description="potential soil evaporation", fortran_name="PES"
+        dims=(), unit="cm d-1", description="potential soil evaporation", fortran_name="PES"
     )
     residue_evaporation: Array = field(
-        unit="cm d-1", description="potential residue evaporation", fortran_name="PER"
+        dims=(), unit="cm d-1", description="potential residue evaporation", fortran_name="PER"
     )
 
 
 class DemoTotals(State):
     """Running sums since the start of the run."""
 
-    transpiration: Array = field(unit="cm", description="cumulative potential transpiration")
-    evaporation: Array = field(unit="cm", description="cumulative potential soil + residue evaporation")
-    days: Array = field(unit="d", description="number of days simulated")
+    transpiration: Array = field(dims=(), unit="cm", description="cumulative potential transpiration")
+    evaporation: Array = field(
+        dims=(), unit="cm", description="cumulative potential soil + residue evaporation"
+    )
+    days: Array = field(dims=(), unit="d", description="number of days simulated")
 
 
 class DemoState(State):
     """State of the CA-TPA PET demo model."""
 
     theta_surface: Array = field(
-        unit="cm3 cm-3", description="water content of the surface node", fortran_name="THETA(1)"
+        dims=(), unit="cm3 cm-3", description="water content of the surface node", fortran_name="THETA(1)"
     )
     pet: DemoFluxes = field(description="today's S-W potential fluxes")
     totals: DemoTotals = field(description="running sums since the start of the run")
@@ -122,6 +127,20 @@ class DemoForcing(Forcing):
     writes=("pet",),
     source="Shuttleworth & Wallace (1985); Farahani & Ahuja (1996); RZWQM2 Rzpet.for POTEVPHR",
     fortran_name="POTEVPHR",
+    key="pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy",
+    provenance="reference_only_conventions",
+    grid="point",
+    ref_build="RZWQM2 4.6 main_ryzen5_avx512",
+    sources=SW_SOURCES,
+    deviates=(
+        *SW_DEVIATES,
+        (
+            "canopy LAI and height come from the forcing, green LAI = total LAI, dry residue, no crust, "
+            "no roughness",
+            "demonstration of S-W PET on a prescribed canopy (no crop module)",
+            "catpa_pet_demo.py sw_pet_from_forcing docstring",
+        ),
+    ),
 )
 def sw_pet_from_forcing(state: DemoState, params: PETSiteParams, forcing_t: DemoForcing) -> DemoState:
     """Daily three-source Shuttleworth-Wallace PET [cm d-1] with the canopy taken from the forcing.
@@ -166,6 +185,11 @@ def sw_pet_from_forcing(state: DemoState, params: PETSiteParams, forcing_t: Demo
     reads=("pet", "totals"),
     writes=("totals",),
     source="bookkeeping; no literature",
+    key="diagnostic/catpa_pet_totals@none:demo",
+    provenance="equations_only",
+    grid="point",
+    sources=(("running sums of transpiration and soil + residue evaporation, day count", "bookkeeping"),),
+    deviates=(),
 )
 def accumulate_totals(state: DemoState, params: PETSiteParams, forcing_t: DemoForcing) -> DemoState:
     """Add today's fluxes to the running sums [cm] and count the day.

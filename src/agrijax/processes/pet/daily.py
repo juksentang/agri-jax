@@ -43,43 +43,77 @@ __all__ = [
     "pet_shuttleworth_wallace",
 ]
 
+#: registry metadata of the Shuttleworth-Wallace kernel, shared by the processes that wrap it
+SW_SOURCES = (
+    (
+        "three-source (canopy, soil, residue) combination equations",
+        "Shuttleworth & Wallace (1985); Farahani & Ahuja (1996) eqs. 5-8, 16-18",
+    ),
+    ("saturation vapour pressure", "Bosen (1960) form, as RZWQM2 ECONST (Rzpet.for)"),
+    ("clear-sky radiation, albedo, net radiation", "RZWQM2 MAXSW / CSRAD / ALBSWS / NETRAD (Rzpet.for)"),
+    ("aerodynamic, surface and residue resistances", "Farahani & Ahuja (1996); RZWQM2 RESISThr (Rzpet.for)"),
+)
+SW_DEVIATES = (
+    (
+        "snow sublimation (SNOWQE), snow long-wave, pan evaporation, hourly / SHAW / PENFLUX paths, slope "
+        "and aspect, standing stubble and plastic mulch are not implemented",
+        "outside the daily configuration that is validated",
+        "shuttleworth_wallace.py shuttleworth_wallace docstring",
+    ),
+    (
+        "wetness-dependent soil surface resistance (rzwqm.dat item 11 = -1, -2) is not implemented",
+        "only the constant rss is used in the validated scenarios",
+        "shuttleworth_wallace.py resistances docstring",
+    ),
+    (
+        "infinite resistances are masked instead of 1e30; the sunset angle and vapour-pressure square root "
+        "are guarded",
+        "finite values and gradients on every branch",
+        "tests/unit/test_pet_grad_finite.py",
+    ),
+)
+
 
 class SurfaceState(State):
     """Canopy, residue and surface-soil state read by the PET processes."""
 
-    lai: Array = field(unit="m2 m-2", description="green leaf area index", fortran_name="LAI")
+    lai: Array = field(dims=(), unit="m2 m-2", description="green leaf area index", fortran_name="LAI")
     tlai: Array = field(
-        unit="m2 m-2", description="total (green + senesced) leaf area index", fortran_name="TLAI"
+        dims=(), unit="m2 m-2", description="total (green + senesced) leaf area index", fortran_name="TLAI"
     )
-    height_cm: Array = field(unit="cm", description="canopy height", fortran_name="HEIGHT")
+    height_cm: Array = field(dims=(), unit="cm", description="canopy height", fortran_name="HEIGHT")
     theta_surface: Array = field(
-        unit="cm3 cm-3", description="water content of the surface node", fortran_name="THETA(1)"
+        dims=(), unit="cm3 cm-3", description="water content of the surface node", fortran_name="THETA(1)"
     )
-    residue_mass: Array = field(unit="kg ha-1", description="flat residue mass", fortran_name="RM")
+    residue_mass: Array = field(dims=(), unit="kg ha-1", description="flat residue mass", fortran_name="RM")
     residue_age: Array = field(
-        unit="d", description="days since the last residue addition", fortran_name="RESAGE"
+        dims=(), unit="d", description="days since the last residue addition", fortran_name="RESAGE"
     )
-    residue_wet: Array = field(unit="-", description="> 0 when the residue is wet", fortran_name="IRESW")
+    residue_wet: Array = field(
+        dims=(), unit="-", description="> 0 when the residue is wet", fortran_name="IRESW"
+    )
 
 
 class PETFluxes(State):
     """Potential fluxes written by the PET processes."""
 
-    transpiration: Array = field(unit="cm d-1", description="S-W potential transpiration", fortran_name="PET")
+    transpiration: Array = field(
+        dims=(), unit="cm d-1", description="S-W potential transpiration", fortran_name="PET"
+    )
     soil_evaporation: Array = field(
-        unit="cm d-1", description="S-W potential soil evaporation", fortran_name="PES"
+        dims=(), unit="cm d-1", description="S-W potential soil evaporation", fortran_name="PES"
     )
     residue_evaporation: Array = field(
-        unit="cm d-1", description="S-W potential residue evaporation", fortran_name="PER"
+        dims=(), unit="cm d-1", description="S-W potential residue evaporation", fortran_name="PER"
     )
     reference_short: Array = field(
-        unit="mm d-1", description="ASCE short-reference ET (grass)", fortran_name="ETO"
+        dims=(), unit="mm d-1", description="ASCE short-reference ET (grass)", fortran_name="ETO"
     )
     reference_tall: Array = field(
-        unit="mm d-1", description="ASCE tall-reference ET (alfalfa)", fortran_name="ETR"
+        dims=(), unit="mm d-1", description="ASCE tall-reference ET (alfalfa)", fortran_name="ETR"
     )
     eo_priestley_taylor: Array = field(
-        unit="mm d-1", description="DSSAT PETPT potential ET", fortran_name="EO"
+        dims=(), unit="mm d-1", description="DSSAT PETPT potential ET", fortran_name="EO"
     )
 
 
@@ -100,20 +134,29 @@ class PETSiteParams(Params):
     """Site and surface parameters of the PET processes."""
 
     pet: PETParams
-    elevation: Array = field(unit="m", description="site elevation", fortran_name="ELEV")
-    latitude: Array = field(unit="rad", description="site latitude", fortran_name="ALAT")
+    elevation: Array = field(dims=(), unit="m", description="site elevation", fortran_name="ELEV")
+    latitude: Array = field(dims=(), unit="rad", description="site latitude", fortran_name="ALAT")
     wc13: Array = field(
-        unit="cm3 cm-3", description="1/3-bar water content of the surface layer", fortran_name="SOILHP(7)"
+        dims=(),
+        unit="cm3 cm-3",
+        description="1/3-bar water content of the surface layer",
+        fortran_name="SOILHP(7)",
     )
     wc15: Array = field(
-        unit="cm3 cm-3", description="15-bar water content of the surface layer", fortran_name="SOILHP(9)"
+        dims=(),
+        unit="cm3 cm-3",
+        description="15-bar water content of the surface layer",
+        fortran_name="SOILHP(9)",
     )
-    wind_height: Array = field(unit="m", description="wind measurement height", fortran_name="XW")
+    wind_height: Array = field(dims=(), unit="m", description="wind measurement height", fortran_name="XW")
     albedo_soil: Array = field(
-        unit="-", description="DSSAT soil albedo MSALB (Priestley-Taylor)", fortran_name="MSALB"
+        dims=(), unit="-", description="DSSAT soil albedo MSALB (Priestley-Taylor)", fortran_name="MSALB"
     )
     trat: Array = field(
-        unit="-", description="CO2 factor on stomatal resistance (1 at 330 ppm)", fortran_name="TRATIO"
+        dims=(),
+        unit="-",
+        description="CO2 factor on stomatal resistance (1 at 330 ppm)",
+        fortran_name="TRATIO",
     )
     rainfall_zone: int = field(
         description="1 arid, 2 semi-arid, 3 humid", fortran_name="IRAIN", static=True, default=2
@@ -145,6 +188,12 @@ class DailyWeather(Forcing):
     writes=("pet.transpiration", "pet.soil_evaporation", "pet.residue_evaporation"),
     source="Shuttleworth & Wallace (1985); Farahani & Ahuja (1996); RZWQM2 Rzpet.for POTEVPHR",
     fortran_name="POTEVPHR",
+    key="pet/shuttleworth_wallace@rzwqm2-4.6:faithful",
+    provenance="reference_only_conventions",
+    grid="point",
+    ref_build="RZWQM2 4.6 main_ryzen5_avx512",
+    sources=SW_SOURCES,
+    deviates=SW_DEVIATES,
 )
 def pet_shuttleworth_wallace(state: PETState, params: PETSiteParams, forcing_t: DailyWeather) -> PETState:
     """Daily three-source Shuttleworth-Wallace potential transpiration and evaporation [cm d-1].
@@ -192,6 +241,37 @@ def pet_shuttleworth_wallace(state: PETState, params: PETSiteParams, forcing_t: 
     writes=("pet.reference_short", "pet.reference_tall"),
     source="ASCE-EWRI (2005); RZWQM2 REF_ET.FOR",
     fortran_name="REF_ET",
+    key="pet/asce_reference@asce-ewri-2005:faithful",
+    provenance="equations_only",
+    grid="point",
+    sources=(
+        ("standardized reference ET, daily Cn / Cd (short, tall)", "ASCE-EWRI (2005) eq. 1, Table 1"),
+        ("extraterrestrial, clear-sky and net radiation", "ASCE-EWRI (2005) eqs. 17-24"),
+        ("wind speed at 2 m from the measurement height", "ASCE-EWRI (2005) log profile, as REF_ET.FOR"),
+    ),
+    deviates=(
+        (
+            "actual vapour pressure from the daily mean RH (FAO-56 eq. 17 form), not RHmax / RHmin",
+            "the daily forcing carries mean RH only",
+            "penman_monteith.py asce_reference_et docstring",
+        ),
+        (
+            "trat multiplies Cd u2 (DSSAT TRATIO CO2 hook, 1.0 at 330 ppm)",
+            "kept for the reference-model coupling; not part of the ASCE equation",
+            "penman_monteith.py asce_reference_et docstring",
+        ),
+        (
+            "params.asce_variant='rzwqm' switches to the RZWQM2 REF_ET.FOR constants (sigma, day angle, "
+            "Kelvin offset); a static parameter inside one process, not a sibling key",
+            "the same kernel serves both references; D6 turns it into a sibling @rzwqm2-4.6 variant",
+            "tests/integration/test_pet_oracle.py::test_asce_reference_et_against_ana (1e-3 mm/d)",
+        ),
+        (
+            "the hourly branch of REF_ET.FOR is not implemented",
+            "the model is daily",
+            "penman_monteith.py asce_reference_et docstring",
+        ),
+    ),
 )
 def pet_asce_reference(state: PETState, params: PETSiteParams, forcing_t: DailyWeather) -> PETState:
     """Daily ASCE standardized reference ET, short and tall surfaces [mm d-1].
@@ -224,6 +304,24 @@ def pet_asce_reference(state: PETState, params: PETSiteParams, forcing_t: DailyW
     writes=("pet.eo_priestley_taylor",),
     source="Priestley & Taylor (1972); Ritchie (1972); DSSAT-CSM SPAM/PET.for PETPT",
     fortran_name="PETPT",
+    key="pet/priestley_taylor@dssat-4.8.6.0:faithful",
+    provenance="translated_bsd3",
+    grid="point",
+    ref_build="DSSAT-CSM v4.8.6.0 source, SPAM/PET.for",
+    sources=(
+        ("equilibrium evaporation, LAI-dependent albedo", "Priestley & Taylor (1972); Ritchie (1972)"),
+        (
+            "TD weighting, Tmax > 35 / Tmax < 5 branches, 1e-4 mm floor",
+            "DSSAT-CSM SPAM/PET.for PETPT, lines 871-918 (BSD-3)",
+        ),
+    ),
+    deviates=(
+        (
+            "DSSAT single precision is not reproduced",
+            "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
+            "priestley_taylor.py docstring",
+        ),
+    ),
 )
 def pet_priestley_taylor(state: PETState, params: PETSiteParams, forcing_t: DailyWeather) -> PETState:
     """DSSAT-CSM Priestley-Taylor potential ET [mm d-1].

@@ -19,6 +19,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
+from agrijax.core.dims import check_tree_dims
 from agrijax.core.model import Model
 from agrijax.core.process import check_enabled
 
@@ -46,7 +47,13 @@ def run(
     Returns the per-day outputs (each leaf ``[T, ...]``); with ``return_final=True``
     returns ``(final_state, outputs)``. Not jitted itself: wrap in ``jax.jit`` or use
     :func:`run_batch`.
+
+    Before the scan, every leaf of ``params``, ``forcing`` and ``state0`` is checked against its
+    declared ``dims`` (:func:`agrijax.core.dims.check_tree_dims`, a trace-time walk over the
+    shapes that adds nothing to the compiled program); a mismatch raises
+    :class:`~agrijax.core.dims.DimsError` naming the field path.
     """
+    check_tree_dims({"params": params, "forcing": forcing, "state": state0})
     step = _day_step(model, checkpoint)
 
     def body(state: Any, forcing_t: Any) -> tuple[Any, Any]:
