@@ -92,11 +92,20 @@ code{font-family:var(--mono);font-size:.92em;background:var(--surface2);padding:
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
 .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
 /* why */
-.why{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:14px}
-.wcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:8px}
+.why{display:grid;grid-template-columns:1fr;gap:22px;margin-top:14px}
+.wcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
+.wcard h3{font-size:22px}
 .wcard canvas{width:100%;height:auto;display:block;max-width:100%;border-radius:8px;background:var(--surface2)}
-.wcard p{font-size:14px;color:var(--muted);margin:0}
+.wcard p{font-size:16px;color:var(--muted);margin:0;max-width:none}
+.cap{font-size:15px}
 button.small{padding:6px 12px;font-size:13px;align-self:flex-start}
+/* captions & progress */
+.cap{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:13px;color:var(--ink);min-height:22px}
+.cap .stage{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+.prog{height:4px;background:var(--surface2);border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--jax);transition:width .15s linear}
+.prog.g i{background:var(--grad)} .prog.f i{background:var(--fortran)}
+.panel .cap,.panel .prog{margin:0 16px} .panel .prog{margin-bottom:10px}
 /* cards */
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:18px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
@@ -129,21 +138,25 @@ a{color:var(--jax)}
 <section id="race">
   <div class="eyebrow">01 · 同一个任务，两种算法形态</div>
   <h2>把十万组参数丢进去，看谁先算完</h2>
-  <p class="muted">动画时钟：屏幕上 1 秒 = 真实 1 分钟。左边是 32 核工作站并发跑 Fortran 二进制，每次 24 秒、落 99 个文件；右边是一块 GPU 上所有样本同步逐日推进。</p>
+  <p class="muted">左边按真实比例走：屏幕 1 秒 = 真实 1 分钟，32 核工作站并发跑 Fortran 二进制，每次 24 秒、落 99 个文件。右边为了看清过程放慢了 6 倍：一块 GPU 上十万个样本同步逐日推进，真实用时 82 秒。</p>
   <div class="controls">
     <button id="play">▶ 开始</button>
     <button id="replay" class="ghost">↻ 重来</button>
-    <span class="clock">真实时间 <b id="clock">0 min</b> · 比例 1 s = 1 min</span>
+    <span class="clock">真实时间 <b id="clock">0 min</b></span>
   </div>
   <div class="race">
     <div class="panel">
       <div class="head"><h3><span class="dot f"></span>Fortran · 逐个运行</h3><span class="tag">32 核并发</span></div>
       <canvas id="cvF" width="520" height="300"></canvas>
+      <div class="cap"><span id="fCap">每个核一次只能跑一个模拟，跑完写文件，再拿下一个</span><span class="stage" id="fStage">真实比例</span></div>
+      <div class="prog f"><i id="fProg"></i></div>
       <div class="foot"><div>已完成<b class="num" id="fDone">0</b></div><div>写出文件<b class="num" id="fFiles">0 GB</b></div><div>预计还要<b class="num" id="fEta">21 h</b></div></div>
     </div>
     <div class="panel">
       <div class="head"><h3><span class="dot j"></span>Agri-JAX · 全部同步</h3><span class="tag">1 × H100</span></div>
       <canvas id="cvJ" width="520" height="300"></canvas>
+      <div class="cap"><span id="jCap">十万组参数装进一个数组，等待开始</span><span class="stage" id="jStage">放慢 6 倍</span></div>
+      <div class="prog"><i id="jProg"></i></div>
       <div class="foot"><div>模拟日<b class="num" id="jDay">0 / 3287</b></div><div>同步样本<b class="num" id="jN">100,000</b></div><div>状态<b id="jState">待命</b></div></div>
     </div>
   </div>
@@ -220,7 +233,7 @@ a{color:var(--jax)}
   <h2>一次反向传播，全部参数的梯度</h2>
   <p class="muted">前向沿天数走一遍，反向沿同一条路走回来，每个参数对产量的影响同时算出。有限差分要对每个参数各跑一次。</p>
   <div class="gradbox">
-    <canvas id="cvG" width="1000" height="220"></canvas>
+    <canvas id="cvG" data-anim="strip" width="1000" height="240"></canvas>
     <div class="legend"><span><i style="background:var(--jax)"></i>前向：状态逐日推进</span><span><i style="background:var(--grad)"></i>反向：伴随量逐日回传</span><span><i style="background:var(--surface2);border:1px solid var(--line)"></i>参数灵敏度 ∂产量/∂参数 <span class="tag ill">示意</span></span></div>
     <div class="controls"><button id="gplay" class="ghost">▶ 播放前向与反向</button></div>
   </div>
@@ -228,37 +241,37 @@ a{color:var(--jax)}
   <div class="why">
     <div class="wcard">
       <h3>为什么一次反向就够，有限差分却要跑 P+1 次</h3>
-      <canvas data-anim="fd" width="480" height="230"></canvas>
+      <canvas data-anim="fd" width="1200" height="575"></canvas>
       <p>有限差分要对每个参数各扰动一次、各跑一遍前向：30 个参数就是 31 次九年模拟。反向模式把链式法则沿同一张计算图倒着走一遍，所有参数的导数在一趟里同时累积，成本约等于几次前向，且与参数个数无关。</p>
       <button class="ghost small" data-replay="fd">↻ 重播</button>
     </div>
     <div class="wcard">
       <h3>为什么高维标定不再靠撒点</h3>
-      <canvas data-anim="lhs" width="480" height="230"></canvas>
+      <canvas data-anim="lhs" width="1200" height="575"></canvas>
       <p>拉丁超立方是在参数空间里撒点后挑最好的，维数一高样本就稀得像没撒。有了梯度，每一步都知道往哪走，几十步到谷底；成本几乎不随维数增长，七个站点一百多个参数联合标定就变得可行。</p>
       <button class="ghost small" data-replay="lhs">↻ 重播</button>
     </div>
     <div class="wcard">
       <h3>为什么能说清哪些参数"辨识不出来"</h3>
-      <canvas data-anim="ident" width="480" height="230"></canvas>
+      <canvas data-anim="ident" width="1200" height="575"></canvas>
       <p>损失面在有的方向陡、有的方向平。平的方向就是数据约束不住的参数组合，比如只有 ET 观测时的 K<sub>sat</sub> 与 λ。Fisher 信息矩阵是雅可比的转置乘雅可比，一次反向传播就能算，它的特征值谱直接给出可辨识方向的个数。</p>
       <button class="ghost small" data-replay="ident">↻ 重播</button>
     </div>
     <div class="wcard">
       <h3>为什么是一千条短链，不是四条长链</h3>
-      <canvas data-anim="chains" width="480" height="230"></canvas>
+      <canvas data-anim="chains" width="1200" height="575"></canvas>
       <p>NUTS 每一步都要梯度，一条链是串行的，每步有固定延迟。但 GPU 上四条链和一千条链在 vmap 里花的时间一样多。所以正确的形态是很多条短链同时采样，总样本数不变，墙钟从几十小时降到一小时。</p>
       <button class="ghost small" data-replay="chains">↻ 重播</button>
     </div>
     <div class="wcard">
       <h3>为什么能把神经网络嵌进机理模型里训练</h3>
-      <canvas data-anim="hyb" width="480" height="230"></canvas>
+      <canvas data-anim="hyb" width="1200" height="575"></canvas>
       <p>只要整条链可微，损失对网络权重的梯度就能穿过后面的机理过程流回来。于是可以只把最不确定的那个过程换成小网络，用通量塔的 ET 端到端训练，其余过程照旧守恒、照旧可解释。</p>
       <button class="ghost small" data-replay="hyb">↻ 重播</button>
     </div>
     <div class="wcard">
       <h3>为什么能回答"哪场雨决定了收成"</h3>
-      <canvas data-anim="rain" width="480" height="230"></canvas>
+      <canvas data-anim="rain" width="1200" height="575"></canvas>
       <p>反向传播不只对参数求导，对每一天的降雨、初始含水量这些输入也一样。伴随量沿季节倒着流回去，每一天的降雨对最终产量的边际贡献就同时得到，一条曲线回答归因问题。</p>
       <button class="ghost small" data-replay="rain">↻ 重播</button>
     </div>
@@ -313,6 +326,7 @@ const cvF=document.getElementById('cvF'), cvJ=document.getElementById('cvJ');
 const fx=cvF.getContext('2d'), jx=cvJ.getContext('2d');
 let t=0, playing=false, last=0, raf=null;           // t = real minutes
 const scale=1;                                        // 1 s screen = 1 min real
+const JAX_ANIM_S=14; /* screen seconds for the whole JAX run */
 const cellsX=100, cellsY=50; const lai=new Float32Array(cellsX*cellsY).fill(0);
 const seeds=new Float32Array(cellsX*cellsY); for(let i=0;i<seeds.length;i++) seeds[i]=0.6+Math.random()*0.8;
 function drawF(){
@@ -328,10 +342,22 @@ function drawF(){
   document.getElementById('fDone').textContent=fmt(done)+' / '+fmt(N);
   document.getElementById('fFiles').textContent=(GB*p).toFixed(2)+' GB';
   const remain=(N-done)*RUN_S/CORES/3600; document.getElementById('fEta').textContent= done>=N?'完成':(remain>1?remain.toFixed(1)+' h':Math.round(remain*60)+' min');
+  document.getElementById('fProg').style.width=(p*100)+'%';
+  const fc=document.getElementById('fCap'); const jaxDone=t*60>=JAX_ANIM_S;
+  fc.textContent= !playing&&t===0 ? '每个核一次只能跑一个模拟，跑完写文件，再拿下一个' : (jaxDone? `右边已经算完；左边还剩 ${(remain).toFixed(1)} 小时，磁盘上会堆到 80 GB` : `${CORES} 个核各自跑一个模拟，每 24 秒换下一个`);
 }
 function drawJ(){
   const W=cvJ.width,H=cvJ.height; jx.clearRect(0,0,W,H);
-  const day=Math.min(DAYS, Math.floor(t*60/JAX_S*DAYS)); const done=day>=DAYS;
+  const day=Math.min(DAYS, Math.floor(t*60/JAX_ANIM_S*DAYS)); const done=day>=DAYS; const yr=Math.floor(day/365)+1, doy=day%365;
+  const cap=document.getElementById('jCap'), prog=document.getElementById('jProg');
+  let c='';
+  if(!playing&&day===0) c='十万组参数装进一个数组，等待开始';
+  else if(day<3) c='第 1 天：所有样本同时算今天的蒸散、土壤水和作物';
+  else if(doy<125) c=`第 ${yr} 年冬春：土壤水逐日更新，每一天是一次对整个数组的运算`;
+  else if(doy<270) c=`第 ${yr} 年生长季：叶面积上升，每格颜色是各自参数下的 LAI`;
+  else c=`第 ${yr} 年收获后：状态清零，继续下一季`;
+  if(done) c='3287 天全部完成。真实用时 82 秒，这里放慢了 6 倍';
+  cap.textContent=c; prog.style.width=(day/DAYS*100)+'%';
   const cw=(W-20)/cellsX, ch=(H-40)/cellsY;
   const c0=hexToRgb(css('--jax-soft')), c1=hexToRgb(css('--jax'));
   for(let i=0;i<cellsX*cellsY;i++){
@@ -346,7 +372,7 @@ function drawJ(){
 }
 function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function frame(ts){ if(!playing) return; const dt=last?(ts-last)/1000:0; last=ts; t+=dt*scale; document.getElementById('clock').textContent=t<60?Math.floor(t)+' min':(t/60).toFixed(1)+' h'; drawF(); drawJ(); if(t*60/RUN_S*CORES<N) raf=requestAnimationFrame(frame); else playing=false; }
-document.getElementById('play').onclick=()=>{ if(playing){playing=false;document.getElementById('play').textContent='▶ 继续';return;} playing=true; last=0; document.getElementById('play').textContent='‖ 暂停'; if(!reduce) raf=requestAnimationFrame(frame); else { t=12; drawF(); drawJ(); document.getElementById('clock').textContent='12 min'; playing=false; } };
+document.getElementById('play').onclick=()=>{ if(playing){playing=false;document.getElementById('play').textContent='▶ 继续';return;} playing=true; last=0; document.getElementById('play').textContent='‖ 暂停'; if(!reduce) raf=requestAnimationFrame(frame); else { t=JAX_ANIM_S/60; drawF(); drawJ(); document.getElementById('clock').textContent='14 min'; playing=false; } };
 document.getElementById('replay').onclick=()=>{ playing=false; cancelAnimationFrame(raf); t=0; last=0; document.getElementById('play').textContent='▶ 开始'; document.getElementById('clock').textContent='0 min'; drawF(); drawJ(); };
 drawF(); drawJ();
 
@@ -374,28 +400,37 @@ function drawG(){
   const W=cvG.width,H=cvG.height; gx.clearRect(0,0,W,H);
   const cells=120, x0=20, x1=W-20, cw=(x1-x0)/cells, y=48, h=26;
   const fwd=Math.min(1,gt/2.2), bwd=Math.max(0,Math.min(1,(gt-2.6)/2.2)), fill=Math.max(0,Math.min(1,(gt-5)/1.2));
-  gx.fillStyle=css('--muted'); gx.font='11px IBM Plex Mono,monospace'; gx.fillText('day 1',x0,y-10); gx.fillText('day 3287',x1-52,y-10);
+  gx.fillStyle=css('--muted'); gx.font='14px IBM Plex Mono,monospace'; gx.fillText('day 1',x0,y-10); gx.fillText('day 3287',x1-70,y-10);
   for(let i=0;i<cells;i++){ const p=i/cells; gx.fillStyle= p<fwd?css('--jax'):css('--surface2'); gx.fillRect(x0+i*cw,y,cw-1,h);
     if(bwd>0 && p>1-bwd){ gx.fillStyle=css('--grad'); gx.fillRect(x0+i*cw,y+h+6,cw-1,10);} }
-  gx.fillStyle=css('--muted'); gx.fillText('前向 scan',x0,y+h+30); gx.fillText('反向 vjp',x1-58,y+h+30);
+  gx.fillStyle=css('--muted'); gx.fillText('前向 scan',x0,y+h+30); gx.fillText('反向 vjp',x1-74,y+h+30);
   const by=130, bh=70, n=PARAMS.length, bw=(x1-x0)/n;
   for(let i=0;i<n;i++){ const v=SENS[i]*fill; gx.fillStyle=css('--surface2'); gx.fillRect(x0+i*bw+6,by,bw-12,bh); gx.fillStyle=css('--grad'); gx.fillRect(x0+i*bw+6,by+bh-v*bh,bw-12,v*bh);
-    gx.fillStyle=css('--muted'); gx.font='11px IBM Plex Mono,monospace'; gx.textAlign='center'; gx.fillText(PARAMS[i],x0+i*bw+bw/2,by+bh+16); gx.textAlign='left'; }
-  gx.fillStyle=css('--ink'); gx.font='600 12px Noto Sans SC,sans-serif'; gx.fillText(fill>=1?'全部 12 个参数的梯度，一次得到':'∂产量/∂参数',x0,by-8);
+    gx.fillStyle=css('--muted'); gx.font='14px IBM Plex Mono,monospace'; gx.textAlign='center'; gx.fillText(PARAMS[i],x0+i*bw+bw/2,by+bh+18); gx.textAlign='left'; }
+  gx.fillStyle=css('--ink'); gx.font='600 15px Noto Sans SC,sans-serif'; gx.fillText(fill>=1?'全部 12 个参数的梯度，一次得到':'∂产量/∂参数',x0,by-8);
 }
-function gframe(ts){ if(!gplaying) return; const dt=glast?(ts-glast)/1000:0; glast=ts; gt+=dt; drawG(); if(gt<6.5) graf=requestAnimationFrame(gframe); else gplaying=false; }
-document.getElementById('gplay').onclick=()=>{ gt=0; glast=0; if(reduce){gt=7;drawG();return;} gplaying=true; graf=requestAnimationFrame(gframe); };
-gt= reduce?7:0; drawG();
+const G_DUR=10; function gframe(ts){ if(!gplaying) return; const dt=glast?(ts-glast)/1000:0; glast=ts; gt=Math.min(G_DUR*0.72,gt+dt*0.72); drawG(); caption('strip',gt/(G_DUR*0.72)); if(gt<G_DUR*0.72) graf=requestAnimationFrame(gframe); else gplaying=false; }
+document.getElementById('gplay').onclick=()=>{ gt=0; glast=0; if(reduce){gt=7.2;drawG();caption('strip',1);return;} gplaying=true; graf=requestAnimationFrame(gframe); };
+gt= reduce?7.2:0; drawG();
 
 /* ---------- 04 why animations ---------- */
 const anims={};
-function reg(name, fn, dur){ anims[name]={fn,dur,t:0,playing:false,last:0}; }
-function playAnim(name){ const a=anims[name]; if(!a) return; const cv=document.querySelector(`canvas[data-anim="${name}"]`); const ctx=cv.getContext('2d');
-  a.t=0; a.last=0; if(reduce){ a.fn(ctx,cv,1); return; } a.playing=true;
-  const step=ts=>{ if(!a.playing) return; const dt=a.last?(ts-a.last)/1000:0; a.last=ts; a.t=Math.min(a.dur,a.t+dt); a.fn(ctx,cv,a.t/a.dur); if(a.t<a.dur) requestAnimationFrame(step); else a.playing=false; };
+const VW=480, VH=230; const VCV={width:VW,height:VH};
+function scaled(cv){ const ctx=cv.getContext('2d'); const k=cv.width/VW; ctx.setTransform(k,0,0,k,0,0); return ctx; }
+function reg(name, fn, dur, steps){ anims[name]={fn,dur,t:0,playing:false,last:0,steps:steps||[]}; }
+function caption(name,p){ const a=anims[name]; const cv=document.querySelector(`canvas[data-anim="${name}"]`); const card=cv.closest('.wcard')||cv.closest('.gradbox'); if(!card) return;
+  let capEl=card.querySelector('.cap'), prEl=card.querySelector('.prog');
+  if(!capEl){ capEl=document.createElement('div'); capEl.className='cap'; capEl.innerHTML='<span class="txt"></span><span class="stage"></span>'; prEl=document.createElement('div'); prEl.className='prog g'; prEl.innerHTML='<i></i>'; cv.insertAdjacentElement('afterend',prEl); cv.insertAdjacentElement('afterend',capEl); }
+  let idx=0; a.steps.forEach((st,i)=>{ if(p>=st[0]) idx=i; }); const st=a.steps[idx];
+  capEl.querySelector('.txt').textContent= st? st[1] : ''; capEl.querySelector('.stage').textContent= a.steps.length? `${idx+1} / ${a.steps.length}` : ''; prEl.querySelector('i').style.width=(p*100)+'%'; }
+function playAnim(name){ const a=anims[name]; if(!a) return; const cv0=document.querySelector(`canvas[data-anim="${name}"]`); const ctx=scaled(cv0); const cv=VCV;
+  a.t=0; a.last=0; if(reduce){ a.fn(ctx,cv,1); caption(name,1); return; } a.playing=true;
+  const step=ts=>{ if(!a.playing) return; const dt=a.last?(ts-a.last)/1000:0; a.last=ts; a.t=Math.min(a.dur,a.t+dt); a.fn(ctx,cv,a.t/a.dur); caption(name,a.t/a.dur); if(a.t<a.dur) requestAnimationFrame(step); else a.playing=false; };
   requestAnimationFrame(step); }
 const ease=p=>p<0?0:p>1?1:p*p*(3-2*p);
 function text(ctx,s,x,y,o={}){ ctx.fillStyle=o.c||css('--muted'); ctx.font=(o.w||'')+' '+(o.s||11)+'px IBM Plex Mono,monospace'; ctx.textAlign=o.a||'left'; ctx.fillText(s,x,y); ctx.textAlign='left'; }
+
+reg('strip',()=>{},1,[[0,'前向：状态从第 1 天推进到第 3287 天，每一天的中间量被记下（或按天 checkpoint）'],[0.34,'反向：从最后一天开始，伴随量沿同一条路倒着回传'],[0.68,'回传经过每一天时，把当天对各参数的影响累加进去'],[0.9,'走完：12 个参数的梯度同时得到，成本约为前向的几倍']]);
 
 /* fd vs ad */
 reg('fd',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const P=30, rows=P+1, top=34, rh=(H-70)/rows;
@@ -408,14 +443,14 @@ reg('fd',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); con
   text(ctx,'前向',x0+4,y0+13,{c:css('--bg'),s:10}); text(ctx,'反向',x0+4,y0+bh+21,{c:css('--bg'),s:10});
   const done=Math.floor(prog); text(ctx,`已运行 ${Math.min(rows,done)} / 31 次`,12,H-12,{s:11}); text(ctx, bp>=1?'全部 30 个梯度已得到':'…',x0,H-12,{s:11,c:css('--ink')});
   if(bp>=1){ for(let i=0;i<P;i++){ const x=x0+i*(lw/P); ctx.fillStyle=css('--grad'); ctx.fillRect(x,y0+2*bh+20,lw/P-2,H-y0-2*bh-44); } }
-},6);
+},9,[[0,'有限差分：对第 1 个参数扰动一点，跑一次完整的九年前向'],[0.15,'再对第 2、3、4…个参数各跑一次：31 次前向才凑齐 30 个导数'],[0.32,'反向模式：先正常跑一次前向，把每一天的状态记下来'],[0.42,'再从最后一天倒着走回来，链式法则一路累积'],[0.7,'走回第 1 天时，全部 30 个参数的导数同时到手'],[0.95,'成本约等于几次前向，与参数个数无关']]);
 
 /* lhs vs gradient descent on a valley */
 function lossXY(x,y){ const u=(x*0.85+y*0.53), v=(-x*0.53+y*0.85); return 8*u*u+0.6*v*v; }
 reg('lhs',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const half=W/2-12;
-  const draw=(ox)=>{ const img=ctx.createImageData(half,H-40); const c0=hexToRgb(css('--surface2')), c1=hexToRgb(css('--jax-soft'));
-    for(let j=0;j<H-40;j++) for(let i=0;i<half;i++){ const x=(i/half-0.5)*2.4, y=(j/(H-40)-0.5)*2.4; const L=Math.min(1,lossXY(x,y)/6); const k=(j*half+i)*4; const band=Math.floor(L*8)%2? 0.08:0; img.data[k]=c0[0]+(c1[0]-c0[0])*(1-L)-band*40; img.data[k+1]=c0[1]+(c1[1]-c0[1])*(1-L)-band*40; img.data[k+2]=c0[2]+(c1[2]-c0[2])*(1-L)-band*40; img.data[k+3]=255; }
-    ctx.putImageData(img,ox,30); };
+  const draw=(ox)=>{ const c0=hexToRgb(css('--surface2')), c1=hexToRgb(css('--jax-soft')); const nx=64, ny=48, cw=half/nx, chh=(H-40)/ny;
+    for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=((i+0.5)/nx-0.5)*2.4, y=((j+0.5)/ny-0.5)*2.4; const L=Math.min(1,lossXY(x,y)/6); const band=Math.floor(L*8)%2?28:0;
+      ctx.fillStyle=`rgb(${Math.round(c0[0]+(c1[0]-c0[0])*(1-L)-band)},${Math.round(c0[1]+(c1[1]-c0[1])*(1-L)-band)},${Math.round(c0[2]+(c1[2]-c0[2])*(1-L)-band)})`; ctx.fillRect(ox+i*cw,30+j*chh,cw+0.5,chh+0.5); } };
   draw(8); draw(W/2+4);
   text(ctx,'拉丁超立方撒点',8,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'梯度下降',W/2+4,20,{c:css('--jax'),w:'600',s:12});
   const n=Math.floor(ease(p)*400); let best=1e9,bx=0,by=0; const rng=mulberry(7);
@@ -425,7 +460,7 @@ reg('lhs',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); co
   for(let i=0;i<steps;i++){ const e=1e-3; const gx=(lossXY(x+e,y)-lossXY(x-e,y))/(2*e), gy=(lossXY(x,y+e)-lossXY(x,y-e))/(2*e); x-=0.05*gx; y-=0.05*gy; ctx.lineTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40)); }
   ctx.stroke(); if(steps>0){ ctx.fillStyle=css('--jax'); ctx.beginPath(); ctx.arc(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40),4,0,7); ctx.fill(); }
   text(ctx,`${n} 次模拟，最好损失 ${n?best.toFixed(2):'—'}`,8,H-4,{s:11}); text(ctx,`${steps} 步，损失 ${lossXY(x,y).toFixed(3)}（每步 = 1 次前向 + 1 次反向）`,W/2+4,H-4,{s:11});
-},6);
+},9,[[0,'底图是损失面：越绿越低，谷底在中间偏左'],[0.12,'左：拉丁超立方在整个空间撒点，每个点都要跑一次九年模拟'],[0.4,'撒了几百个点，最好的那个（圈出）离谷底还有距离，维数一高更稀'],[0.55,'右：梯度告诉每一步该往哪走，沿着坡下去'],[0.8,'几十步到谷底，每步只是一次前向加一次反向'],[0.97,'维数从 2 变 100，左边的点数要指数增长，右边几乎不变']]);
 function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; } }
 
 /* identifiability valley */
@@ -435,12 +470,12 @@ reg('ident',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); 
   ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
   ctx.strokeStyle=css('--grad'); ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(180*q,0); ctx.stroke();
   ctx.strokeStyle=css('--jax'); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-40*q); ctx.stroke(); ctx.restore();
-  text(ctx,'平的方向：K_sat 与 λ 一起变，损失几乎不变 → 辨识不出',cx+40,cy+70,{c:css('--grad'),s:11});
-  text(ctx,'陡的方向：数据约束住了',cx-120,cy-70,{c:css('--jax'),s:11});
+  text(ctx,'平的方向：K_sat 与 λ 一起变，损失几乎不变',cx-120,cy+72,{c:css('--grad'),s:11}); text(ctx,'→ 这个组合辨识不出',cx-120,cy+86,{c:css('--grad'),s:11});
+  text(ctx,'陡的方向：数据约束住了',cx-120,cy-76,{c:css('--jax'),s:11});
   const x0=W*0.72, base=H-30, ev=[1,.62,.4,.22,.08,.03,.012,.005,.002,.001]; text(ctx,'Fisher 信息特征值',x0-6,26,{w:'600',s:12,c:css('--ink')});
   ev.forEach((e,i)=>{ const h=Math.max(2,(Math.log10(e)+3.2)/3.2*(H-70))*Math.min(1,q*ev.length-i); ctx.fillStyle= i<4?css('--jax'):css('--grad'); ctx.fillRect(x0+i*12,base-h,9,h); });
   text(ctx,'可辨识 4 个方向 / 10 个参数',x0-6,H-8,{s:11});
-},4);
+},7,[[0,'损失面在谷底附近是个长椭圆：一个方向陡，一个方向平'],[0.25,'平的方向：K_sat 变大、λ 跟着变，损失几乎不动，数据分不出它们'],[0.5,'陡的方向：稍微一动损失就涨，这是数据真正约束住的组合'],[0.7,'Fisher 信息矩阵 = 雅可比转置乘雅可比，一次反向传播算出'],[0.9,'特征值一路掉下去：4 个方向可辨识，其余 6 个是噪声']]);
 
 /* chains */
 reg('chains',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
@@ -451,18 +486,18 @@ reg('chains',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H);
   for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ ctx.fillStyle= c<lit? css('--jax'):css('--surface'); ctx.fillRect(W/2+8+c*cw,y0+r*ch,cw-1,ch-1); }
   const stepsDone=Math.floor(q*4);
   text(ctx,`每条链走了 ${Math.floor(q*4)} 步 / 1000 · 总样本 ${stepsDone*4}`,12,H-30,{s:11}); text(ctx,`每条链走了 ${stepsDone} 步 / 4 · 总样本 ${stepsDone*1000}`,W/2+8,H-30,{s:11});
-  text(ctx,'一步 NUTS 的延迟固定，链数在 vmap 里免费',12,H-10,{s:11,c:css('--ink')});
-},5);
+  text(ctx,'每步延迟固定；链数在 vmap 里不额外花时间',12,H-10,{s:11,c:css('--ink')});
+},8,[[0,'一条 NUTS 链每一步都要一次梯度，而且必须一步接一步'],[0.2,'左：4 条链在跑，每步有固定延迟，1000 步要等很久'],[0.45,'右：1000 条链放进 vmap，一步的时间和 4 条链一样'],[0.7,'同样的墙钟，右边已经攒了几千个样本，左边只有十几个'],[0.95,'所以形态是多链短跑，后验从算出来变成数出来']]);
 
 /* hybrid */
 reg('hyb',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
-  const boxes=[['潜在 ET',css('--jax')],['气孔阻力 · MLP',css('--grad')],['土壤水',css('--jax')],['作物',css('--jax')]]; const bw=(W-60)/4, y=70, bh=50;
-  boxes.forEach((b,i)=>{ const x=20+i*bw; ctx.fillStyle= b[1]===css('--grad')?css('--grad-soft'):css('--jax-soft'); ctx.strokeStyle=b[1]; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x,y,bw-16,bh,8); ctx.fill(); ctx.stroke(); text(ctx,b[0],x+(bw-16)/2,y+30,{a:'center',c:css('--ink'),s:12,w:'600'}); if(i<3){ ctx.strokeStyle=css('--muted'); ctx.beginPath(); ctx.moveTo(x+bw-16,y+bh/2); ctx.lineTo(x+bw,y+bh/2); ctx.stroke(); } });
-  text(ctx,'损失 = (模拟 ET − 通量塔 ET)²',W-20,y+bh+30,{a:'right',c:css('--ink'),s:12});
-  const n=18; for(let i=0;i<n;i++){ const ph=(q*2.2-i*0.05); if(ph<0||ph>1) continue; const x=W-20-ph*(W-40); const yy=y+bh+14+Math.sin(i)*3; ctx.fillStyle=css('--grad'); ctx.beginPath(); ctx.arc(x,yy,3,0,7); ctx.fill(); }
-  const hit=q>0.55; text(ctx, hit?'梯度穿过作物、土壤水，流进网络权重，也流进机理参数':'梯度从损失出发，沿计算图倒流',20,H-16,{s:11,c:hit?css('--grad'):css('--muted')});
+  const boxes=[['潜在 ET',css('--jax')],['气孔阻力',css('--grad')],['土壤水',css('--jax')],['作物',css('--jax')]]; const bw=(W-40)/4, y=64, bh=50;
+  boxes.forEach((b,i)=>{ const x=20+i*bw; ctx.fillStyle= b[1]===css('--grad')?css('--grad-soft'):css('--jax-soft'); ctx.strokeStyle=b[1]; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x,y,bw-16,bh,8); ctx.fill(); ctx.stroke(); text(ctx,b[0],x+(bw-16)/2,y+ (i===1?24:30),{a:'center',c:css('--ink'),s:12,w:'600'}); if(i===1) text(ctx,'小网络 MLP',x+(bw-16)/2,y+41,{a:'center',c:css('--grad'),s:9}); if(i<3){ ctx.strokeStyle=css('--muted'); ctx.beginPath(); ctx.moveTo(x+bw-16,y+bh/2); ctx.lineTo(x+bw,y+bh/2); ctx.stroke(); } });
+  text(ctx,'损失 = (模拟 ET − 通量塔 ET)²',W/2,y+bh+34,{a:'center',c:css('--ink'),s:12});
+  const n=18; for(let i=0;i<n;i++){ const ph=(q*2.2-i*0.05); if(ph<0||ph>1) continue; const x=W-20-ph*(W-40); const yy=y+bh+12+Math.sin(i)*3; ctx.fillStyle=css('--grad'); ctx.beginPath(); ctx.arc(x,yy,3,0,7); ctx.fill(); }
+  const hit=q>0.55; text(ctx, hit?'梯度穿过作物和土壤水，流进网络权重':'梯度从损失出发，沿计算图倒流',20,H-30,{s:11,c:hit?css('--grad'):css('--muted')}); if(hit) text(ctx,'也流进机理参数：两者同时更新',20,H-14,{s:11,c:css('--grad')});
   if(hit){ ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; const x=20+bw; ctx.strokeRect(x-2,y-2,bw-12,bh+4); }
-},5);
+},8,[[0,'四个过程串成一条链，其中气孔阻力换成一个小网络'],[0.2,'损失是模拟 ET 和通量塔 ET 的差'],[0.4,'梯度从损失出发，先穿过作物和土壤水两个机理过程'],[0.6,'到达网络时，链式法则已经把机理过程的影响乘进去了'],[0.85,'网络权重和机理参数同时更新，其余过程照旧守恒、可解释']]);
 
 /* rain sensitivity */
 reg('rain',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p); const x0=20,x1=W-20,y0=40,rh=22,days=150;
@@ -474,11 +509,11 @@ reg('rain',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); c
   ctx.stroke(); ctx.strokeStyle=css('--line'); ctx.beginPath(); ctx.moveTo(x0,cy); ctx.lineTo(x1,cy); ctx.stroke();
   const bx=x0+(1-q)*(x1-x0); ctx.fillStyle=css('--grad'); ctx.fillRect(bx-1,y0-6,2,cy-y0+10); text(ctx,'播种',x0,H-8,{s:10}); text(ctx,'吐丝期',x0+0.55*(x1-x0),H-8,{s:10,a:'center'}); text(ctx,'成熟',x1,H-8,{s:10,a:'right'});
   if(q>=1) text(ctx,'峰值在吐丝期：那几周的雨决定产量',x0+0.55*(x1-x0),cy-70,{s:11,a:'center',c:css('--ink')});
-},5);
+},8,[[0,'上面是生长季逐日降雨，是模型的输入而不是参数'],[0.15,'反向传播对输入也求导：从成熟那天开始，伴随量倒着往回走'],[0.45,'走过吐丝期，那几周的雨对产量的边际贡献最大'],[0.75,'走到播种期，早期的雨影响小，因为土壤还没被作物用水'],[0.97,'一条曲线回答归因问题：哪场雨决定了收成']]);
 
 /* auto-play on scroll, replay buttons, initial frames */
-Object.keys(anims).forEach(n=>{ const cv=document.querySelector(`canvas[data-anim="${n}"]`); anims[n].fn(cv.getContext('2d'),cv, reduce?1:0.001); });
-if(!reduce && 'IntersectionObserver' in window){ const seen=new Set(); const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ const n=e.target.dataset.anim; if(!seen.has(n)){ seen.add(n); playAnim(n);} } }); },{threshold:.5}); document.querySelectorAll('canvas[data-anim]').forEach(c=>io.observe(c)); }
+Object.keys(anims).forEach(n=>{ const cv=document.querySelector(`canvas[data-anim="${n}"]`); if(n!=='strip') anims[n].fn(scaled(cv),VCV, reduce?1:0.001); caption(n, reduce?1:0); });
+if(!reduce && 'IntersectionObserver' in window){ const seen=new Set(); const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ const n=e.target.dataset.anim; if(!seen.has(n)){ seen.add(n); if(n==='strip') document.getElementById('gplay').click(); else playAnim(n);} } }); },{threshold:.5}); document.querySelectorAll('canvas[data-anim]').forEach(c=>io.observe(c)); }
 document.querySelectorAll('[data-replay]').forEach(b=>b.onclick=()=>playAnim(b.dataset.replay));
 })();
 </script>
