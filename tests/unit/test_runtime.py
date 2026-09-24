@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agri_jax.core import Model, run, run_batch, run_batch_chunked
-from agri_jax.core.runtime import run_and_grad, run_sites, stack_days
+from agrijax.core import Model, run, run_batch, run_batch_chunked
+from agrijax.core.runtime import run_and_grad, run_sites, stack_days
 
 from .toy import ToyForcing, ToyParams, ToyState, grow, infiltrate, toy_inputs, toy_model
 

@@ -1,4 +1,4 @@
-"""Unit tests for agri_jax.port.fortran_xcheck: the line-based scanner that cross-checks the index.
+"""Unit tests for agrijax.port.fortran_xcheck: the line-based scanner that cross-checks the index.
 
 Two layers of evidence, both on embedded fixtures written for these tests:
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from agri_jax.port.fortran_xcheck import (
+from agrijax.port.fortran_xcheck import (
     check_topological_order,
     compare,
     kahn_is_acyclic,
@@ -285,7 +285,7 @@ def test_dummy_procedure_is_not_an_edge() -> None:
 # ---------------------------------------------------------------------------
 # Agreement with the fparser index on the same fixtures
 # ---------------------------------------------------------------------------
-fi = pytest.importorskip("agri_jax.port.fortran_index")
+fi = pytest.importorskip("agrijax.port.fortran_index")
 pytest.importorskip("fparser")
 
 

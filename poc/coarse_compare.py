@@ -3,7 +3,7 @@
 What it does (no tuning; every parameter comes from the scenario files as they stand):
 
 1. Reference run: a one-year (2015) CA-TPA run of the RZWQM2 binary through
-   ``agri_jax.port.run_fortran.run_rzwqm``, cached in ``<data>/validation/catpa_2015_ref/``
+   ``agrijax.port.run_fortran.run_rzwqm``, cached in ``<data>/validation/catpa_2015_ref/``
    (``CA-TPA.ana``, ``OVERVIEW.OUT``, ``LAYER.PLT``); reused when present.
 2. PET: the daily Shuttleworth-Wallace module (``processes.pet.shuttleworth_wallace``) and the
    ASCE reference ET (``processes.pet.asce_reference_et``, ``variant="rzwqm"``) driven day by day
@@ -45,17 +45,17 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import xarray as xr  # noqa: E402
 
-from agri_jax.io.rzwqm import read_ana, read_met, read_overview_yields, read_rzwqm_dat  # noqa: E402
-from agri_jax.io.rzwqm.dat import RzwqmDat  # noqa: E402
-from agri_jax.io.rzwqm.layers import layer_thickness_cm, read_layer_output  # noqa: E402
-from agri_jax.port.compare import CompareReport, compare_series  # noqa: E402
-from agri_jax.port.run_fortran import run_rzwqm  # noqa: E402
-from agri_jax.processes.pet import PETParams, SWResult, asce_reference_et, shuttleworth_wallace  # noqa: E402
-from agri_jax.processes.pet.shuttleworth_wallace import (  # noqa: E402
+from agrijax.io.rzwqm import read_ana, read_met, read_overview_yields, read_rzwqm_dat  # noqa: E402
+from agrijax.io.rzwqm.dat import RzwqmDat  # noqa: E402
+from agrijax.io.rzwqm.layers import layer_thickness_cm, read_layer_output  # noqa: E402
+from agrijax.port.compare import CompareReport, compare_series  # noqa: E402
+from agrijax.port.run_fortran import run_rzwqm  # noqa: E402
+from agrijax.processes.pet import PETParams, SWResult, asce_reference_et, shuttleworth_wallace  # noqa: E402
+from agrijax.processes.pet.shuttleworth_wallace import (  # noqa: E402
     RESIDUE_DENSITY_G_CM3,
     RESIDUE_DIAMETER_CM,
 )
-from agri_jax.processes.soil_water.hydraulics import (  # noqa: E402
+from agrijax.processes.soil_water.hydraulics import (  # noqa: E402
     H_FC13,
     H_FC110,
     H_WP,

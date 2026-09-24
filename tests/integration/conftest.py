@@ -39,7 +39,7 @@ def stage_ufga8201() -> Callable[[Path], Path]:
         pytest.skip(f"dscsm048 binary not found at {DSCSM}")
     if not UFGA_FILEX.is_file():
         pytest.skip(f"{UFGA_FILEX} not found")
-    from agri_jax.io.dssat import stage_run_dir
+    from agrijax.io.dssat import stage_run_dir
 
     def stage(run_dir: Path) -> Path:
         return stage_run_dir(
@@ -57,7 +57,7 @@ def stage_ufga8201() -> Callable[[Path], Path]:
 @pytest.fixture(scope="session")
 def ufga_run(tmp_path_factory: pytest.TempPathFactory, stage_ufga8201: Callable[[Path], Path]) -> Path:
     """One UFGA8201 run of ``dscsm048`` per session, in a private temporary directory."""
-    from agri_jax.io.dssat import run_dssat
+    from agrijax.io.dssat import run_dssat
 
     run_dir = stage_ufga8201(tmp_path_factory.mktemp("ufga8201"))
     r = run_dssat(run_dir, UFGA_FILEX.name)

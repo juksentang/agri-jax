@@ -1,4 +1,4 @@
-"""agri_jax.io.ameriflux on the real CA-TPA AmeriFlux files under ``<data-dir>/ameriflux``.
+"""agrijax.io.ameriflux on the real CA-TPA AmeriFlux files under ``<data-dir>/ameriflux``.
 
 BASE HH 3-5 and FLUXNET FLUXMET v1.3_r1 (2020-2023). Every test skips when its file is absent.
 """
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io import ameriflux as af
+from agrijax.io import ameriflux as af
 
 pytestmark = pytest.mark.allow_skip(reason="needs the private AmeriFlux CA-TPA files under the data dir")
 

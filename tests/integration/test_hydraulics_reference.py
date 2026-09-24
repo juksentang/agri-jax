@@ -31,11 +31,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agri_jax.io.rzwqm.ana import read_ana
-from agri_jax.io.rzwqm.dat import RzwqmDat, read_rzwqm_dat, set_value, write_rzwqm_dat
-from agri_jax.io.rzwqm.params import canonical_name
-from agri_jax.port.run_fortran import RZWQM_BINARY, parse_overview_yields, run_rzwqm
-from agri_jax.processes.soil_water.hydraulics import (
+from agrijax.io.rzwqm.ana import read_ana
+from agrijax.io.rzwqm.dat import RzwqmDat, read_rzwqm_dat, set_value, write_rzwqm_dat
+from agrijax.io.rzwqm.params import canonical_name
+from agrijax.port.run_fortran import RZWQM_BINARY, parse_overview_yields, run_rzwqm
+from agrijax.processes.soil_water.hydraulics import (
     H_CLAMP_RZWQM,
     H_FC13,
     H_FC110,

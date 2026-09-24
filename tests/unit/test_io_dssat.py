@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.dssat import (
+from agrijax.io.dssat import (
     parse_dssat_date,
     read_cul,
     read_eco,
@@ -23,7 +23,7 @@ from agri_jax.io.dssat import (
     read_wth,
     write_wth,
 )
-from agri_jax.io.dssat._fixed import fmt_num, header_tokens, split_fixed
+from agrijax.io.dssat._fixed import fmt_num, header_tokens, split_fixed
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "dssat"
 

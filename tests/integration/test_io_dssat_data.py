@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.dssat import (
+from agrijax.io.dssat import (
     read_cul,
     read_eco,
     read_et,

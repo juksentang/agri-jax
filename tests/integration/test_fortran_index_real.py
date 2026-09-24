@@ -1,8 +1,8 @@
 """Cross-check of the Fortran index on the real RZWQM2 and CERES-Maize sources.
 
-Evidence, each independent of the fparser index (``agri_jax.port.fortran_index``):
+Evidence, each independent of the fparser index (``agrijax.port.fortran_index``):
 
-* a second, line-based scanner (``agri_jax.port.fortran_xcheck``) must reproduce every routine
+* a second, line-based scanner (``agrijax.port.fortran_xcheck``) must reproduce every routine
   name, argument list (order and names), ``CALL`` target, ``COMMON`` block, explicit ``SAVE`` and
   call-graph edge of the stored index JSON (``<data-dir>/port_index/{rzwqm,ceres_maize}.json``);
 * the stored JSON must be what the current indexer produces (no stale index);
@@ -37,7 +37,7 @@ from typing import Any
 
 import pytest
 
-from agri_jax.port.fortran_xcheck import (
+from agrijax.port.fortran_xcheck import (
     check_topological_order,
     compare,
     kahn_is_acyclic,
@@ -108,7 +108,7 @@ def test_scanner_agrees_with_index(data_dir: Path, index_name: str) -> None:
 
 def test_index_json_is_current(data_dir: Path, index_name: str) -> None:
     """The stored JSON is exactly what the current indexer produces from the same files."""
-    from agri_jax.port.fortran_index import index_tree
+    from agrijax.port.fortran_index import index_tree
 
     index = _load(data_dir, index_name)
     fresh = index_tree(index["files"]).to_dict(list(index["subtrees"]))
@@ -382,7 +382,7 @@ DSSAT_PLANT_KNOWN = {("edge", "NWHEATS_RTLV")}
 
 
 def _whole_tree(files: list[Path], line_length: int | None):
-    from agri_jax.port.fortran_index import index_tree
+    from agrijax.port.fortran_index import index_tree
 
     idx = index_tree(files)
     bad = {e["file"] for e in idx.errors}

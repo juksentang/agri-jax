@@ -7,15 +7,15 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from agri_jax.core import process, registry
-from agri_jax.core.process import (
+from agrijax.core import process, registry
+from agrijax.core.process import (
     CHECK_ENV,
     Process,
     ProcessSignatureError,
     ProcessWriteError,
     check_enabled,
 )
-from agri_jax.core.state import tree_diff
+from agrijax.core.state import tree_diff
 
 from .toy import ToyForcing, ToyParams, ToyState, grow, infiltrate
 
@@ -133,7 +133,7 @@ def test_subtree_and_wildcard_writes_cover_leaves(check_on) -> None:
     class Inner(ToyState):
         pass
 
-    class Outer(ToyState.__mro__[1]):  # agri_jax.core.State
+    class Outer(ToyState.__mro__[1]):  # agrijax.core.State
         soil: Inner
         day: jax.Array
 

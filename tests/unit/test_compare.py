@@ -1,4 +1,4 @@
-"""agri_jax.port.compare on synthetic series: metric values, alignment, masks, tolerances, Markdown."""
+"""agrijax.port.compare on synthetic series: metric values, alignment, masks, tolerances, Markdown."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from agri_jax.port.compare import CompareReport, Tolerance, compare_series, series_metrics
+from agrijax.port.compare import CompareReport, Tolerance, compare_series, series_metrics
 
 
 def _ds(**vars_: np.ndarray) -> xr.Dataset:

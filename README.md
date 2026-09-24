@@ -83,18 +83,18 @@ git clone https://github.com/juksentang/agri-jax && cd agri-jax
 uv sync --all-extras
 uv run pytest -q tests/unit tests/integration
 uv run ruff check . && uv run pyright
-uv run python -m agri_jax.core.lint src --strict
+uv run python -m agrijax.core.lint src --strict
 ```
 
-Data-backed tests read from `--data-dir` or `AGRI_JAX_DATA`. The unit tier needs no data. The PyPI release (`pip install agri-jax`) stays a placeholder until the coupled model works.
+Data-backed tests read from `--data-dir` or `AGRI_JAX_DATA`. The unit tier needs no data. The PyPI release (`pip install agrijax`) stays a placeholder until the coupled model works.
 
 | Directory | Contents |
 |---|---|
-| `src/agri_jax/core` | state, process decorator, runtime, events, organ queue, units, lint |
-| `src/agri_jax/processes` | soil water, PET, crop, canopy, arbitration |
-| `src/agri_jax/models` | assembled models |
-| `src/agri_jax/io` | RZWQM2, DSSAT, AmeriFlux and CA-TPA readers |
-| `src/agri_jax/port` | reference-model runners and comparison reports |
+| `src/agrijax/core` | state, process decorator, runtime, events, organ queue, units, lint |
+| `src/agrijax/processes` | soil water, PET, crop, canopy, arbitration |
+| `src/agrijax/models` | assembled models |
+| `src/agrijax/io` | RZWQM2, DSSAT, AmeriFlux and CA-TPA readers |
+| `src/agrijax/port` | reference-model runners and comparison reports |
 | `docs/showcase` | source of the showcase page |
 
 ## Licensing and provenance

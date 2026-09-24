@@ -1,12 +1,12 @@
 # poc/ — proof-of-concept scripts
 
-Scripts here are outside the package (`src/agri_jax`) and outside ruff/pyright (`extend-exclude` in
-`pyproject.toml`). They are run by hand or from `scripts/rorqual/*.sbatch`.
+Scripts here are outside the package (`src/agrijax`) and outside ruff/pyright (`extend-exclude` in
+`pyproject.toml`). They are run by hand.
 
 | File | Purpose |
 |---|---|
 | `coarse_compare.py` | Coarse comparison of Agri-JAX components against an RZWQM2 reference run (CA-TPA 2015). See its docstring. |
-| `bench_skeleton.py` | Throughput / gradient-cost skeleton with the computational shape of the PoC model (S-W-type PET, CERES-type crop step, 37-node Brooks-Corey Richards, `sub` sub-steps × `newton` Newton iterations, tridiagonal solve, 3287 days). **Not a model**; used for `docs/en/08_throughput_comparison.md`. |
+| `bench_skeleton.py` | Throughput / gradient-cost skeleton with the computational shape of the PoC model (S-W-type PET, CERES-type crop step, 37-node Brooks-Corey Richards, `sub` sub-steps × `newton` Newton iterations, tridiagonal solve, 3287 days). **Not a model**. |
 
 ## bench_skeleton.py
 
@@ -20,8 +20,7 @@ uv run python poc/bench_skeleton.py --n 1000 10000 [--days 3287] [--sub 24] [--n
   `[H_MIN, H_MAX]` for every sample, and (with `--grad 1`) a finite gradient for every parameter of every sample;
   a failure raises `AssertionError` (non-zero exit), otherwise the last line is `check: OK`.
 
-CPU is fine for small batches (`--n 4`: 3287 days forward 0.7 s, gradient 3.3 s); the GPU numbers in doc 08 come
-from `scripts/rorqual/bench_grad.sbatch` / `bench_h100.sbatch`.
+CPU is fine for small batches (`--n 4`: 3287 days forward 0.7 s, gradient 3.3 s); GPU numbers were measured on one H100.
 
 ### NaN gradients on the GPU (found 2026-09-23, fixed the same day)
 

@@ -1,6 +1,6 @@
 [project]
-name = "agri-jax"
-version = "0.0.3"
+name = "agrijax"
+version = "0.0.1"
 description = "Differentiable, batch-parallel field-scale crop-soil process models in JAX (CERES-Maize + RZWQM-style soil water and PET)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -57,7 +57,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agri_jax"]
+packages = ["src/agrijax"]
 
 [tool.hatch.build.targets.sdist]
 only-include = ["src", "README.md", "README.zh.md", "LICENSE", "CITATION.cff", "pyproject.toml"]
@@ -81,10 +81,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B011", "E501"]
-"src/agri_jax/core/lint.py" = ["UP"]
+"src/agrijax/core/lint.py" = ["UP"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["agri_jax"]
+known-first-party = ["agrijax"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -121,5 +121,5 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["agri_jax"]
+source = ["agrijax"]
 branch = true

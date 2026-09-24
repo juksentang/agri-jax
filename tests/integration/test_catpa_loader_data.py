@@ -2,7 +2,7 @@
 arrays, LHS parameter matrix.
 
 Skipped when the files under ``--data-dir`` are absent (build them with
-``scripts/data/make_catpa_refs.py`` and ``scripts/data_sync.sh catpa_lhs``). The synthetic
+``scripts/data/make_catpa_refs.py``). The synthetic
 tests of the same loaders are in ``tests/unit/test_catpa_loader.py``.
 """
 
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.catpa import (
+from agrijax.io.catpa import (
     EVENT_COLUMNS,
     LHS_ANA_COLUMNS,
     N_DAY,
@@ -27,8 +27,8 @@ from agri_jax.io.catpa import (
     read_manage_out,
     write_events,
 )
-from agri_jax.io.rzwqm import key_variables, read_ana, read_overview_yields
-from agri_jax.io.rzwqm.layers import (
+from agrijax.io.rzwqm import key_variables, read_ana, read_overview_yields
+from agrijax.io.rzwqm.layers import (
     profile_storage_cm,
     read_layer_output,
 )
@@ -99,7 +99,7 @@ def test_events_csv_roundtrip(catpa_dir: Path, data_dir: Path, tmp_path: Path) -
 def lhs(data_dir: Path) -> dict[str, np.ndarray]:
     d = data_dir / "catpa_lhs"
     if not (d / "catpa_daily.npz").is_file():
-        pytest.skip(f"{d}/catpa_daily.npz missing (scripts/data_sync.sh catpa_lhs)")
+        pytest.skip(f"{d}/catpa_daily.npz missing (see scripts/data/README.md)")
     return load_catpa_lhs(d)
 
 

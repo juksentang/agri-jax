@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agri_jax.processes.pet import (
+from agrijax.processes.pet import (
     PETParams,
     asce_reference_et,
     clear_sky_radiation,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agri_jax.port.run_fortran import (
+from agrijax.port.run_fortran import (
     MAX_RZWQM_RUN_DIR_LEN,
     FortranRunError,
     _make_run_dir,

@@ -1,4 +1,4 @@
-"""Readers / writers of agri_jax.io.rzwqm on inline snippets (no data).
+"""Readers / writers of agrijax.io.rzwqm on inline snippets (no data).
 
 The tests against the CA-TPA scenario files, the batch parameter map and GenerateDat.py are in
 ``tests/integration/test_io_rzwqm_data.py``.
@@ -12,18 +12,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.rzwqm import (
+from agrijax.io.rzwqm import (
     KEY_COLUMNS,
     key_variables,
     read_ana,
     read_met,
     read_overview_yields,
 )
-from agri_jax.io.rzwqm._fortran import fortran_float
-from agri_jax.io.rzwqm.ana import parse_ana_header, slugify
-from agri_jax.io.rzwqm.dat import format_value
-from agri_jax.io.rzwqm.met import WIND_FLOOR_KM_D, prepare_rzwqm_forcing
-from agri_jax.io.rzwqm.params import canonical_name
+from agrijax.io.rzwqm._fortran import fortran_float
+from agrijax.io.rzwqm.ana import parse_ana_header, slugify
+from agrijax.io.rzwqm.dat import format_value
+from agrijax.io.rzwqm.met import WIND_FLOOR_KM_D, prepare_rzwqm_forcing
+from agrijax.io.rzwqm.params import canonical_name
 
 # ----------------------------------------------------------------------------- fixtures
 

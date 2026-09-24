@@ -1,6 +1,6 @@
 """GPU tier: the CA-TPA S-W PET pipeline, ``run_batch_chunked`` on the GPU vs the CPU.
 
-Runs :func:`scripts/rorqual/gpu_pipeline_check.check` (the same code the rorqual job runs):
+Runs :func:`tests/gpu/pipeline_check.check` (also runnable as a script on a GPU node):
 10^5 Latin-hypercube PET parameter sets over one year on the GPU, then
 
 * the first 256 results against ``run_batch`` (vmap) on the CPU of the same node, and sample 0
@@ -25,7 +25,7 @@ from typing import Any
 import jax
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "rorqual" / "gpu_pipeline_check.py"
+SCRIPT = Path(__file__).resolve().parent / "pipeline_check.py"
 N = int(os.environ.get("AGRI_JAX_GPU_N", "100000"))
 X64 = bool(jax.config.jax_enable_x64)
 # x64: GPU and CPU differ only by a few ulp of the transcendental functions, accumulated over 365 days

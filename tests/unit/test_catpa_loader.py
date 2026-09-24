@@ -11,10 +11,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from agri_jax.io.catpa import (
+from agrijax.io.catpa import (
     read_manage_out,
 )
-from agri_jax.io.rzwqm.layers import (
+from agrijax.io.rzwqm.layers import (
     layer_thickness_cm,
     profile_storage_cm,
     read_layer_output,

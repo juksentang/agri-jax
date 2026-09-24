@@ -83,18 +83,18 @@ git clone https://github.com/juksentang/agri-jax && cd agri-jax
 uv sync --all-extras
 uv run pytest -q tests/unit tests/integration
 uv run ruff check . && uv run pyright
-uv run python -m agri_jax.core.lint src --strict
+uv run python -m agrijax.core.lint src --strict
 ```
 
-依赖数据的测试从 `--data-dir` 或环境变量 `AGRI_JAX_DATA` 读取数据，单元测试不需要任何数据。耦合模型跑通之前，PyPI 上的 `agri-jax` 一直保持占位版本。
+依赖数据的测试从 `--data-dir` 或环境变量 `AGRI_JAX_DATA` 读取数据，单元测试不需要任何数据。耦合模型跑通之前，PyPI 上的 `agrijax` 一直保持占位版本。
 
 | 目录 | 内容 |
 |---|---|
-| `src/agri_jax/core` | 状态、过程装饰器、运行时、事件、器官队列、单位、静态检查 |
-| `src/agri_jax/processes` | 土壤水分、蒸散、作物、冠层、资源分配 |
-| `src/agri_jax/models` | 组装好的模型 |
-| `src/agri_jax/io` | RZWQM2、DSSAT、AmeriFlux 和 CA-TPA 的读取 |
-| `src/agri_jax/port` | 参考模型运行器和对照报告 |
+| `src/agrijax/core` | 状态、过程装饰器、运行时、事件、器官队列、单位、静态检查 |
+| `src/agrijax/processes` | 土壤水分、蒸散、作物、冠层、资源分配 |
+| `src/agrijax/models` | 组装好的模型 |
+| `src/agrijax/io` | RZWQM2、DSSAT、AmeriFlux 和 CA-TPA 的读取 |
+| `src/agrijax/port` | 参考模型运行器和对照报告 |
 | `docs/showcase` | 展示页源码 |
 
 ## 许可与来源

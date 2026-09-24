@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import pytest
 
-from agri_jax.core.state import get_path, leaf_paths, set_path
+from agrijax.core.state import get_path, leaf_paths, set_path
 
 from .toy import ToyForcing, ToyParams, ToyState
 

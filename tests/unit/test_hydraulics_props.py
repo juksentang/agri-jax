@@ -32,7 +32,7 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from agri_jax.processes.soil_water.hydraulics import (
+from agrijax.processes.soil_water.hydraulics import (
     H_FC13,
     H_FC110,
     H_WP,

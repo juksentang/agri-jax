@@ -2,7 +2,7 @@
 
 import pytest
 
-from agri_jax.core import units as u
+from agrijax.core import units as u
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,7 @@
 
 All ``*.MZX`` of ``<engine>/example_data/Maize`` (every treatment, run mode ``A``) are run once per
 session with the locally built ``dscsm048`` (``source/build486``, v4.8.6.0) through
-:func:`agri_jax.port.run_fortran.run_dscsm`; each run stages into its own ``mkdtemp`` directory
+:func:`agrijax.port.run_fortran.run_dscsm`; each run stages into its own ``mkdtemp`` directory
 under ``~/agri_jax_data/run`` (removed on success), outputs go to a private ``tmp_path_factory``
 directory. The parsed outputs are then checked against references that do not go through the
 parser being tested:
@@ -11,7 +11,7 @@ parser being tested:
   other columns and layout): ``HWAM CWAM H#AM HWUM LAIX`` and anthesis / maturity as days after
   planting (``ADAT - PDAT`` = ``ADAPS``); the run list and ``TNAM`` against the FileX treatments.
 * ``.MZA`` observations against the measured columns DSSAT copies into ``Evaluate.OUT`` (dates
-  through DSSAT's ``READA_Dates`` rule, :func:`agri_jax.io.dssat.observed_date`).
+  through DSSAT's ``READA_Dates`` rule, :func:`agrijax.io.dssat.observed_date`).
 * ``PlantGro.OUT`` final day against ``Summary.OUT`` (``CWAM``, ``HWAM``, max ``LAID`` ~ ``LAIX``,
   last day = ``HDAT``).
 * ``SoilWat.OUT`` / ``ET.OUT``: the soil water balance closes (``d SWTD = d(PREC + IRRC - ROFC -
@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.dssat import (
+from agrijax.io.dssat import (
     observed_date,
     parse_dssat_date,
     read_cul,
@@ -72,7 +72,7 @@ from agri_jax.io.dssat import (
     write_spe,
     write_wth,
 )
-from agri_jax.io.dssat._fixed import read_lines
+from agrijax.io.dssat._fixed import read_lines
 
 DSSAT_ENGINE = Path(
     os.environ.get("AGRI_JAX_DSSAT", "~/AFSoil/Formal_Analysis/02_DSSAT/dssat_engine")
@@ -122,7 +122,7 @@ def run_example(
     soil_dir: Path = SOIL,
 ) -> Path:
     """Run every treatment of ``<name>.MZX``; return the directory holding its ``*.OUT``."""
-    from agri_jax.port.run_fortran import run_dscsm
+    from agrijax.port.run_fortran import run_dscsm
 
     exp = work / "exp"
     exp.mkdir(parents=True)

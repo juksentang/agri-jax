@@ -4,7 +4,7 @@
 
 ```bash
 uv sync --all-extras          # creates .venv with CPU JAX, all optional groups
-uv run pre-commit install     # ruff, ruff-format, agri_jax lint on every commit
+uv run pre-commit install     # ruff, ruff-format, agrijax lint on every commit
 ```
 
 Everything runs through `uv run ...` (or `.venv/bin/python`). Do not `pip install` into the venv by hand; add dependencies with `uv add` so `uv.lock` stays authoritative.
@@ -28,7 +28,7 @@ def leaf_growth(state, params, forcing_t):
 2. **Branch with `jnp.where` / `jnp.select`, never with Python `if` on state, params or forcing.** Both branches must stay finite (guard `log`, `sqrt`, `/` with `jnp.maximum` / `jnp.clip`).
 3. **Never write a loop.** Time and samples are handled by the runtime (`lax.scan`, `vmap`); soil layers are an array axis.
 
-`python -m agri_jax.core.lint <paths>` enforces these as AJ001-AJ005. Set `AGRI_JAX_CHECK=1` to make every process call verify at runtime that only the declared `writes` changed.
+`python -m agrijax.core.lint <paths>` enforces these as AJ001-AJ005. Set `AGRI_JAX_CHECK=1` to make every process call verify at runtime that only the declared `writes` changed.
 
 ## Commands
 
@@ -36,7 +36,7 @@ def leaf_growth(state, params, forcing_t):
 |---|---|
 | Format + lint | `uv run ruff format . && uv run ruff check .` |
 | Types | `uv run pyright` |
-| Three-rules lint | `uv run python -m agri_jax.core.lint src/agri_jax --strict` |
+| Three-rules lint | `uv run python -m agrijax.core.lint src/agrijax --strict` |
 | Unit tier (every push, no data) | `uv run pytest tests/unit -q` |
 | Unit tier in float32 | `AGRI_JAX_X64=0 uv run pytest tests/unit -q` |
 | Diff tier (needs Fortran dumps) | `uv run pytest tests/diff -q --data-dir ~/agri_jax_data` |
@@ -50,7 +50,7 @@ Tests are marked with their tier automatically from their directory (`tests/<tie
 
 ## Layout
 
-`src/agri_jax/`: `core/` (State/Params/Forcing, `@process`, `Model`, runtime, units, lint), `processes/` (soil_water, pet, crop/ceres_maize, canopy, arbitration), `models/`, `io/` (dssat, rzwqm), `calib/`, `port/`, `report/`.
+`src/agrijax/`: `core/` (State/Params/Forcing, `@process`, `Model`, runtime, units, lint), `processes/` (soil_water, pet, crop/ceres_maize, canopy, arbitration), `models/`, `io/` (dssat, rzwqm), `calib/`, `port/`, `report/`.
 
 ## Pull requests
 

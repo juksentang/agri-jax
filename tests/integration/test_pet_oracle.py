@@ -2,7 +2,7 @@
 
 The reference run is ``<data-dir>/catpa/ref_2015`` (one year, the shipped Scenario unchanged,
 built by ``scripts/data/make_catpa_refs.py``); the site, PET and plant parameters are read from
-the Scenario ``rzwqm.dat`` that run used, through :func:`agri_jax.io.rzwqm.read_rzwqm_dat`.
+the Scenario ``rzwqm.dat`` that run used, through :func:`agrijax.io.rzwqm.read_rzwqm_dat`.
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.rzwqm import prepare_rzwqm_forcing, read_ana, read_met, read_rzwqm_dat
-from agri_jax.io.rzwqm.layers import read_layer_output
-from agri_jax.processes.pet import PETParams, asce_reference_et, shuttleworth_wallace
+from agrijax.io.rzwqm import prepare_rzwqm_forcing, read_ana, read_met, read_rzwqm_dat
+from agrijax.io.rzwqm.layers import read_layer_output
+from agrijax.processes.pet import PETParams, asce_reference_et, shuttleworth_wallace
 
 REF_RUN = Path("catpa/ref_2015")
 

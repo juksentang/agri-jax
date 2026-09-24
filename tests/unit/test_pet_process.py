@@ -1,4 +1,4 @@
-"""Day-level PET processes (``agri_jax.processes.pet.daily``): the kernels behind the process signature.
+"""Day-level PET processes (``agrijax.processes.pet.daily``): the kernels behind the process signature.
 
 Registry and declarations, exact agreement with the array kernels, the writes check, jit / vmap
 over a parameter batch and finite gradients through the process.
@@ -11,9 +11,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agri_jax.core import registry
-from agri_jax.core.process import ProcessWriteError
-from agri_jax.processes.pet import (
+from agrijax.core import registry
+from agrijax.core.process import ProcessWriteError
+from agrijax.processes.pet import (
     DailyWeather,
     PETParams,
     PETSiteParams,
@@ -26,7 +26,7 @@ from agri_jax.processes.pet import (
     priestley_taylor,
     shuttleworth_wallace,
 )
-from agri_jax.processes.pet.shuttleworth_wallace import KM_DAY_TO_M_S
+from agrijax.processes.pet.shuttleworth_wallace import KM_DAY_TO_M_S
 
 
 def _f(x: float) -> jnp.ndarray:

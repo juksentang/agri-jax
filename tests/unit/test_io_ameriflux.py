@@ -1,4 +1,4 @@
-"""agri_jax.io.ameriflux on small synthetic CSVs written by the tests (no data).
+"""agrijax.io.ameriflux on small synthetic CSVs written by the tests (no data).
 
 The checks against the real CA-TPA BASE / FLUXNET files are in
 ``tests/integration/test_ameriflux_catpa.py``.
@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io import ameriflux as af
+from agrijax.io import ameriflux as af
 
 _BASE = """# Site: XX-TST
 # Version: 1-2

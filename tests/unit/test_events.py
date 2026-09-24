@@ -1,4 +1,4 @@
-"""EventTable (docs/en/02_architecture.md section 3.5): building, round trip, day slicing, csv hook."""
+"""EventTable: building, round trip, day slicing, csv hook."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import pandas as pd
 import pytest
 from jax import lax
 
-from agri_jax.core.events import NO_PRIMING, EventTable
-from agri_jax.core.organs import OrganQueue, aggregate, appear, prime, top
-from agri_jax.io.catpa import CATPA_DIR, EVENT_COLUMNS, write_events
+from agrijax.core.events import NO_PRIMING, EventTable
+from agrijax.core.organs import OrganQueue, aggregate, appear, prime, top
+from agrijax.io.catpa import CATPA_DIR, EVENT_COLUMNS, write_events
 
 DATES = pd.date_range("2023-04-01", periods=20, freq="D")
 RECORDS = [

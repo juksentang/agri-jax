@@ -1,4 +1,4 @@
-"""Hypothesis property tests for :mod:`agri_jax.core.organs` against an independent pure-Python queue.
+"""Hypothesis property tests for :mod:`agrijax.core.organs` against an independent pure-Python queue.
 
 Random sequences of ``appear`` / ``age`` / ``grow`` / ``senesce`` / ``top`` / ``prime`` are applied
 to an :class:`OrganQueue` and, in parallel, to a reference written with Python lists and floats
@@ -28,7 +28,7 @@ import numpy as np
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from agri_jax.core.organs import OrganQueue, age, aggregate, appear, grow, prime, senesce, top
+from agrijax.core.organs import OrganQueue, age, aggregate, appear, grow, prime, senesce, top
 
 SETTINGS = settings(derandomize=True, database=None, deadline=None, max_examples=120)
 X64 = bool(jax.config.jax_enable_x64)

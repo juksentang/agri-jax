@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 from scipy.integrate import quad
 
-from agri_jax.io.rzwqm.met import _hourly_radiation_dssat40, rzwqm_daily_srad
+from agrijax.io.rzwqm.met import _hourly_radiation_dssat40, rzwqm_daily_srad
 
 PI = 3.14159  # DSSAT's PARAMETER value
 DOYS = np.arange(1, 366)

@@ -26,8 +26,8 @@ wheels = [
 ]
 
 [[package]]
-name = "agri-jax"
-version = "0.0.3"
+name = "agrijax"
+version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "equinox" },

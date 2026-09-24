@@ -1,7 +1,7 @@
 """Coarse comparison on CA-TPA 2015: PET and hydraulics modules against a fresh RZWQM2 run.
 
 Drives ``poc/coarse_compare.py`` end to end: a one-year RZWQM2 run through
-``agri_jax.port.run_fortran.run_rzwqm`` (about 3 s), the S-W PET and ASCE reference ET modules on
+``agrijax.port.run_fortran.run_rzwqm`` (about 3 s), the S-W PET and ASCE reference ET modules on
 three weather sources, an ablation of every input-timing convention, and the Brooks-Corey curves on
 the ``LAYER.PLT`` pressure heads. Every tolerance below is an achieved value measured on 2026-09-23
 (see ``<data>/validation/catpa_2015_coarse.md``) with a margin of about 2-3x, not a tuned target:
@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.port.run_fortran import RZWQM_BINARY, SYSTEM_LOADER, elf_interpreter
+from agrijax.port.run_fortran import RZWQM_BINARY, SYSTEM_LOADER, elf_interpreter
 
 pytestmark = pytest.mark.slow
 

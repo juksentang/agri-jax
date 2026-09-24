@@ -1,4 +1,4 @@
-"""``agri_jax.port.compare`` against implementations that share no code with it.
+"""``agrijax.port.compare`` against implementations that share no code with it.
 
 * exact rational arithmetic (:class:`fractions.Fraction`) for bias, MAE, MSE, max |d|, PBIAS, NSE
   and the squared correlation, on 200 seeded random series with NaN gaps (the float values are
@@ -20,7 +20,7 @@ import pytest
 import xarray as xr
 from scipy import stats
 
-from agri_jax.port.compare import compare_series, series_metrics
+from agrijax.port.compare import compare_series, series_metrics
 
 N_CASES = 200
 

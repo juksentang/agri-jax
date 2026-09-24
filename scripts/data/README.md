@@ -7,7 +7,7 @@ characters, so every run directory must have an absolute path shorter than 80 ch
 
 ```
 agri_jax_data/
-├── narval_mirror/                 read-only mirror of narval (scripts/data_sync.sh mirror)
+├── narval_mirror/                 reference scenarios and tools (not distributed)
 │   ├── RZWQM_sw_batch/            scenarios: CA-TPA/, CA-ER1/, ... ; all_parameters.csv; NOTES.md
 │   │   └── CA-TPA/
 │   │       ├── Scenario/          rzwqm.dat cntrl.dat IPNAMES.DAT MZDSSAT.RZX CA-TPA.MET/.BRK/.sno
@@ -15,8 +15,7 @@ agri_jax_data/
 │   │       └── AutoAnalysis/      parameter.csv (100 000 x 30 LHS matrix, row i = run i), AutoAnalysis.py,
 │   │                              Experiment_Result_RZBatch.xlsx (observations), analysis_result.xlsx
 │   ├── RZWQM_Tool/                main_ryzen5_avx512, DSSAT/ database, LHS_ana_Gen/GenerateDat.py, rz_indiv.sh
-│   └── RZWQM_Linux_Ver45/src/     RZWQM2 Fortran source (private: read it, never copy it into the repo)
-├── catpa_lhs/                     CA-TPA 100k-run LHS results (scripts/data_sync.sh catpa_lhs, ~4 GB)
+├── catpa_lhs/                     CA-TPA 100k-run LHS results (~4 GB, not distributed)
 │   ├── catpa_daily.npz            float32 [100000, 3287]: sw_cm evap_cm transp_cm lai grain_kg_ha aet_cm;
 │   │                              run [100000]; time [3287] (YYYY.DDD, 2015.001 .. 2023.365)
 │   ├── catpa_yield.npz            run, season (0..6 = 2015..2021), yield_kg_ha (from each OVERVIEW.OUT)
@@ -29,22 +28,21 @@ agri_jax_data/
 │   └── lhs_run0/                  full-period run of LHS row 0 (0_rzwqm.dat + outputs)
 ├── run/                           RZWQM / DSSAT run directories (short paths; scratch, safe to delete)
 │   └── layers/                    the hand-made one-year run used to locate the per-layer output
-├── port_index/                    Fortran source index (agri_jax.port.fortran_index)
+├── port_index/                    Fortran source index (agrijax.port.fortran_index)
 └── venv/, *.log                   cluster helper venv and monitor logs
 ```
 
 Rebuild everything derived:
 
 ```bash
-bash ~/Agri_JAX/scripts/data_sync.sh catpa_lhs                                  # npz from rorqual
 uv run --project ~/Agri_JAX python ~/Agri_JAX/scripts/data/make_catpa_refs.py --extract-npy   # ~40 s + npy
 ```
 
-## Loaders (`agri_jax.io.catpa`)
+## Loaders (`agrijax.io.catpa`)
 
 | function | returns |
 |---|---|
-| `read_layer_output(path, start=None)` | `LAYER.PLT` as an `xarray.Dataset` with dims `(time, depth)` (also `agri_jax.io.rzwqm.layers`) |
+| `read_layer_output(path, start=None)` | `LAYER.PLT` as an `xarray.Dataset` with dims `(time, depth)` (also `agrijax.io.rzwqm.layers`) |
 | `build_events(dat, start, end)` / `load_events(path)` | the management table (`pandas.DataFrame`) |
 | `read_manage_out(path)` | events that RZWQM2 reports in `MANAGE.OUT` (used to check `build_events`) |
 | `load_catpa_lhs(data_dir, variables=, runs=, mmap=True)` | dict: `run`, `time`, `yyyyddd`, daily arrays, `yields` [n_run, 7], `season_year` |

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import numpy as np
 
-from agri_jax.io.catpa import (
+from agrijax.io.catpa import (
     CATPA_DIR,
     PARAMETER_CSV,
     SCENARIO_DIR,
@@ -31,8 +31,8 @@ from agri_jax.io.catpa import (
     read_manage_out,
     write_events,
 )
-from agri_jax.io.rzwqm.dat import read_rzwqm_dat, set_value, write_rzwqm_dat
-from agri_jax.port.run_fortran import RUN_ROOT, run_rzwqm
+from agrijax.io.rzwqm.dat import read_rzwqm_dat, set_value, write_rzwqm_dat
+from agrijax.port.run_fortran import RUN_ROOT, run_rzwqm
 
 ALL_PARAMETERS = SCENARIO_DIR.parent.parent / "all_parameters.csv"
 KEEP = ("*.ana", "OVERVIEW.OUT", "MANAGE.OUT", "LAYER.PLT", "IPNAMES.DAT")

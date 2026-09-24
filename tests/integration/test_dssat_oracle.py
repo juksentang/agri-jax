@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from agri_jax.io.dssat import (
+from agrijax.io.dssat import (
     read_out,
     read_plantgro,
     read_sol,

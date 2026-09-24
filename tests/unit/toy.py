@@ -9,7 +9,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array
 
-from agri_jax.core import Forcing, Model, Params, State, field, process
+from agrijax.core import Forcing, Model, Params, State, field, process
 
 
 class ToyState(State):

@@ -1,4 +1,4 @@
-"""OrganQueue (docs/en/02_architecture.md section 3.7): appearance, topping, priming, aggregation."""
+"""OrganQueue: appearance, topping, priming, aggregation."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agri_jax.core import OrganQueue as CoreOrganQueue
-from agri_jax.core.organs import OrganQueue, age, aggregate, appear, grow, prime, senesce, top
-from agri_jax.core.state import OrganQueue as StateOrganQueue
-from agri_jax.core.state import field_metadata
+from agrijax.core import OrganQueue as CoreOrganQueue
+from agrijax.core.organs import OrganQueue, age, aggregate, appear, grow, prime, senesce, top
+from agrijax.core.state import OrganQueue as StateOrganQueue
+from agrijax.core.state import field_metadata
 
 
 def test_empty_shapes_and_reexports() -> None:

@@ -1,4 +1,4 @@
-"""Data-free checks of :mod:`agri_jax.models.catpa_pet_demo` (the real-data checks are in
+"""Data-free checks of :mod:`agrijax.models.catpa_pet_demo` (the real-data checks are in
 tests/integration/test_core_real_pipeline.py).
 
 Synthetic 40-day forcing: the model's processes against the kernel called directly, the running
@@ -16,10 +16,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agri_jax.core import lint, registry, run
-from agri_jax.core.process import ProcessWriteError, process
-from agri_jax.models import catpa_pet_demo as demo
-from agri_jax.processes.pet import PETParams, PETSiteParams, shuttleworth_wallace
+from agrijax.core import lint, registry, run
+from agrijax.core.process import ProcessWriteError, process
+from agrijax.models import catpa_pet_demo as demo
+from agrijax.processes.pet import PETParams, PETSiteParams, shuttleworth_wallace
 
 RTOL = 1e-12 if jax.config.jax_enable_x64 else 2e-5
 N = 40

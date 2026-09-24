@@ -10,8 +10,8 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-from agri_jax.io.rzwqm.dat import read_rzwqm_dat
-from agri_jax.processes.soil_water.hydraulics import (
+from agrijax.io.rzwqm.dat import read_rzwqm_dat
+from agrijax.processes.soil_water.hydraulics import (
     H_CLAMP_RZWQM,
     H_FC13,
     H_FC110,

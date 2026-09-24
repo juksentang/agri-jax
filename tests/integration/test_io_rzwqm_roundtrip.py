@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from agri_jax.io.rzwqm import (
+from agrijax.io.rzwqm import (
     key_variables,
     params_from_dat,
     params_to_dat,

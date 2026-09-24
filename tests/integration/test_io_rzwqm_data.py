@@ -1,4 +1,4 @@
-"""Readers / writers of agri_jax.io.rzwqm against the CA-TPA scenario files, the batch parameter
+"""Readers / writers of agrijax.io.rzwqm against the CA-TPA scenario files, the batch parameter
 map ``all_parameters.csv`` and the original ``GenerateDat.py`` (skipped when absent).
 
 Moved from the unit tier, which must not depend on the private data tree.
@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.rzwqm import (
+from agrijax.io.rzwqm import (
     layout_param_map,
     load_param_map,
     param_map_from_csv,
@@ -27,8 +27,8 @@ from agri_jax.io.rzwqm import (
     set_value,
     write_rzwqm_dat,
 )
-from agri_jax.io.rzwqm.dat import HYDRAULIC_FIELDS
-from agri_jax.io.rzwqm.params import ParamSpec
+from agrijax.io.rzwqm.dat import HYDRAULIC_FIELDS
+from agrijax.io.rzwqm.params import ParamSpec
 
 BATCH = Path("narval_mirror/RZWQM_sw_batch")
 TOOL = Path("narval_mirror/RZWQM_Tool")

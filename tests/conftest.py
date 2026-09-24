@@ -26,8 +26,8 @@ import jax
 import pytest
 from hypothesis import settings
 
-settings.register_profile("agri_jax", derandomize=True, database=None, deadline=None)
-settings.load_profile("agri_jax")
+settings.register_profile("agrijax", derandomize=True, database=None, deadline=None)
+settings.load_profile("agrijax")
 
 _X64 = os.environ.get("AGRI_JAX_X64", "1").strip().lower() not in {"0", "false", "no", "off"}
 jax.config.update("jax_enable_x64", _X64)

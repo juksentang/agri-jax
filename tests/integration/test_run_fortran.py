@@ -1,4 +1,4 @@
-"""Oracle runner: RZWQM2 on CA-TPA and DSSAT-CSM on UFGA8201 via agri_jax.port.run_fortran."""
+"""Oracle runner: RZWQM2 on CA-TPA and DSSAT-CSM on UFGA8201 via agrijax.port.run_fortran."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agri_jax.port.run_fortran import (
+from agrijax.port.run_fortran import (
     DSSAT_ENGINE,
     RZWQM_BINARY,
     elf_interpreter,
@@ -76,7 +76,7 @@ def test_rzwqm_one_year(catpa_scenario: Path, rz_binary: Path, tmp_path: Path) -
 
 
 def test_rzwqm_failure_raises_with_log(catpa_scenario: Path, rz_binary: Path, tmp_path: Path) -> None:
-    from agri_jax.port.run_fortran import FortranRunError
+    from agrijax.port.run_fortran import FortranRunError
 
     bad = tmp_path / "bad.dat"
     bad.write_text("garbage\n")

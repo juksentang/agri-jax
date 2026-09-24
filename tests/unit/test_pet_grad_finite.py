@@ -17,13 +17,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from agri_jax.processes.pet import (
+from agrijax.processes.pet import (
     PETParams,
     asce_reference_et,
     priestley_taylor,
     shuttleworth_wallace,
 )
-from agri_jax.processes.pet.shuttleworth_wallace import RESIDUE_DENSITY_G_CM3, RESIDUE_DIAMETER_CM
+from agrijax.processes.pet.shuttleworth_wallace import RESIDUE_DENSITY_G_CM3, RESIDUE_DIAMETER_CM
 
 WC13, WC15, ELEVATION, LATITUDE = 0.255198, 0.141628, 200.0, 0.745163  # CA-TPA layer 1 and site
 PARAM_FIELDS = (

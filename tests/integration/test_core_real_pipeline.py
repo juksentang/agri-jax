@@ -1,6 +1,6 @@
 """The core runtime on a real model: CA-TPA 2015-2023, Shuttleworth-Wallace PET + bookkeeping.
 
-Model: :mod:`agri_jax.models.catpa_pet_demo` (3287 days). Every runtime path is checked against
+Model: :mod:`agrijax.models.catpa_pet_demo` (3287 days). Every runtime path is checked against
 a path that does not go through it:
 
 * ``run`` (``lax.scan`` over the compiled day step) vs a Python day loop that calls the S-W kernel
@@ -30,12 +30,12 @@ import numpy as np
 import pytest
 from jax import monitoring
 
-from agri_jax.core import run, run_batch, run_batch_chunked
-from agri_jax.core.process import ProcessWriteError, process
-from agri_jax.core.runtime import run_and_grad
-from agri_jax.io.rzwqm import prepare_rzwqm_forcing, read_ana, read_met, read_rzwqm_dat
-from agri_jax.io.rzwqm.layers import read_layer_output
-from agri_jax.models.catpa_pet_demo import (
+from agrijax.core import run, run_batch, run_batch_chunked
+from agrijax.core.process import ProcessWriteError, process
+from agrijax.core.runtime import run_and_grad
+from agrijax.io.rzwqm import prepare_rzwqm_forcing, read_ana, read_met, read_rzwqm_dat
+from agrijax.io.rzwqm.layers import read_layer_output
+from agrijax.models.catpa_pet_demo import (
     ANA_HEIGHT,
     ANA_LAI,
     ANA_RESIDUE,
@@ -48,7 +48,7 @@ from agri_jax.models.catpa_pet_demo import (
     site_params_from_dat,
     sw_pet_from_forcing,
 )
-from agri_jax.processes.pet import shuttleworth_wallace
+from agrijax.processes.pet import shuttleworth_wallace
 
 REF_DIRS = (Path("validation/catpa_2015_ref"), Path("catpa/ref_2015"))
 START, END = "2015-01-01", "2023-12-31"

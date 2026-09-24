@@ -1,4 +1,4 @@
-"""agri_jax.core.lint: each rule AJ001-AJ005 fires on a violating fixture and a clean process passes."""
+"""agrijax.core.lint: each rule AJ001-AJ005 fires on a violating fixture and a clean process passes."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from agri_jax.core import lint
+from agrijax.core import lint
 
 CLEAN = '''
 import equinox as eqx
 import jax.numpy as jnp
-from agri_jax.core import process
+from agrijax.core import process
 
 @process(reads=("water",), writes=("water",))
 def clean_process(state, params, forcing_t):
@@ -126,7 +126,7 @@ def helper(state):
 """
 
 HEADER = (
-    "import equinox as eqx\nimport jax.numpy as jnp\nimport numpy as np\nfrom agri_jax.core import process\n"
+    "import equinox as eqx\nimport jax.numpy as jnp\nimport numpy as np\nfrom agrijax.core import process\n"
 )
 
 
@@ -248,12 +248,12 @@ def test_cli_entry_point(tmp_path: Path) -> None:
     bad = tmp_path / "bad.py"
     bad.write_text(HEADER + AJ001)
     proc = subprocess.run(
-        [sys.executable, "-m", "agri_jax.core.lint", str(bad)], capture_output=True, text=True, check=False
+        [sys.executable, "-m", "agrijax.core.lint", str(bad)], capture_output=True, text=True, check=False
     )
     assert proc.returncode == 1
     assert "AJ001" in proc.stdout
     ok = subprocess.run(
-        [sys.executable, "-m", "agri_jax.core.lint", str(Path(lint.__file__).parent)],
+        [sys.executable, "-m", "agrijax.core.lint", str(Path(lint.__file__).parent)],
         capture_output=True,
         text=True,
         check=False,

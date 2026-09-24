@@ -268,13 +268,13 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
     <h2>你的实验室有一张卡就够</h2>
     <div class="est">
       <div class="full"><label for="n"><span>模拟次数</span><output id="nLab">100,000</output></label><input type="range" id="n" min="3" max="6" step="0.05" value="5"></div>
-      <div><label for="gpu">GPU</label><select id="gpu"><option value="h100">H100 80 GB</option><option value="a100">A100 40 GB</option><option value="4090">RTX 4090</option><option value="4060">RTX 4060 笔记本</option></select></div>
+      <div><label for="gpu">GPU</label><select id="gpu"><option value="h100">H100 80 GB</option><option value="a100">A100 40 GB</option><option value="4090">RTX 4090</option><option value="4060">RTX 4060 笔记本（实测）</option></select></div>
       <div><label for="cores">Fortran 核数</label><select id="cores"><option value="1">1 核</option><option value="32" selected>32 核工作站</option><option value="96">96 核</option><option value="192">192 核节点</option></select></div>
       <div><label for="cfg">数值方案</label><select id="cfg"><option value="24x3">24 子步 × 3 迭代</option><option value="12x2" selected>12 × 2</option><option value="6x1">6 × 1</option></select></div>
       <div><label for="prec">精度</label><select id="prec"><option value="f64">float64</option><option value="f32">float32</option></select></div>
     </div>
     <p class="result" id="ratio"></p>
-    <p class="note">其它显卡由 H100 实测外推，取内存带宽与双精度算力两者中较慢的一项（假设 H100 上计算约占一半时间；消费级显卡的双精度只有单精度的 1/64）；Fortran 按每次 24 秒除以核数估算（32 核工作站即 20.8 h；集群批量实跑约 10 h，每节点 8 任务阵列，含排队与读写）；真模型已按 3 倍折扣计。</p>
+    <p class="note">RTX 4060 笔记本为实测（计算骨架）；其它显卡由 H100 实测外推，取内存带宽与双精度算力两者中较慢的一项，并用 4060 实测校准（消费级显卡的双精度只有单精度的 1/64）；Fortran 按每次 24 秒除以核数估算（32 核工作站即 20.8 h；集群批量实跑约 10 h，每节点 8 任务阵列，含排队与读写）；真模型已按 3 倍折扣计。</p>
   </section>
 </div>
 </div>
@@ -336,7 +336,7 @@ const ROWS=40,COLS=60; const M={x:60,y:64,w:880,h:410}; const cw=M.w/COLS,ch=M.h
 function grid(fillFn,alpha=1,G=M){ const w=G.w/COLS,h=G.h/ROWS; ctx.globalAlpha=alpha; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const f=fillFn(r,c); if(!f) continue; ctx.fillStyle=f; ctx.fillRect(G.x+c*w+0.7,G.y+r*h+0.7,w-1.4,h-1.4);} ctx.globalAlpha=1; }
 function head(left,cls,right){ T(left,M.x,40,{c:cls||'ink b'}); T(right||'行 = 田块 · 列 = 天',M.x+M.w,40,{a:'right',c:'s'}); }
 function readouts(items){ const y0=M.y+M.h+46; items.forEach((it,i)=>{ const x=M.x+i*225; T(it[0],x,y0,{c:'s'}); T(it[1],x,y0+38,{c:'ink b xl mono'}); if(it[2]) T(it[2],x,y0+64,{c:'xs'}); }); }
-/* ---------- constants (measured, see docs/en/08) ---------- */
+/* ---------- constants (measured on the skeleton) ---------- */
 const FORT_H=20.8, JAX_S=82, DAYS=3287, N=100000, FILES=99*N, GB=80;
 const seeds=new Float32Array(ROWS*COLS); { let a=7; for(let i=0;i<seeds.length;i++){ a=(a*1103515245+12345)&0x7fffffff; seeds[i]=0.6+0.4*(a/0x7fffffff);} }
 function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
@@ -541,13 +541,14 @@ const ACTS=[
   } },
 ];
 /* ---------- estimator ---------- */
-/* bw: memory bandwidth relative to H100; fp64: vector FP64 TFLOPS (consumer cards run FP64 at 1/64 of FP32).
-   float64 time = the slower of bandwidth-bound and FP64-compute-bound, assuming compute is half of H100 time. */
-const HW={h100:{bw:1,fp64:34,floor:1},a100:{bw:0.46,fp64:9.7,floor:1.2},'4090':{bw:0.30,fp64:1.29,floor:1.3},'4060':{bw:0.08,fp64:0.23,floor:1.6}};
-const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}}; const REAL=3, RUN_S=24, CSHARE=0.5;
+/* '4060' is measured on an RTX 4060 Laptop (skeleton, 3287 days): time relative to H100 float64 at the same scheme,
+   m32 = 1.9, m64 = 30. Other cards are extrapolated: the slower of bandwidth-bound and FP64-compute-bound, with the
+   compute share (CSHARE) and the Ada effective-bandwidth factor calibrated on the 4060 measurement. */
+const HW={h100:{bw:1,fp64:34,floor:1},a100:{bw:0.46,fp64:9.7,floor:1.2},'4090':{bw:0.8,fp64:1.29,floor:1.3},'4060':{m32:1.9,m64:30,floor:1.6}};
+const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}}; const REAL=3, RUN_S=24, CSHARE=0.2;
 const human=s=>s<60?s.toFixed(s<10?1:0)+' 秒':s<3600?(s/60).toFixed(1)+' 分钟':s<86400?(s/3600).toFixed(1)+' 小时':s<7*86400?(s/86400).toFixed(1)+' 天':(s/86400/7).toFixed(1)+' 周';
 function estimate(){ const n=Math.round(Math.pow(10,+$('n').value)); const hw=HW[$('gpu').value],cfg=CFG[$('cfg').value],f32=$('prec').value==='f32',cores=+$('cores').value;
-  const base=cfg.ms/1000*REAL, tb=base/hw.bw, tc=CSHARE*base*HW.h100.fp64/hw.fp64; const fp64Bound=!f32&&tc>tb; const per= f32? tb*0.42 : Math.max(tb,tc);
+  const base=cfg.ms/1000*REAL; let per,fp64Bound; if(hw.m64){ per=base*(f32?hw.m32:hw.m64); fp64Bound=!f32; } else { const tb=base/hw.bw, tc=CSHARE*base*HW.h100.fp64/hw.fp64; fp64Bound=!f32&&tc>tb; per= f32? tb*0.42 : Math.max(tb,tc); }
   const jax=cfg.floor*hw.floor+n*per, fort=n*RUN_S/cores, r=fort/jax, m=r>=1?r:1/r;
   return {n,jax,fort,jaxH:human(jax),fortH:human(fort),verdict:r>=1.25?'jax':r<=0.8?'fort':'tie',mx:m<10?m.toFixed(1):Math.round(m).toLocaleString('zh-CN'),fp64Bound}; }
 const VERD={jax:x=>`Agri-JAX 约快 ${x} 倍`,fort:x=>`Fortran 约快 ${x} 倍`,tie:()=>'两者相当'};

@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from agri_jax.io.dssat import (
+from agrijax.io.dssat import (
     observed_date,
     read_cul,
     read_eco,
@@ -35,7 +35,7 @@ from agri_jax.io.dssat import (
     write_spe,
     write_wth,
 )
-from agri_jax.io.dssat._fixed import dssat_header_spans, list_directed_float, read_lines
+from agrijax.io.dssat._fixed import dssat_header_spans, list_directed_float, read_lines
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "dssat"
 DSSAT_ENGINE = Path(

@@ -24,7 +24,7 @@ docs/internal/
 dumps/
 *.npz
 
-# validation evidence is archived in the private repo (~/agri-jax-internal), not published
+# validation evidence is archived in the private repo (~/agrijax-internal), not published
 docs/en/validation_matrix.md
 docs/zh_cn/validation_matrix.md
 docs/validation/
@@ -32,3 +32,9 @@ docs/validation/
 # symlink to the private archive and coverage data
 docs/internal
 .coverage
+
+# local agent notes and private experiment scripts (archived in the private repo)
+CLAUDE.md
+poc/exp_inference.py
+scripts/rorqual/
+scripts/narval/

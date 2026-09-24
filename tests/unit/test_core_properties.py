@@ -22,8 +22,8 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from jaxtyping import Array
 
-from agri_jax.core import units
-from agri_jax.core.state import Params, State, field, get_path, leaf_paths, set_path, tree_diff
+from agrijax.core import units
+from agrijax.core.state import Params, State, field, get_path, leaf_paths, set_path, tree_diff
 
 SETTINGS = settings(derandomize=True, database=None, deadline=None, max_examples=150)
 FLOAT_DTYPE = np.float64 if jax.config.jax_enable_x64 else np.float32

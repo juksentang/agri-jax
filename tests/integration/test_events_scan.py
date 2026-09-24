@@ -1,6 +1,6 @@
 """OrganQueue + EventTable inside ``lax.scan`` on the real CA-TPA 2015-2023 forcing (3287 days).
 
-Model: :mod:`agri_jax.models.tobacco_demo` (leaves by rank, topping and primings from the event
+Model: :mod:`agrijax.models.tobacco_demo` (leaves by rank, topping and primings from the event
 table). Every claim is checked against something that does not go through the queue or the scan:
 
 * the model vs a plain NumPy/Python day loop of the same rules (lists of leaves, no masks, no JAX);
@@ -31,9 +31,9 @@ import pandas as pd
 import pytest
 from jax import lax
 
-from agri_jax.core import EventTable, run, run_batch
-from agri_jax.io.rzwqm import read_met
-from agri_jax.models.tobacco_demo import (
+from agrijax.core import EventTable, run, run_batch
+from agrijax.io.rzwqm import read_met
+from agrijax.models.tobacco_demo import (
     DEFAULT_PRIMINGS,
     build_forcing,
     default_params,

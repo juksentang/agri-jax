@@ -28,7 +28,7 @@ jobs:
       # @process functions get AJ001-AJ005, every other function under processes/ (the numerical
       # kernels) AJ001-AJ003; the summary line prints how many functions were visited, and
       # tests/unit/test_lint.py fails if the process code is not covered
-      - run: uv run python -m agri_jax.core.lint src/agri_jax --strict
+      - run: uv run python -m agrijax.core.lint src/agrijax --strict
 
   unit:
     needs: lint
@@ -51,7 +51,7 @@ jobs:
       # the unit tier is data-free (tests/conftest.py rejects a unit test that asks for data_dir);
       # AGRI_JAX_NO_SKIP=1 turns any skip not marked @pytest.mark.allow_skip into a failure, so
       # a reader test cannot silently skip here
-      - run: uv run pytest tests/unit -q -rs --cov=agri_jax --cov-report=xml
+      - run: uv run pytest tests/unit -q -rs --cov=agrijax --cov-report=xml
         env:
           AGRI_JAX_X64: ${{ matrix.x64 }}
           AGRI_JAX_CHECK: "1"

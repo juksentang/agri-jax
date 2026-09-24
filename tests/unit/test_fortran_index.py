@@ -1,4 +1,4 @@
-"""Unit tests for agri_jax.port.fortran_index on small embedded Fortran fixtures."""
+"""Unit tests for agrijax.port.fortran_index on small embedded Fortran fixtures."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("fparser")
 
-from agri_jax.port.fortran_index import index_file, index_tree, main, topological_order
+from agrijax.port.fortran_index import index_file, index_tree, main, topological_order
 
 # Fixed-form F77 fixture. Columns matter: statements start in column 7.
 FIXED = """\

@@ -1,7 +1,7 @@
 """All 15 RZWQM2 scenarios of ``RZWQM_sw_batch``: one-year Fortran runs checked against independent references.
 
 Each scenario ``<data-dir>/narval_mirror/RZWQM_sw_batch/<site>/Scenario`` is run for the first
-calendar year of its ``IPNAMES.DAT`` period with :func:`agri_jax.port.run_fortran.run_rzwqm`
+calendar year of its ``IPNAMES.DAT`` period with :func:`agrijax.port.run_fortran.run_rzwqm`
 (all 15 in a thread pool; each run is a subprocess, ~15 s wall on 4 cores). The checks, per scenario:
 
 ========================  ======================================================================
@@ -65,8 +65,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import agri_jax.port.run_fortran as rf
-from agri_jax.io.rzwqm import (
+import agrijax.port.run_fortran as rf
+from agrijax.io.rzwqm import (
     param_map_from_csv,
     params_from_dat,
     prepare_rzwqm_forcing,
@@ -76,7 +76,7 @@ from agri_jax.io.rzwqm import (
     read_rzwqm_dat,
     write_rzwqm_dat,
 )
-from agri_jax.io.rzwqm.layers import profile_storage_cm, read_layer_output, simulation_start
+from agrijax.io.rzwqm.layers import profile_storage_cm, read_layer_output, simulation_start
 
 BATCH = Path("narval_mirror/RZWQM_sw_batch")
 TOOL = Path("narval_mirror/RZWQM_Tool")
