@@ -4,9 +4,22 @@
 
 Agri-JAX is an independent JAX implementation of the CERES-Maize crop module from the open-source [DSSAT-CSM](https://github.com/DSSAT/dssat-csm-os) (BSD-3), and of RZWQM2-style soil water and potential evapotranspiration from the published equations (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985): Brooks–Corey Richards equation, Shuttleworth–Wallace potential evapotranspiration and tile drainage, written as pure JAX functions so that a full multi-year field simulation can be run for 10⁵ parameter sets in one `vmap`, differentiated with `jax.grad`, and embedded in gradient-based calibration, Hamiltonian Monte Carlo, ensemble data assimilation, or hybrid process–ML training loops. It is validated by comparing its outputs against the DSSAT-CSM and RZWQM2 reference models.
 
-The goal is not speed for its own sake. It is to make a *field-scale* model, with real soil physics and management events, as cheap to run in bulk and as differentiable as the regional-scale bucket models that already exist in this space, while staying compatible with the DSSAT and RZWQM parameter files that agronomists have built up over decades.
+The goal is not speed for its own sake. It is to make a field-scale model with layered soil physics and management events as cheap to run in bulk, and as differentiable, as the simpler differentiable crop models that already exist, while staying compatible with the DSSAT and RZWQM parameter files that agronomists have built up over decades.
 
-> **Status: design stage (September 2026).** The package on PyPI is a placeholder that reserves the name and installs an empty module. The design documents below are complete; the proof of concept starts now. Nothing here has been validated against the reference models yet. Do not use it for science until the validation report exists.
+> **Status (September 2026): early implementation.** The PyPI package is a name-reserving placeholder. The table below is the ground truth for what exists; the showcase page's throughput numbers come from a computational skeleton with the same per-day shape as the planned model, not from the full model.
+
+| Component | Implemented | Compared against a reference | Notes |
+|---|---|---|---|
+| Core (state pytrees, `@process`, scan/vmap runtime, lint) | yes | runtime vs an independent Python day loop (1e-12), gradients vs finite differences | |
+| RZWQM2 / DSSAT-CSM file readers and writers | yes | byte-identical round trips on 15 scenarios; DSSAT example outputs | |
+| Reference-model runners (RZWQM2, DSSAT-CSM) | yes | all 15 RZWQM scenarios, all DSSAT maize examples run | private RZWQM2 binary |
+| Brooks–Corey hydraulics | yes | reproduces reference-model FC/WP values on 100+ horizons; gradient checks | |
+| Shuttleworth–Wallace / ASCE / Priestley–Taylor PET | yes | ASCE to 5e-6 mm/d, S-W growing-season RMSE 0.02 / 0.17 mm/d vs RZWQM2 (one site-year) | |
+| Organ queue, event table, AmeriFlux loader | yes | conservation properties; AmeriFlux CA-TPA data | |
+| Richards soil-water solver | not yet | — | next |
+| CERES-Maize crop module | not yet | — | next |
+| Coupled water–crop model, calibration, UQ | not yet | — | after the two above |
+
 
 ## Showcase
 
@@ -21,7 +34,7 @@ An interactive walkthrough of the design is live at <https://juksentang.github.i
 | Ensemble data assimilation (EnKF, particle filters) | 10³–10⁴ members in lockstep | no |
 | Hybrid process–ML models (model inside a training loop) | one batch per step | yes |
 
-Existing crop models (DSSAT, RZWQM2, APSIM, STICS, WOFOST) are sequential Fortran or C# codes: fast for one field, impossible to batch, and not differentiable. Differentiable modelling has already reshaped hydrology; field-scale crop–soil modelling is still a gap. The differentiable crop models that exist today (diffWOFOST, torchcrop) are regional-scale bucket models. Agri-JAX is field-scale.
+Existing crop models (DSSAT, RZWQM2, APSIM, STICS, WOFOST) are sequential Fortran or C# codes written for one field at a time; their implementations do not natively support array-style batch execution and are not differentiable. Differentiable modelling has reshaped hydrology, and differentiable crop models now exist (diffWOFOST, torchcrop; JAX-CanVeg for the canopy–land surface). Agri-JAX differs in what it couples differentiably: layered soil-water dynamics, crop growth and management events, while keeping the DSSAT and RZWQM parameter files usable as they are. Comparisons should be made on soil layering, the flow equation, management processes, gradient handling and validation scope rather than on spatial scale alone.
 
 ## Design in three rules
 
