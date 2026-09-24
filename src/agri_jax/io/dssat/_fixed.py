@@ -33,8 +33,12 @@ MISSING = -99.0
 
 
 def read_lines(path: str | Path) -> list[str]:
-    """Read a DSSAT text file as a list of lines (latin-1: one byte == one column)."""
-    text = Path(path).read_bytes().decode("latin-1")
+    """Read a DSSAT text file as a list of lines (latin-1: one byte == one column).
+
+    A DOS end-of-file byte (``Ctrl-Z``, ``\\x1a``, left at the end of some old example files)
+    ends the text.
+    """
+    text = Path(path).read_bytes().decode("latin-1").split("\x1a", 1)[0]
     return [ln.rstrip("\r\n").replace("\t", " ") for ln in text.splitlines()]
 
 
@@ -53,6 +57,47 @@ def header_tokens(header: str, *, joins: Iterable[str] = ()) -> list[tuple[str, 
     for j in joins:
         line = line.replace(j, j.replace(" ", "_"))
     return [(clean_name(m.group(0)), m.start(), m.end()) for m in re.finditer(r"\S+", line)]
+
+
+def dssat_header_spans(header: str) -> list[tuple[str, int, int]]:
+    """Column spans of an ``@`` header exactly as DSSAT's ``PARSE_HEADERS`` (``READS.for``) sets them.
+
+    Returns ``(name, start, end)`` 0-based half-open spans: field 1 starts at column 0, field
+    *i* ends where header token *i* ends and field *i+1* starts two columns after that (the
+    single column right after each token belongs to no field), the last field ends with the
+    header line, a ``!`` ends the header, trailing dots are removed from names. DSSAT reads each
+    field with a list-directed ``READ`` (see :func:`list_directed_float`).
+    """
+    length = len(header.rstrip())
+    bang = header.find("!", 1, length)
+    if bang > 0:
+        length = bang
+    spans: list[tuple[int, int]] = []
+    start, spaces = 0, True
+    for i in range(1, length):
+        if header[i] == " ":
+            if not spaces:
+                spans.append((start, i))
+                start, spaces = i + 1, True
+        else:
+            spaces = False
+    spans.append((start, length))
+    names = [header[a:b].strip() for a, b in spans]
+    names[0] = header[1 : spans[0][1]].strip()
+    return [(n.rstrip(". "), a, b) for n, (a, b) in zip(names, spans, strict=True)]
+
+
+_LIST_NUM = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eEdD][+-]?\d+)?$")
+
+
+def list_directed_float(field: str) -> float:
+    """Value of a Fortran list-directed ``READ(field, *) X`` of one real: the first item
+    (blank- or comma-separated), NaN when the field is empty or the item is not a number
+    (DSSAT then keeps ``-99``)."""
+    items = field.replace(",", " ").split()
+    if not items or not _LIST_NUM.match(items[0]):
+        return math.nan
+    return float(items[0].replace("d", "e").replace("D", "e"))
 
 
 def _is_num(s: str) -> bool:

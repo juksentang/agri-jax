@@ -1,4 +1,4 @@
-"""First coarse comparison of Agri-JAX components against RZWQM2 on CA-TPA 2015.
+"""Coarse comparison of Agri-JAX components against RZWQM2 on CA-TPA 2015.
 
 What it does (no tuning; every parameter comes from the scenario files as they stand):
 
@@ -7,12 +7,12 @@ What it does (no tuning; every parameter comes from the scenario files as they s
    (``CA-TPA.ana``, ``OVERVIEW.OUT``, ``LAYER.PLT``); reused when present.
 2. PET: the daily Shuttleworth-Wallace module (``processes.pet.shuttleworth_wallace``) and the
    ASCE reference ET (``processes.pet.asce_reference_et``, ``variant="rzwqm"``) driven day by day
-   by the ``.MET`` forcing, with the canopy state (LAI col 43, height col 62), the flat residue
-   mass (col 72, previous row) and the surface-node water content (``LAYER.PLT``, previous day)
-   taken from the reference run. Compared with ``.ana`` cols 8 (PE), 9 (PT), 83 (PET = PE + PT),
-   81 (tall reference ET), 82 (short reference ET). As a diagnostic the same is repeated with the
-   weather echoed in the ``.ana`` file (cols 85, 86, 88, 89, 90) instead of the ``.MET`` file, and
-   the two weather inputs are compared with each other.
+   with the state of the reference run turned into the module's start-of-day inputs the way the
+   reference model does it at its PET call (:class:`HarnessOptions`; measured, not assumed: every
+   convention is ablated in the attribution table). Compared with ``.ana`` cols 8 (PE), 9 (PT),
+   83 (PET = PE + PT), 81 (tall reference ET), 82 (short reference ET). Three weather sources:
+   the prepared ``.MET`` forcing (primary; 100 km/d wind floor of ``INPDAY``), the weather echoed
+   in ``.ana`` cols 85-90 (module-only check: identical forcing) and the raw ``.MET`` file.
 3. Hydraulics sanity check: the modified Brooks-Corey curves (``processes.soil_water.hydraulics``)
    with the CA-TPA horizon parameters from ``rzwqm.dat`` (``io.rzwqm.dat`` hydraulics block),
    mapped onto the 37 numerical nodes; profile storage sum(theta * dz) for (a) uniform-potential
@@ -33,7 +33,7 @@ import argparse
 import datetime as _dt
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import jax
@@ -50,7 +50,11 @@ from agri_jax.io.rzwqm.dat import RzwqmDat  # noqa: E402
 from agri_jax.io.rzwqm.layers import layer_thickness_cm, read_layer_output  # noqa: E402
 from agri_jax.port.compare import CompareReport, compare_series  # noqa: E402
 from agri_jax.port.run_fortran import run_rzwqm  # noqa: E402
-from agri_jax.processes.pet import PETParams, asce_reference_et, shuttleworth_wallace  # noqa: E402
+from agri_jax.processes.pet import PETParams, SWResult, asce_reference_et, shuttleworth_wallace  # noqa: E402
+from agri_jax.processes.pet.shuttleworth_wallace import (  # noqa: E402
+    RESIDUE_DENSITY_G_CM3,
+    RESIDUE_DIAMETER_CM,
+)
 from agri_jax.processes.soil_water.hydraulics import (  # noqa: E402
     H_FC13,
     H_FC110,
@@ -76,14 +80,84 @@ PET_COLUMNS = {
 }
 WEATHER_COLUMNS = {"tmin": 85, "tmax": 86, "srad": 88, "rh": 89, "wind_run": 90}
 MET_NAMES = {"tmin": "tmin", "tmax": "tmax", "srad": "srad_mj", "rh": "rh", "wind_run": "wind_run_km"}
-#: PET runs: key -> (weather source, canopy lag in days, report title). "met" is the run the task
-#: specifies (MET weather, LAI/height of the same .ana row); the others are diagnostics.
-PET_RUNS = {
-    "met": ("met", 0, "PET: MET weather, same-row LAI/height (primary)"),
-    "ana": ("ana", 0, "PET: .ana-echoed weather, same-row LAI/height (diagnostic)"),
-    "met-lag1": ("met", 1, "PET: MET weather, previous-row (start-of-day) LAI/height (diagnostic)"),
-}
 WEATHER_UNITS = {"tmin": "degC", "tmax": "degC", "srad": "MJ m-2 d-1", "rh": "%", "wind_run": "km d-1"}
+#: residue-type constants chosen from the residue cover factor CRES at start-up
+#: (Rzmain.for lines 5245-5247; the DATA statement initialises IPR to 1 = corn otherwise)
+RESIDUE_TYPE_OF_CRES = {2.0: "corn", 2.5: "soybean", 4.0: "wheat"}
+#: residue type of the harvested crop, from the plant name of the rzwqm.dat plant record
+CROP_RESIDUE_TYPE = (("maize", "corn"), ("corn", "corn"), ("soy", "soybean"), ("wheat", "wheat"))
+
+
+@dataclass(frozen=True)
+class HarnessOptions:
+    """How the reference run's state becomes the PET module's start-of-day inputs.
+
+    The defaults are the conventions of the reference model's daily loop (measured on every
+    ``.ana`` row of CA-TPA 2015, see the attribution table of the report): management (tillage)
+    runs before the PET call, crop growth, harvest and the residue-type switch run after it.
+    """
+
+    weather: str = "met"  # "met" = prepared .MET (wind floor), "met-raw" = raw .MET, "ana" = echoed
+    canopy_lag: int = 1  # LAI / height from the previous .ana row (start of day); 0 = same row
+    harvest_canopy_zero: bool = True  # the day after harvest starts without a canopy
+    jan1_residue_from_file: bool = True  # first day: initial flat residue of rzwqm.dat, not row 0
+    residue_type_switch: bool = True  # harvested crop's residue constants after harvest
+    residue_age_reset: bool = True  # residue age restarts at harvest (HARVST sets RESAGE = 0)
+    tillage_same_row: bool = True  # tillage day: post-tillage residue mass (same row)
+
+
+REFERENCE_TIMING = HarnessOptions()
+#: PET runs: key -> (options, report title)
+PET_RUNS: dict[str, tuple[HarnessOptions, str]] = {
+    "met": (REFERENCE_TIMING, "PET: prepared .MET weather, reference-model input timing (primary)"),
+    "ana": (
+        replace(REFERENCE_TIMING, weather="ana"),
+        "PET: .ana-echoed weather, reference-model input timing (module-only check)",
+    ),
+    "met-raw": (
+        replace(REFERENCE_TIMING, weather="met-raw"),
+        "PET: raw .MET weather without the 100 km/d wind floor (diagnostic)",
+    ),
+}
+#: ablations of the primary run: label -> (options, variable it hits, named cause)
+ABLATIONS: dict[str, tuple[HarnessOptions, str, str]] = {
+    "same-row LAI and height": (
+        replace(REFERENCE_TIMING, canopy_lag=0),
+        "pot_transp_mm",
+        "crop growth follows the PET call in the reference day loop: PET sees the start-of-day canopy",
+    ),
+    "canopy kept the day after harvest": (
+        replace(REFERENCE_TIMING, harvest_canopy_zero=False),
+        "pot_transp_mm",
+        "harvest removes the canopy after the .ana LAI gate of the harvest day; the next PET call sees "
+        "LAI = 0",
+    ),
+    "Jan 1 residue from .ana row 0": (
+        replace(REFERENCE_TIMING, jan1_residue_from_file=False),
+        "pot_evap_mm",
+        ".ana row 0 is all zeros, not the initial state; the first day uses the rzwqm.dat initial residue",
+    ),
+    "residue type kept after harvest": (
+        replace(REFERENCE_TIMING, residue_type_switch=False),
+        "pot_evap_mm",
+        "IPR switches from the CRES-derived type (2.5 -> soybean) to the harvested crop's (maize -> corn)",
+    ),
+    "residue age not reset at harvest": (
+        replace(REFERENCE_TIMING, residue_age_reset=False),
+        "pot_evap_mm",
+        "HARVST sets RESAGE = 0 (Rzman.for line 6615); the residue albedo ages from the harvest",
+    ),
+    "tillage-day residue from the previous row": (
+        replace(REFERENCE_TIMING, tillage_same_row=False),
+        "pot_evap_mm",
+        "management (tillage, residue incorporation) precedes the PET call within the day",
+    ),
+    "raw .MET wind (no 100 km/d floor)": (
+        replace(REFERENCE_TIMING, weather="met-raw"),
+        "pot_transp_mm",
+        "INPDAY floors the wind run at UBREEZ = 100 km/d (Rzmain.for line 3543)",
+    ),
+}
 
 
 # --------------------------------------------------------------------------------------- inputs
@@ -106,7 +180,8 @@ def reference_run(ref_dir: Path = REF_DIR, *, rerun: bool = False, scenario: Pat
 class Inputs:
     ana: xr.Dataset  # full .ana (row 0 = YYYY.000 initial state)
     col: dict[int, str]  # 1-based column -> variable name
-    met: pd.DataFrame  # MET rows of YEAR
+    met: pd.DataFrame  # prepared MET rows of YEAR (INPDAY wind floor and bounds)
+    met_raw: pd.DataFrame  # MET rows of YEAR as written in the file
     layers: xr.Dataset  # LAYER.PLT, one row per day of YEAR
     dat: RzwqmDat
     ref_dir: Path
@@ -123,13 +198,14 @@ class Inputs:
 def load_inputs(ref_dir: Path, scenario: Path = SCENARIO) -> Inputs:
     ana = read_ana(ref_dir / "CA-TPA.ana")
     col = {int(k): v for k, v in ana.attrs["columns"].items()}
-    met = read_met(scenario / "CA-TPA.MET")
-    met = met.loc[f"{YEAR}-01-01" : f"{YEAR}-12-31"]
+    span = slice(f"{YEAR}-01-01", f"{YEAR}-12-31")
+    met_raw = read_met(scenario / "CA-TPA.MET").loc[span]
+    met = read_met(scenario / "CA-TPA.MET", prepare=True).loc[span]
     layers = read_layer_output(ref_dir / "LAYER.PLT", start=f"{YEAR}-01-01")
     dat = read_rzwqm_dat(scenario / "rzwqm.dat")
     ov = ref_dir / "OVERVIEW.OUT"
     yields = read_overview_yields(ov) if ov.is_file() else None
-    return Inputs(ana, col, met, layers, dat, ref_dir, yields)
+    return Inputs(ana, col, met, met_raw, layers, dat, ref_dir, yields)
 
 
 def growing_season(inp: Inputs) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -140,16 +216,71 @@ def growing_season(inp: Inputs) -> tuple[pd.Timestamp, pd.Timestamp]:
     raise LookupError(f"no {YEAR} planting in rzwqm.dat")
 
 
-def residue_cover_factor(dat: RzwqmDat) -> float:
-    """``CRES``, item 3 of the 'Current Residue Conditions' record (corn 2.0, soybean 2.5, wheat 4.0)."""
+def _data_lines_after(dat: RzwqmDat, marker: str) -> list[list[str]]:
+    """Data records (not starting with '=') that follow the header line containing ``marker``."""
     lines = [ln.rstrip("\r\n") for ln in dat.lines]
     for i, ln in enumerate(lines):
-        if "C:P ratio of dominate residue material" in ln:
+        if marker in ln:
+            out: list[list[str]] = []
             for nxt in lines[i + 1 :]:
                 s = nxt.strip()
-                if s and not s.startswith("="):
-                    return float(s.split()[2])
-    raise LookupError("residue block not found")
+                if s.startswith("="):
+                    if out:
+                        break
+                    continue
+                if s:
+                    out.append(s.split())
+            return out
+    raise LookupError(marker)
+
+
+def residue_conditions(dat: RzwqmDat) -> dict[str, float]:
+    """The 'Current Residue Conditions' record: initial flat residue, its age, CRES, ... (9 items)."""
+    vals = [float(t) for t in _data_lines_after(dat, "C:P ratio of dominate residue material")[0]]
+    keys = (
+        "mass_t_ha",
+        "age_d",
+        "cover_factor",
+        "height_cm",
+        "cn_ratio",
+        "stem_area_index",
+        "standing_height_cm",
+        "standing_mass_t_ha",
+        "cp_ratio",
+    )
+    return dict(zip(keys, vals, strict=False))
+
+
+def residue_cover_factor(dat: RzwqmDat) -> float:
+    """``CRES``, item 3 of the 'Current Residue Conditions' record (corn 2.0, soybean 2.5, wheat 4.0)."""
+    return residue_conditions(dat)["cover_factor"]
+
+
+def tillage_dates(dat: RzwqmDat, year: int = YEAR) -> list[pd.Timestamp]:
+    """Dates of the tillage operations of ``year`` given as specified dates (timing code 5).
+
+    Record layout: plant ref, timing code, dd mm yyyy (code 5) or offset, implement, depth,
+    intensity, operation, P mixing. Operations timed relative to planting (codes 1-4) are not
+    resolved and are skipped.
+    """
+    recs = _data_lines_after(dat, "number of tillage operations")
+    n = int(float(recs[0][0]))
+    out = []
+    for r in recs[1 : 1 + n]:
+        if int(float(r[1])) == 5:
+            d, m, y = (int(float(t)) for t in r[2:5])
+            if y == year:
+                out.append(pd.Timestamp(year=y, month=m, day=d))
+    return out
+
+
+def crop_residue_type(dat: RzwqmDat) -> str:
+    """Residue type ('corn' | 'soybean' | 'wheat') of the first plant record, from its name."""
+    name = str(dat.plants[0]).lower() if dat.plants else ""
+    for key, rtype in CROP_RESIDUE_TYPE:
+        if key in name:
+            return rtype
+    return "corn"
 
 
 def pet_params(dat: RzwqmDat) -> PETParams:
@@ -168,6 +299,8 @@ def pet_params(dat: RzwqmDat) -> PETParams:
 def _weather(inp: Inputs, source: str) -> dict[str, np.ndarray]:
     if source == "met":
         return {k: inp.met[v].to_numpy(dtype=float) for k, v in MET_NAMES.items()}
+    if source == "met-raw":
+        return {k: inp.met_raw[v].to_numpy(dtype=float) for k, v in MET_NAMES.items()}
     if source == "ana":
         return {
             k: inp.column(c).sel(time=inp.days).to_numpy().astype(float) for k, c in WEATHER_COLUMNS.items()
@@ -183,35 +316,69 @@ def weather_dataset(inp: Inputs, source: str) -> xr.Dataset:
     )
 
 
-def pet_simulation(inp: Inputs, weather: str = "met", *, canopy_lag: int = 0) -> xr.Dataset:
-    """Daily S-W PE, PT, PE + PT and ASCE tall/short reference ET [mm d-1] for every day of YEAR.
+@dataclass
+class PETInputs:
+    """Start-of-day inputs of the S-W module for every day of YEAR (numpy, time axis first)."""
 
-    ``canopy_lag = 1`` takes LAI and height from the previous ``.ana`` row (diagnostic only).
-    """
+    days: pd.DatetimeIndex
+    weather: dict[str, np.ndarray]  # tmin, tmax, srad, rh, wind_run
+    lai: np.ndarray
+    height: np.ndarray
+    theta: np.ndarray
+    residue_mass: np.ndarray
+    residue_age: np.ndarray
+    residue_diameter_cm: np.ndarray
+    residue_density: np.ndarray
+    doy: np.ndarray
+    params: PETParams
+    site: dict[str, float]  # wc13, wc15, elevation, latitude, wind_height
+    rainfall_zone: int
+    cover_factor: float
+    residue_type: np.ndarray  # object array of 'corn' | 'soybean' | 'wheat'
+
+
+def pet_inputs(inp: Inputs, opt: HarnessOptions = REFERENCE_TIMING) -> PETInputs:
+    """Turn the reference run's outputs into the module's inputs following ``opt``."""
     dat = inp.dat
     days = inp.days
-    w = _weather(inp, weather)
-    canopy_days = days - pd.Timedelta(days=canopy_lag)
+    n = len(days)
+    w = _weather(inp, opt.weather)
+    _, harvest = growing_season(inp)
+    canopy_days = days - pd.Timedelta(days=opt.canopy_lag)
     lai = inp.column(43).sel(time=canopy_days).to_numpy().astype(float)
     height = inp.column(62).sel(time=canopy_days).to_numpy().astype(float)
-    # start-of-day residue mass = previous .ana row (row 0 is the YYYY.000 initial state)
+    if opt.harvest_canopy_zero:
+        gone = days == harvest + pd.Timedelta(days=1)
+        lai[gone] = 0.0
+        height[gone] = 0.0
+    # start-of-day residue mass = previous .ana row (row 0 is the YYYY.000 initial-state row, all zeros)
     prev_days = days - pd.Timedelta(days=1)
     residue = inp.column(72).sel(time=prev_days).to_numpy().astype(float)
+    rc = residue_conditions(dat)
+    if opt.jan1_residue_from_file:
+        residue[0] = rc["mass_t_ha"] * 1.0e3
+    if opt.tillage_same_row:
+        for t in tillage_dates(dat):
+            if t in days:
+                residue[days.get_loc(t)] = float(inp.column(72).sel(time=t))
     # surface-node water content at the start of the day = end state of the previous day;
     # LAYER.PLT has no initial row, so Jan 1 uses its own end state (one day affected)
     theta_end = inp.layers["soil_water_content"].isel(depth=0).sel(time=days).to_numpy().astype(float)
     theta = np.concatenate([theta_end[:1], theta_end[:-1]])
     doy = days.dayofyear.to_numpy()
-    # residue albedo ageing: the residue age is not an output; the file's initial age (50 d) plus
-    # the day count is used (weak effect: it only moves the residue albedo)
-    age = 50.0 + np.arange(len(days), dtype=float)
-
-    hyd = dat.hydraulics
-    phys = dat.physiography
-    pet = dat.pet
-    cres = residue_cover_factor(dat)
-    residue_type = {2.0: "corn", 2.5: "soybean", 4.0: "wheat"}.get(cres, "corn")
-    params = pet_params(dat)
+    # residue age: file value + 1 on the first day (Rzday.for line 1284 increments before the
+    # PET call), restarting at harvest (HARVST, Rzman.for line 6615)
+    age = rc["age_d"] + np.arange(1, n + 1, dtype=float)
+    after = days > harvest
+    if opt.residue_age_reset:
+        age[after] = (days[after] - harvest).days.to_numpy().astype(float)
+    cres = rc["cover_factor"]
+    rtype = np.array([RESIDUE_TYPE_OF_CRES.get(cres, "corn")] * n, dtype=object)
+    if opt.residue_type_switch:
+        rtype[after] = crop_residue_type(dat)
+    rdia = np.array([RESIDUE_DIAMETER_CM[t] for t in rtype], dtype=float)
+    rho = np.array([RESIDUE_DENSITY_G_CM3[t] for t in rtype], dtype=float)
+    hyd, phys, pet = dat.hydraulics, dat.physiography, dat.pet
     site = dict(
         wc13=float(hyd["theta_fc33"][0]),
         wc15=float(hyd["theta_wp"][0]),
@@ -219,45 +386,107 @@ def pet_simulation(inp: Inputs, weather: str = "met", *, canopy_lag: int = 0) ->
         latitude=float(phys["latitude_rad"]),
         wind_height=float(pet["wind_height_m"]),
     )
-    zone = int(phys["rainfall_zone"])
-
-    def one(tmin, tmax, srad, rh, wind, l_, hc, th, m, dd, ag):
-        return shuttleworth_wallace(
-            tmin,
-            tmax,
-            srad,
-            rh,
-            wind,
-            l_,
-            hc,
-            params,
-            theta_surface=th,
-            wc13=site["wc13"],
-            wc15=site["wc15"],
-            elevation=site["elevation"],
-            latitude=site["latitude"],
-            doy=dd,
-            residue_mass=m,
-            residue_age=ag,
-            wind_height=site["wind_height"],
-            rainfall_zone=zone,
-            residue_type=residue_type,
-            residue_cover_factor=cres,
-        )
-
-    r = jax.jit(jax.vmap(one))(
-        w["tmin"], w["tmax"], w["srad"], w["rh"], w["wind_run"], lai, height, theta, residue, doy, age
+    return PETInputs(
+        days=days,
+        weather=w,
+        lai=lai,
+        height=height,
+        theta=theta,
+        residue_mass=residue,
+        residue_age=age,
+        residue_diameter_cm=rdia,
+        residue_density=rho,
+        doy=doy,
+        params=pet_params(dat),
+        site=site,
+        rainfall_zone=int(phys["rainfall_zone"]),
+        cover_factor=float(cres),
+        residue_type=rtype,
     )
+
+
+def sw_day(
+    x: PETInputs,
+    tmin,
+    tmax,
+    srad,
+    rh,
+    wind,
+    lai,
+    height,
+    theta,
+    residue_mass,
+    residue_age,
+    rdia,
+    rho,
+    doy,
+    params: PETParams | None = None,
+) -> SWResult:
+    """The S-W kernel for one day with the site constants of ``x`` (differentiable in every array)."""
+    return shuttleworth_wallace(
+        tmin,
+        tmax,
+        srad,
+        rh,
+        wind,
+        lai,
+        height,
+        x.params if params is None else params,
+        theta_surface=theta,
+        wc13=x.site["wc13"],
+        wc15=x.site["wc15"],
+        elevation=x.site["elevation"],
+        latitude=x.site["latitude"],
+        doy=doy,
+        residue_mass=residue_mass,
+        residue_age=residue_age,
+        wind_height=x.site["wind_height"],
+        rainfall_zone=x.rainfall_zone,
+        residue_cover_factor=x.cover_factor,
+        residue_diameter_cm=rdia,
+        residue_density=rho,
+    )
+
+
+def sw_result(x: PETInputs) -> SWResult:
+    """The S-W kernel over every day of ``x`` (jit + vmap)."""
+    w = x.weather
+
+    def one(*args):
+        return sw_day(x, *args)
+
+    return jax.jit(jax.vmap(one))(
+        w["tmin"],
+        w["tmax"],
+        w["srad"],
+        w["rh"],
+        w["wind_run"],
+        x.lai,
+        x.height,
+        x.theta,
+        x.residue_mass,
+        x.residue_age,
+        x.residue_diameter_cm,
+        x.residue_density,
+        x.doy,
+    )
+
+
+def pet_simulation(inp: Inputs, opt: HarnessOptions = REFERENCE_TIMING) -> xr.Dataset:
+    """Daily S-W PE, PT, PE + PT and ASCE tall/short reference ET [mm d-1] for every day of YEAR."""
+    x = pet_inputs(inp, opt)
+    r = sw_result(x)
+    w = x.weather
     ref = asce_reference_et(
         w["tmin"],
         w["tmax"],
         w["srad"],
         w["rh"],
         w["wind_run"] * 1.0e3 / 86400.0,
-        elevation=site["elevation"],
-        latitude=site["latitude"],
-        doy=doy,
-        wind_height=site["wind_height"],
+        elevation=x.site["elevation"],
+        latitude=x.site["latitude"],
+        doy=x.doy,
+        wind_height=x.site["wind_height"],
         variant="rzwqm",
     )
     pt = np.asarray(r.transpiration) * 10.0
@@ -271,8 +500,8 @@ def pet_simulation(inp: Inputs, weather: str = "met", *, canopy_lag: int = 0) ->
     }
     return xr.Dataset(
         {k: ("time", v, {"units": "mm d-1"}) for k, v in out.items()},
-        coords={"time": days.values},
-        attrs={"weather": weather},
+        coords={"time": x.days.values},
+        attrs={"weather": opt.weather},
     )
 
 
@@ -345,17 +574,98 @@ def storage_reference(inp: Inputs) -> xr.Dataset:
 
 # -------------------------------------------------------------------------------------- report
 @dataclass
+class Ablation:
+    label: str
+    variable: str
+    cause: str
+    rmse: float  # year RMSE of the ablated run [mm d-1]
+    max_abs: float  # largest daily |error| of the ablated run
+    worst_day: pd.Timestamp
+    primary_on_worst_day: float  # |error| of the primary run on that day
+    errors: pd.Series  # daily |sim - ref| of the ablated run
+
+
+@dataclass
 class CoarseResult:
-    pet: dict[str, CompareReport]  # weather source -> report (year + season rows)
-    pet_sim: dict[str, xr.Dataset]  # weather source -> simulated PET series
+    pet: dict[str, CompareReport]  # run key -> report (year + season rows)
+    pet_sim: dict[str, xr.Dataset]  # run key -> simulated PET series
     pet_ref: xr.Dataset
+    ablations: dict[str, Ablation]
     weather: CompareReport
     storage: CompareReport
     uniform: dict[str, float]
     storage_range: tuple[float, float]
     theta_err_by_depth: pd.DataFrame
     season: tuple[pd.Timestamp, pd.Timestamp]
+    facts: dict[str, object]  # measured numbers quoted in the report and asserted in the tests
     markdown: str
+
+
+def _abs_err(sim: xr.Dataset, ref: xr.Dataset, var: str) -> pd.Series:
+    return (sim[var] - ref[var]).to_pandas().abs()
+
+
+def ablation_table(inp: Inputs, ref: xr.Dataset, primary: xr.Dataset) -> dict[str, Ablation]:
+    out: dict[str, Ablation] = {}
+    for label, (opt, var, cause) in ABLATIONS.items():
+        sim = pet_simulation(inp, opt)
+        e = _abs_err(sim, ref, var)
+        worst = e.idxmax()
+        out[label] = Ablation(
+            label=label,
+            variable=var,
+            cause=cause,
+            rmse=float(np.sqrt(np.mean(e.to_numpy() ** 2))),
+            max_abs=float(e.max()),
+            worst_day=pd.Timestamp(worst),
+            primary_on_worst_day=float(_abs_err(primary, ref, var)[worst]),
+            errors=e,
+        )
+    return out
+
+
+def measured_facts(inp: Inputs, res_pet: dict[str, xr.Dataset], ref: xr.Dataset, season) -> dict[str, object]:
+    days = inp.days
+    start, end = season
+    raw_wind = inp.met_raw["wind_run_km"].to_numpy(dtype=float)
+    ana_wind = inp.column(90).sel(time=days).to_numpy().astype(float)
+    floor_days = list(days[raw_wind < 100.0])
+    ratio = inp.column(88).sel(time=days).to_numpy().astype(float) / inp.met_raw["srad_mj"].to_numpy(
+        dtype=float
+    )
+    met, ana = res_pet["met"], res_pet["ana"]
+    srad_effect = {v: float(np.abs(met[v] - ana[v]).max()) for v in ("pot_evap_mm", "pot_transp_mm")}
+    e_pe = _abs_err(met, ref, "pot_evap_mm")
+    e_pt = _abs_err(met, ref, "pot_transp_mm")
+    after = (days > end) & (days <= end + pd.Timedelta(days=60))
+    pre = (days < start) & (days.month >= 4)
+    theta_err = np.abs(storage_from_heads(inp)["theta_err"])
+    err = theta_err.max("depth").to_pandas()
+    bad_days = err[err > 1e-3]
+    bad_depths = theta_err["depth"].to_numpy()[(theta_err > 1e-3).any("time").to_numpy()]
+    return {
+        "wind_floor_days": floor_days,
+        "wind_floor_raw": [float(v) for v in raw_wind[raw_wind < 100.0]],
+        "wind_prepared_equals_ana": bool(
+            np.array_equal(inp.met["wind_run_km"].to_numpy(dtype=float), ana_wind)
+        ),
+        "srad_ratio_range": (float(ratio.min()), float(ratio.max())),
+        "srad_effect_on_pet": srad_effect,
+        "pe_err_after_harvest": float(e_pe[after].mean()),
+        "pe_err_before_planting": float(e_pe[pre].mean()),
+        "worst_pe": [
+            (pd.Timestamp(d), float(v)) for d, v in e_pe.sort_values(ascending=False).head(3).items()
+        ],
+        "worst_pt": [
+            (pd.Timestamp(d), float(v)) for d, v in e_pt.sort_values(ascending=False).head(3).items()
+        ],
+        "tillage_dates": tillage_dates(inp.dat),
+        "residue_conditions": residue_conditions(inp.dat),
+        "residue_type_before": RESIDUE_TYPE_OF_CRES.get(residue_cover_factor(inp.dat), "corn"),
+        "residue_type_after": crop_residue_type(inp.dat),
+        "theta_bad_days": [pd.Timestamp(d) for d in bad_days.index],
+        "theta_bad_depths": (float(bad_depths.min()), float(bad_depths.max())) if bad_depths.size else None,
+    }
 
 
 def run_comparison(ref_dir: Path, scenario: Path = SCENARIO) -> CoarseResult:
@@ -365,20 +675,21 @@ def run_comparison(ref_dir: Path, scenario: Path = SCENARIO) -> CoarseResult:
     ref = pet_reference(inp)
     pet_reports: dict[str, CompareReport] = {}
     pet_sims: dict[str, xr.Dataset] = {}
-    for key, (src, lag, title) in PET_RUNS.items():
-        sim = pet_simulation(inp, src, canopy_lag=lag)
+    for key, (opt, title) in PET_RUNS.items():
+        sim = pet_simulation(inp, opt)
         pet_sims[key] = sim
         vars_ = list(PET_COLUMNS)
         rep = compare_series(sim, ref, vars_, period=f"year ({key})")
         rep += compare_series(sim, ref, vars_, period=f"season ({key})", where=season)
         rep.title = title
         pet_reports[key] = rep
+    ablations = ablation_table(inp, ref, pet_sims["met"])
     weather = compare_series(
-        weather_dataset(inp, "met"),
+        weather_dataset(inp, "met-raw"),
         weather_dataset(inp, "ana"),
         list(WEATHER_COLUMNS),
         period="year",
-        title=".MET forcing vs weather echoed in .ana (cols 85-90)",
+        title="Raw .MET forcing vs weather echoed in .ana (cols 85-90)",
     )
     st_sim = storage_from_heads(inp)
     st_ref = storage_reference(inp)
@@ -405,12 +716,14 @@ def run_comparison(ref_dir: Path, scenario: Path = SCENARIO) -> CoarseResult:
         pet=pet_reports,
         pet_sim=pet_sims,
         pet_ref=ref,
+        ablations=ablations,
         weather=weather,
         storage=storage,
         uniform=uniform,
         storage_range=(float(col2.min()), float(col2.max())),
         theta_err_by_depth=by_depth,
         season=(start, end),
+        facts=measured_facts(inp, pet_sims, ref, (start, end)),
         markdown="",
     )
     res.markdown = render(res, inp)
@@ -420,8 +733,10 @@ def run_comparison(ref_dir: Path, scenario: Path = SCENARIO) -> CoarseResult:
 def render(res: CoarseResult, inp: Inputs) -> str:
     start, end = res.season
     today = _dt.date.today().isoformat()
+    f = res.facts
+    rc = f["residue_conditions"]
     lines = [
-        f"# CA-TPA {YEAR}: first coarse comparison against RZWQM2",
+        f"# CA-TPA {YEAR}: coarse comparison against RZWQM2",
         "",
         f"Generated {today} by `poc/coarse_compare.py`. Reference run: `{inp.ref_dir}` "
         f"(RZWQM2 binary, IPNAMES period {YEAR}-01-01 to {YEAR}-12-31). Growing season = planting "
@@ -434,16 +749,23 @@ def render(res: CoarseResult, inp: Inputs) -> str:
         y = inp.yields.iloc[-1]
         lines += [f"Reference-run maize yield (OVERVIEW.OUT): {y['yield_kg_ha']:.0f} kg/ha.", ""]
     lines += [
-        "Inputs of the PET modules: weather from the `.MET` file (primary) or from the `.ana` echo "
-        "(diagnostic); LAI (col 43) and canopy height (col 62) of the same row, flat residue mass "
-        "(col 72) of the previous row, surface-node theta from `LAYER.PLT` of the previous day, "
-        "residue age = 50 d + day count (not an output). PET params from the `rzwqm.dat` PET block, "
-        "rs_min of the plant block, rainfall zone and CRES from the file.",
+        "Inputs of the PET module (start-of-day state, the reference model's input timing, see the "
+        "attribution table): LAI (col 43) and canopy height (col 62) of the previous `.ana` row, "
+        f"zero on the day after harvest; flat residue mass (col 72) of the previous row, the rzwqm.dat "
+        f"initial residue ({rc['mass_t_ha']:g} t/ha) on the first day and the post-tillage mass (same "
+        f"row) on tillage days ({', '.join(str(t.date()) for t in f['tillage_dates'])}); surface-node "
+        f"theta from `LAYER.PLT` of the previous day; residue age = file age ({rc['age_d']:g} d) + day "
+        f"count, restarting at harvest; residue-type constants `{f['residue_type_before']}` (from CRES = "
+        f"{rc['cover_factor']:g}) before harvest and `{f['residue_type_after']}` (the crop's) after it. "
+        "PET params from the `rzwqm.dat` PET block, rs_min of the plant block, rainfall zone and CRES "
+        "from the file. Weather: prepared `.MET` (100 km/d wind floor of INPDAY; primary), the `.ana` "
+        "echo (identical forcing, module-only check) or the raw `.MET`.",
         "",
     ]
     for key in PET_RUNS:
         lines.append(res.pet[key].to_markdown(heading_level=2))
     lines += error_distribution_table(res)
+    lines += attribution_table(res)
     lines.append(res.weather.to_markdown(heading_level=2))
     lines.append(res.storage.to_markdown(heading_level=2))
     lines += [
@@ -473,36 +795,40 @@ def render(res: CoarseResult, inp: Inputs) -> str:
     worst = float(res.theta_err_by_depth["max_abs_theta_err"].max())
     lines += ["", f"Largest per-node |theta error| over all nodes and days: {worst:.2e}.", ""]
     lines += diagnostics(res, inp)
-    lines += INTERPRETATION
+    lines += CONCLUSIONS
     return "\n".join(lines) + "\n"
 
 
-#: Hand-written reading of the 2026-09-23 run (qualitative; the numbers above are regenerated).
-INTERPRETATION = [
-    "## Interpretation (hand-written, 2026-09-23 run; hypotheses, not conclusions)",
+#: Hand-written reading of the 2026-09-23 run (the numbers above are regenerated).
+CONCLUSIONS = [
+    "## Conclusions (hand-written, 2026-09-23 run)",
     "",
-    "1. Hourly vs daily PET is *not* the explanation here: the CA-TPA PET block has hourly weather "
-    "off (`hourly_weather = 0`), and with the weather echoed in `.ana` the daily ASCE reference ET "
-    "matches cols 81/82 to print precision. So the daily POTEVPHR branch is the right target.",
-    "2. Forcing preprocessing. RZWQM floors the daily wind run at 100 km/d (every `.MET` value "
-    "below 100 is echoed as 100); the Agri-JAX forcing layer does not, which is the whole "
-    "MET-vs-ana difference in reference ET. It also uses a solar radiation that differs from the "
-    "2-decimal `.MET` value by up to about 0.1 MJ/m2/d (unexplained: maybe a unit round trip or "
-    "the hourly disaggregation re-summed); its effect on PET is second order. A wind floor belongs "
-    "in the io/forcing layer, not in the PET process: it is now "
-    "`agri_jax.io.rzwqm.prepare_rzwqm_forcing` (INPDAY, `UBREEZ = 100`, Rzmain.for line 3543), "
-    "checked day by day against `.ana` col 90 in tests/integration/test_pet_oracle.py; the raw-MET "
-    "table above deliberately does not apply it.",
-    "3. Canopy timing. The reference evaluates PET with the start-of-day canopy (LAI and height of "
-    "the previous `.ana` row), like residue mass and surface theta. The same-row driver (the "
-    "primary table, as the task specified) is wrong by up to 1.7 mm/d on days of fast LAI or "
-    "height change. The exception is the day after harvest, where the canopy is already gone at "
-    "the PET call. When PET is coupled to the crop module in a `Model`, the process order has to "
-    "put PET before the crop update.",
-    "4. Residue after harvest. The remaining PE error is concentrated in the weeks after harvest, "
-    "when RZWQM switches the residue-type constants (IPR) and adds harvest residue within the day, "
-    "which the PET module cannot see from its inputs. Jan 1 is an artefact of this harness "
-    "(LAYER.PLT has no initial-state row, so Jan 1 uses its own end-of-day surface theta).",
+    "1. The daily Shuttleworth-Wallace branch (`POTEVPHR`, `ipet = 0`, `ihourly = 0`) is reproduced "
+    "to the print precision of the `.ana` file once the module is fed what the reference model "
+    "feeds it: with the echoed weather the whole-year PT error is below 1e-3 mm/d on every day and "
+    "the PE error below 5e-3 mm/d (the residual is the residue mass before the day's decomposition, "
+    "which col 72 reports after it). No equation, constant or branch of the module was changed to "
+    "get there; every former outlier was an input-timing convention of the reference day loop, "
+    "listed with its measured effect in the attribution table.",
+    "2. Input timing. Management (tillage, residue incorporation) runs before the PET call; crop "
+    "growth, harvest (canopy removal, harvest residue, residue age reset) and the switch of the "
+    "residue-type constants to the harvested crop's run after it. In a coupled `Model` the process "
+    "order must therefore be: management, PET, crop growth, harvest. The same-row convention is wrong "
+    "by up to 1.7 mm/d on days of fast canopy change and by 2.6 mm/d the day after harvest.",
+    "3. Forcing preparation belongs to the io layer, not the PET process: the 100 km/d wind floor "
+    "(`prepare_rzwqm_forcing`) is the whole raw-`.MET` gap in PT (0.75 mm/d on 2015-07-28). The "
+    "solar radiation the reference uses is not the `.MET` value but the daily sum of its hourly "
+    "disaggregation (SOLAR_SHAW, Rzmain.for lines 1384-1389), a smooth seasonal factor of "
+    "0.993-1.005; its effect on PE and PT is below 0.01 mm/d and is not reproduced (known "
+    "deviation, encoded with that tolerance).",
+    "4. Rejected hypotheses (tested one at a time, each made the agreement worse or changed nothing): "
+    "the post-harvest stubble height that HARVST stores in HEIGHT (30 cm) is not what the PET call "
+    "sees (height 0 reproduces the reference); the snow long-wave branch never runs in the daily "
+    "path (its switch NSP is only set by SHAW; Jan 1 has no snow anyway); residue wetness never "
+    "applies (WRES is reset to 0 every day before the call); the night rule's threshold is exactly "
+    "the reference's (hourly W m-2 test on the daily total, never true); the rainfall-zone (a, b) "
+    "constants of the file (zone 3) are right; the surface theta of the previous day is right "
+    "(Jan 1 is the only day without it and is now within 2e-3 mm/d).",
     "5. Hydraulics. The Brooks-Corey curves with the rzwqm.dat horizon parameters reproduce the "
     "reference theta from its own pressure heads on all 37 nodes to 1e-4, except in horizon 1 "
     "(0-15 cm) for about a week after the 2015-04-14 tillage (15 cm deep). This is consistent with "
@@ -514,11 +840,11 @@ INTERPRETATION = [
 
 
 def error_distribution_table(res: CoarseResult) -> list[str]:
-    """Median / 95th percentile of the daily |sim - ref| and the worst days, per weather source."""
+    """Median / 95th percentile of the daily |sim - ref| and the worst days, per run."""
     out = [
         "## Distribution of daily absolute errors (whole year)",
         "",
-        "| weather | variable | median abs | p95 abs | days abs > 0.1 mm | worst days (abs err, mm) |",
+        "| run | variable | median abs | p95 abs | days abs > 0.01 mm | worst days (abs err, mm) |",
         "|---|---|---:|---:|---:|---|",
     ]
     for src, sim in res.pet_sim.items():
@@ -528,59 +854,70 @@ def error_distribution_table(res: CoarseResult) -> list[str]:
             worst = e.sort_values(ascending=False).head(3)
             wtxt = ", ".join(f"{d.date()} ({x:.3f})" for d, x in worst.items())
             out.append(
-                f"| {src} | `{v}` | {e.median():.2e} | {e.quantile(0.95):.3f} "
-                f"| {int((e > 0.1).sum())} | {wtxt} |"
+                f"| {src} | `{v}` | {e.median():.2e} | {e.quantile(0.95):.2e} "
+                f"| {int((e > 0.01).sum())} | {wtxt} |"
             )
     return [*out, ""]
 
 
-def diagnostics(res: CoarseResult, inp: Inputs) -> list[str]:
-    """Measured facts behind the hypotheses for the remaining gaps."""
-    days = inp.days
-    met_wind = inp.met["wind_run_km"].to_numpy(dtype=float)
-    ana_wind = inp.column(90).sel(time=days).to_numpy().astype(float)
-    low = met_wind < ana_wind - 1.0
-    echoed = sorted({round(float(a), 3) for a in ana_wind[low]})
-    floor_txt = f"The echoed values there are {', '.join(f'{a:g}' for a in echoed)} km/d." if echoed else ""
-    min_echo = float(ana_wind.min())
-    clamp_txt = ", ".join(
-        f"{d.date()} (MET {m:.1f}, .ana {a:.1f})" for d, m, a in zip(days[low], met_wind[low], ana_wind[low])
-    )
-    start, end = res.season
-    after = (days > end) & (days <= end + pd.Timedelta(days=60))
-    e_pe = np.abs(res.pet_sim["ana"]["pot_evap_mm"] - res.pet_ref["pot_evap_mm"]).to_numpy()
-    pre = (days < start) & (days.month >= 4)
-    theta_err = np.abs(storage_from_heads(inp)["theta_err"])
-    err = theta_err.max("depth").to_pandas()
-    bad_days = err[err > 1e-3]
-    bad_depths = theta_err["depth"].to_numpy()[(theta_err > 1e-3).any("time").to_numpy()]
-    depth_txt = f"nodes {bad_depths.min():g}-{bad_depths.max():g} cm" if bad_depths.size else "no node"
-    top_bottom = float(np.asarray(inp.dat.horizon_depths_cm)[0])
-    # PT outliers: the same days with the canopy state (LAI, height) of the previous .ana row
-    pt_ref = res.pet_ref["pot_transp_mm"].to_pandas()
-    pt0 = res.pet_sim["ana"]["pot_transp_mm"].to_pandas()
-    pt1 = pet_simulation(inp, "ana", canopy_lag=1)["pot_transp_mm"].to_pandas()
-    e0, e1 = (pt0 - pt_ref).abs(), (pt1 - pt_ref).abs()
-    worst = e0.sort_values(ascending=False).head(3).index
-    lag_txt = "; ".join(f"{d.date()}: {e0[d]:.3f} -> {e1[d]:.2e} mm" for d in worst)
-    season_mask = (pt_ref.index >= start) & (pt_ref.index <= end)
-    n_lag_better = int(((e1 < e0 - 1e-3) & season_mask).sum())
-    n_lag_worse = int(((e1 > e0 + 1e-3) & season_mask).sum())
-    return [
-        "## Measured facts behind the gaps",
+def attribution_table(res: CoarseResult) -> list[str]:
+    """Each input-timing convention removed from the primary run, with the error it brings back."""
+    out = [
+        "## Attribution: each convention of the primary run removed one at a time",
         "",
-        f"- Wind: {int(low.sum())} days where the `.MET` wind run is below the value echoed in `.ana`: "
-        f"{clamp_txt or 'none'}. {floor_txt} Minimum echoed wind run over the year: {min_echo:g} km/d.",
-        f"- Mean |PE error| (`.ana` weather) in the 60 days after harvest ({end.date()}): "
-        f"{float(e_pe[after].mean()):.3f} mm/d, "
-        f"vs {float(e_pe[pre].mean()):.3f} mm/d from April to planting.",
-        f"- theta_of_h vs LAYER.PLT theta: {len(bad_days)} days with a node error > 1e-3 "
-        f"({', '.join(str(d.date()) for d in bad_days.index)}); {depth_txt} "
-        f"(horizon 1 ends at {top_bottom:g} cm).",
-        f"- PT outliers (`.ana` weather) recomputed with the previous row's LAI and height: {lag_txt}. "
-        f"Over the season that lag improves {n_lag_better} days and worsens {n_lag_worse} days "
-        "(by > 1e-3 mm): the reference evaluates PET with the start-of-day canopy (previous row), "
-        "the same convention as for residue mass and surface theta.",
+        "| convention removed | variable | year RMSE | max abs | worst day (primary run there) | cause |",
+        "|---|---|---:|---:|---|---|",
+    ]
+    for a in res.ablations.values():
+        out.append(
+            f"| {a.label} | `{a.variable}` | {a.rmse:.3f} | {a.max_abs:.3f} | "
+            f"{a.worst_day.date()} ({a.primary_on_worst_day:.1e}) | {a.cause} |"
+        )
+    se = res.facts["srad_effect_on_pet"]
+    lo, hi = res.facts["srad_ratio_range"]
+    out.append(
+        f"| `.MET` srad instead of the re-summed hourly srad (`.ana` col 88) | `pot_evap_mm` / "
+        f"`pot_transp_mm` | - | {se['pot_evap_mm']:.3f} / {se['pot_transp_mm']:.3f} | - | "
+        f"Rzmain.for lines 1384-1389 re-sum the SOLAR_SHAW hourly disaggregation; ratio .ana/.MET "
+        f"{lo:.4f}-{hi:.4f} over the year; not reproduced (known deviation) |"
+    )
+    return [*out, ""]
+
+
+def diagnostics(res: CoarseResult, inp: Inputs) -> list[str]:
+    """Measured facts behind the conclusions (asserted in tests/integration/test_catpa_coarse.py)."""
+    f = res.facts
+    _, end = res.season
+    floor_txt = ", ".join(
+        f"{d.date()} ({v:.1f})" for d, v in zip(f["wind_floor_days"], f["wind_floor_raw"], strict=False)
+    )
+    lo, hi = f["srad_ratio_range"]
+    se = f["srad_effect_on_pet"]
+    bd = f["theta_bad_depths"]
+    node_txt = f"nodes {bd[0]:g}-{bd[1]:g} cm" if bd else "no node"
+    top_bottom = float(np.asarray(inp.dat.horizon_depths_cm)[0])
+    worst_pe = "; ".join(f"{d.date()} ({v:.1e})" for d, v in f["worst_pe"])
+    worst_pt = "; ".join(f"{d.date()} ({v:.1e})" for d, v in f["worst_pt"])
+    return [
+        "## Measured facts behind the conclusions",
+        "",
+        f"- Wind: {len(f['wind_floor_days'])} days where the raw `.MET` wind run is below 100 km/d "
+        f"(raw values in km/d): {floor_txt or 'none'}. The prepared `.MET` wind equals `.ana` col 90 on "
+        f"every day: {f['wind_prepared_equals_ana']}.",
+        f"- Solar radiation: `.ana` col 88 / raw `.MET` srad ranges {lo:.4f}-{hi:.4f} over the year "
+        f"(smooth seasonal factor). Largest effect on the primary run: PE {se['pot_evap_mm']:.1e}, "
+        f"PT {se['pot_transp_mm']:.1e} mm/d (primary vs `.ana`-weather run).",
+        f"- Primary run, mean |PE error| in the 60 days after harvest ({end.date()}): "
+        f"{f['pe_err_after_harvest']:.1e} mm/d, vs {f['pe_err_before_planting']:.1e} mm/d from April to "
+        f"planting. Worst PE days: {worst_pe}. Worst PT days: {worst_pt}.",
+        f"- Residue: initial {f['residue_conditions']['mass_t_ha']:g} t/ha, age "
+        f"{f['residue_conditions']['age_d']:g} d, CRES {f['residue_conditions']['cover_factor']:g} -> "
+        f"`{f['residue_type_before']}` constants before harvest; `{f['residue_type_after']}` after "
+        "(measured on col 114: the post-harvest cover 0.920 for 11.94 t/ha is the corn diameter and "
+        "density, the soybean ones would give 0.988). No standing residue (items 6-8 are 0).",
+        f"- theta_of_h vs LAYER.PLT theta: {len(f['theta_bad_days'])} days with a node error > 1e-3 "
+        f"({', '.join(str(d.date()) for d in f['theta_bad_days'])}); "
+        f"{node_txt} (horizon 1 ends at {top_bottom:g} cm).",
         "",
     ]
 

@@ -12,14 +12,18 @@ All blocks are concatenated into one DataFrame with ``RUN`` and ``TRNO`` columns
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
 from ._fixed import frame_from_rows, header_tokens, read_lines, split_fixed
+from .wth import parse_dssat_date
 
 __all__ = [
+    "observed_date",
     "read_et",
+    "read_evaluate",
     "read_out",
     "read_plantgro",
     "read_soilwat",
@@ -105,3 +109,28 @@ def read_summary(path: str | Path, **kw: bool) -> pd.DataFrame:
     integers (NaN when missing).
     """
     return read_out(path, **kw)
+
+
+def read_evaluate(path: str | Path, **kw: bool) -> pd.DataFrame:
+    """``Evaluate.OUT``: one row per run, simulated/measured pairs (``HWAMS``/``HWAMM``,
+    ``ADAPS``/``ADAPM`` days after planting, ``CWAMS``/``CWAMM`` ...) keyed by ``RUN`` and ``TN``."""
+    return read_out(path, **kw)
+
+
+def observed_date(code: int | str, sim_start: int | str | date) -> date:
+    """Calendar date of an observed-data date (``ADAT``, ``MDAT`` ... of a ``.MZA`` file).
+
+    DSSAT (``READA_Dates`` in ``READS.for``) reads a value below 1000 as a day of year: in the
+    year of the simulation start when it is later than the start day of year, else in the next
+    year; ``YYDDD`` / ``YYYYDDD`` values are full dates (:func:`parse_dssat_date`).
+    ``sim_start`` is ``SDAT`` (``YYYYDDD``) or a date.
+    """
+    v = int(float(code))
+    if not 0 < v:
+        raise ValueError(f"not an observed date: {code!r}")
+    if v >= 1000:
+        return parse_dssat_date(str(v))
+    start = sim_start if isinstance(sim_start, date) else parse_dssat_date(str(int(float(sim_start))))
+    start_doy = start.timetuple().tm_yday
+    year = start.year if v > start_doy else start.year + 1
+    return parse_dssat_date(f"{year:04d}{v:03d}")

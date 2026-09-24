@@ -124,7 +124,8 @@ def asce_reference_et(
 
     dr = 1.0 + 0.033 * jnp.cos(k_day * j)
     sd = 0.409 * jnp.sin(k_day * j - 1.39)
-    ws = jnp.arccos(jnp.clip(-jnp.tan(lat) * jnp.tan(sd), -1.0, 1.0))
+    # clipped strictly inside (-1, 1): d/dx arccos is infinite at +-1 (polar day / night)
+    ws = jnp.arccos(jnp.clip(-jnp.tan(lat) * jnp.tan(sd), -1.0 + 1.0e-12, 1.0 - 1.0e-12))
     ra = (
         (24.0 / jnp.pi)
         * 4.92
@@ -137,7 +138,8 @@ def asce_reference_et(
     fcd = 1.35 * relsol - 0.35
     rns = 0.77 * rs
     tk4 = 0.5 * ((tmax + 273.16) ** 4 + (tmin + 273.16) ** 4)
-    rnl = _SIGMA[variant] * fcd * (0.34 - 0.14 * jnp.sqrt(jnp.maximum(ea, 0.0))) * tk4
+    # sqrt floored at 1e-12: d sqrt(x)/dx is infinite at x = 0 (rh = 0), the floor makes it zero
+    rnl = _SIGMA[variant] * fcd * (0.34 - 0.14 * jnp.sqrt(jnp.maximum(ea, 1.0e-12))) * tk4
     rn = rns - rnl
     g = 0.0
 

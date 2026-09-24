@@ -12,7 +12,7 @@ one GPU (docs/en/08_throughput_comparison.md).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from typing import Any
 
 import jax
@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from agri_jax.core.model import Model
+from agri_jax.core.process import check_enabled
 
 __all__ = ["run", "run_and_grad", "run_batch", "run_batch_chunked", "run_sites"]
 
@@ -73,13 +74,37 @@ def run_batch(
     only. Every leaf of a batched argument must carry the batch axis.
     """
 
+    return _batch_fn(model, checkpoint, in_axes, jit)(params, forcing, state0)
+
+
+#: attribute of a :class:`Model` holding its jitted batch runners, so repeated ``run_batch`` calls
+#: with the same shapes reuse one compilation (a fresh ``jax.jit`` per call recompiles every time).
+#: Stored on the model (not in a global table) so the runners die with it.
+_RUNNERS_ATTR = "_agri_jax_batch_runners"
+
+
+def _batch_fn(model: Model, checkpoint: bool, in_axes: Any, jit: bool) -> Callable[..., Any]:
     def single(p: Any, f: Any, s: Any) -> Any:
         return run(model, p, f, s, checkpoint=checkpoint)
 
-    fn = jax.vmap(single, in_axes=in_axes)
-    if jit:
-        fn = jax.jit(fn)
-    return fn(params, forcing, state0)
+    def build() -> Callable[..., Any]:
+        fn = jax.vmap(single, in_axes=in_axes)
+        return jax.jit(fn) if jit else fn
+
+    if not jit:
+        return build()
+    # the processes and outputs are part of the key in case the model's attributes are reassigned;
+    # the write check is decided at trace time, so its switch is part of the key too
+    key = (tuple(id(p) for p in model.processes), id(model._outputs), checkpoint, in_axes, check_enabled())
+    try:
+        hash(key)
+    except TypeError:  # an unhashable in_axes pytree: no caching
+        return build()
+    per_model: dict[Hashable, Callable[..., Any]] = model.__dict__.setdefault(_RUNNERS_ATTR, {})
+    fn = per_model.get(key)
+    if fn is None:
+        fn = per_model[key] = build()
+    return fn
 
 
 def run_sites(

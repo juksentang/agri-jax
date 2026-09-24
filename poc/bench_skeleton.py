@@ -2,7 +2,9 @@
 (RZWQM Richards + S-W PET + CERES-Maize, CA-TPA 2015-2023 = 3287 days).
 Per day: PET (~60 elementwise transcendental ops), crop step (~80 ops with jnp.where branches),
 24 sub-steps x 3 Newton iterations of an implicit 37-node Richards step with a dense 37x37 solve.
-Usage: python bench_skeleton.py --n 1000 10000 [--days 3287] [--sub 24] [--newton 3] [--x64 1]
+Usage: python bench_skeleton.py --n 1000 10000 [--days 3287] [--sub 24] [--newton 3] [--grad 1] [--check 1]
+Numerical guards (see poc/README.md, "NaN gradients"): the Newton update is clamped to [H_MIN, H_MAX], the top
+boundary flux is signed positive downward with supply-limited evaporation, and gravity drains downward.
 """
 import argparse, time, jax, jax.numpy as jnp
 ap = argparse.ArgumentParser()
@@ -11,9 +13,11 @@ ap.add_argument("--sub", type=int, default=24); ap.add_argument("--newton", type
 ap.add_argument("--x64", type=int, default=1); ap.add_argument("--grad", type=int, default=0)
 ap.add_argument("--solver", default="tridiag", choices=["tridiag", "dense"])
 ap.add_argument("--remat", type=int, default=1, help="jax.checkpoint each day_step (needed for reverse-mode memory)")
+ap.add_argument("--check", type=int, default=0, help="assert finite forward outputs / final state and (with --grad) finite gradients")
 a = ap.parse_args()
 jax.config.update("jax_enable_x64", bool(a.x64))
 NN = 37; dz = jnp.full(NN, 150.0 / NN); DT = 1.0 / a.sub
+H_MIN, H_MAX = -1.0e5, 10.0   # air-dry (pF 5) and shallow ponding, cm: bounds for the Newton iterate
 
 def _x(h, p):  # safe argument for the power law: both jnp.where branches must stay finite under grad
     return jnp.where(h < -p["hb"], -h / p["hb"], 1.0)
@@ -30,7 +34,7 @@ def bc_c(h, p):  # dtheta/dh
 def richards_substep(h, p, top_flux, sink):
     def newton(h_new, _):
         k = bc_k(h_new, p); kh = 0.5 * (k[1:] + k[:-1])
-        q = -kh * ((h_new[1:] - h_new[:-1]) / dz[:-1] + 1.0)           # Darcy flux between nodes
+        q = -kh * ((h_new[1:] - h_new[:-1]) / dz[:-1] - 1.0)           # Darcy flux between nodes, + = downward
         q = jnp.concatenate([jnp.array([top_flux]), q, jnp.array([k[-1]])])  # top flux BC, free drainage bottom
         res = (bc_theta(h_new, p) - bc_theta(h, p)) / DT + (q[1:] - q[:-1]) / dz + sink
         c = bc_c(h_new, p)
@@ -42,7 +46,7 @@ def richards_substep(h, p, top_flux, sink):
         else:  # tridiagonal (cuSPARSE gtsv on GPU, batched under vmap) -- what lineax/optimistix would do
             dl = jnp.concatenate([jnp.array([0.0]), lo]); du = jnp.concatenate([up, jnp.array([0.0])])
             dh = jax.lax.linalg.tridiagonal_solve(dl, di, du, res[:, None])[:, 0]
-        return h_new - dh, None
+        return jnp.clip(h_new - dh, H_MIN, H_MAX), None   # bounded Newton step: c(h)->0 at both ends of the curve
     h_new, _ = jax.lax.scan(newton, h, None, length=a.newton)
     return h_new
 
@@ -72,7 +76,7 @@ def day_step(state, f):
     root_n = jnp.minimum(root + 2.5 * f["sow"] * swfac, 200.0)
     # --- soil water: 24 sub-steps ---
     sink = pt * rdf / jnp.maximum(jnp.sum(rdf * dz), 1e-6) * swfac
-    top = -(f["rain"] - pe * jnp.minimum(1.0, bc_theta(h[0], p) / p["fc"]))
+    top = f["rain"] - pe * jnp.clip((bc_theta(h[0], p) - p["tr"]) / (p["fc"] - p["tr"]), 0.0, 1.0)  # + = into the soil
     h_n = jax.lax.fori_loop(0, a.sub, lambda i, hh: richards_substep(hh, p, top, sink), h)
     aet = pt * swfac + pe; sw = jnp.sum(bc_theta(h_n, p) * dz)
     lai_n, stage_n, biom_n, root_n = [jnp.where(f["harv"] > 0, r, v) for r, v in ((0.0, lai_n), (0.0, stage_n), (0.0, biom_n), (5.0, root_n))]
@@ -84,8 +88,8 @@ def run(params, forcing):
     fin = {k: forcing[k] for k in ("t", "rh", "rad", "u", "rain", "sow", "harv")}
     step = lambda s, f: day_step(s, {**f, "p": params})
     if a.remat: step = jax.checkpoint(step)   # store only per-day state; recompute sub-steps in the backward pass
-    _, out = jax.lax.scan(step, state0, fin)
-    return out  # [days, 4]
+    state, out = jax.lax.scan(step, state0, fin)
+    return out, state[0]  # [days, 4], final pressure head [NN]
 
 key = jax.random.PRNGKey(0); T = a.days; d = jnp.arange(T)
 doy = d % 365
@@ -103,13 +107,23 @@ run_batch = jax.jit(jax.vmap(run, in_axes=(0, None)))
 print(f"jax {jax.__version__} devices={jax.devices()} x64={bool(a.x64)} days={T} sub={a.sub} newton={a.newton} solver={a.solver}", flush=True)
 for n in a.n:
     P = sample_params(n, jax.random.PRNGKey(n))
-    t0 = time.time(); out = run_batch(P, forcing); out.block_until_ready(); tc = time.time() - t0
-    t0 = time.time(); out = run_batch(P, forcing); out.block_until_ready(); tr = time.time() - t0
+    t0 = time.time(); out, hT = run_batch(P, forcing); out.block_until_ready(); tc = time.time() - t0
+    t0 = time.time(); out, hT = run_batch(P, forcing); out.block_until_ready(); tr = time.time() - t0
     print(f"n={n:>7d}  compile+run={tc:7.2f}s  run={tr:7.2f}s  -> {n/tr:9.1f} sims/s  ({tr/n*1e3:.3f} ms/sim)  "
-          f"nan={bool(jnp.isnan(out).any())}  mean_aet={float(out[...,0].mean()):.4f} mean_lai={float(out[...,1].mean()):.3f}", flush=True)
+          f"nan={bool(jnp.isnan(out).any())}  mean_aet={float(out[...,0].mean()):.4f} mean_lai={float(out[...,1].mean()):.3f}  "
+          f"h_final=[{float(hT.min()):.4g},{float(hT.max()):.4g}]", flush=True)
+    if a.check:
+        assert bool(jnp.isfinite(out).all()), f"non-finite forward output at n={n}"
+        assert bool((hT >= H_MIN).all() & (hT <= H_MAX).all()), f"final h outside [{H_MIN},{H_MAX}] at n={n}"
 if a.grad:
-    def loss(P): return jnp.mean(run_batch(P, forcing)[..., 0])
+    def loss(P): return jnp.mean(run_batch(P, forcing)[0][..., 0])
     g = jax.jit(jax.grad(loss)); P = sample_params(a.n[0], jax.random.PRNGKey(1))
     t0 = time.time(); gv = g(P); jax.block_until_ready(gv); tc = time.time() - t0
     t0 = time.time(); gv = g(P); jax.block_until_ready(gv); tr = time.time() - t0
-    print(f"grad n={a.n[0]}: compile+run={tc:.2f}s run={tr:.2f}s  finite={all(bool(jnp.isfinite(v).all()) for v in gv.values())}", flush=True)
+    n_bad = {k: int((~jnp.isfinite(v)).sum()) for k, v in gv.items() if not bool(jnp.isfinite(v).all())}
+    gmax = max(float(jnp.abs(v).max()) for v in gv.values())
+    print(f"grad n={a.n[0]}: compile+run={tc:.2f}s run={tr:.2f}s  finite={not n_bad}  |g|max={gmax:.3g}"
+          + (f"  non-finite counts={n_bad}" if n_bad else ""), flush=True)
+    if a.check:
+        assert not n_bad, f"non-finite gradient: {n_bad}"
+if a.check: print("check: OK (finite forward, h within bounds" + (", finite gradient)" if a.grad else ")"), flush=True)

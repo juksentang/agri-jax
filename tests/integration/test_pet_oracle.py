@@ -87,6 +87,31 @@ def test_prepared_met_wind_equals_ana(catpa_run, catpa_scenario: Path) -> None:
     pd.testing.assert_frame_equal(read_met(catpa_scenario / "CA-TPA.MET", prepare=True), met)
 
 
+def test_prepared_met_srad_equals_ana(catpa_run, catpa_scenario: Path) -> None:
+    """``.ana`` col 88 is the re-sum of RZWQM's hourly disaggregation of the ``.MET`` radiation.
+
+    ``prepare_rzwqm_forcing(latitude_rad=...)`` (DSSAT 4.0 HMET hours + SHAW slope partition)
+    reproduces it to the 6-digit print precision; the raw ``.MET`` value is up to 0.7 % off.
+    """
+    c = catpa_run["col"]
+    days = pd.DatetimeIndex(catpa_run["ds"].time.values)[1:]
+    phys = read_rzwqm_dat(catpa_scenario / "rzwqm.dat").physiography
+    met = prepare_rzwqm_forcing(
+        read_met(catpa_scenario / "CA-TPA.MET"),
+        latitude_rad=phys["latitude_rad"],
+        slope_rad=phys["slope_rad"],
+        aspect_rad=phys["aspect_rad"],
+    )
+    ours, raw, ana = met.loc[days, "srad_mj"].to_numpy(), met.loc[days, "srad_mj_met"].to_numpy(), c(88)[1:]
+    np.testing.assert_allclose(ours, ana, rtol=1e-5, atol=1e-5)
+    assert np.abs(raw / ana - 1.0).max() > 5e-3
+    # the other prepared columns are unchanged by the radiation step
+    plain = prepare_rzwqm_forcing(read_met(catpa_scenario / "CA-TPA.MET"))
+    pd.testing.assert_frame_equal(
+        met.drop(columns=["srad_mj", "srad_mj_met"]), plain.drop(columns=["srad_mj"]), check_like=True
+    )
+
+
 def test_asce_reference_et_against_ana(catpa_run) -> None:
     """Columns 81 (tall) and 82 (short) of the .ana file are REF_ET.FOR daily values in cm."""
     c = catpa_run["col"]

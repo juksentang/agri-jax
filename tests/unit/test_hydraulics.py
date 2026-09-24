@@ -408,7 +408,7 @@ realistic = dict(
 )
 
 
-@settings(max_examples=60, deadline=None)
+@settings(derandomize=True, database=None, deadline=None, max_examples=60)
 @given(**realistic)
 def test_property_realistic_parameters(hb, lam, eps, ksat, theta_r, theta_s, a1_frac, n1) -> None:
     a1 = a1_frac * (theta_s - theta_r) / hb

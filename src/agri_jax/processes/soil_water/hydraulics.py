@@ -96,12 +96,27 @@ lines 4579-4620:
 
 So in RZWQM the curve is the only source of truth: the rec2 values
 ``fc13 fc110 wp c2`` are *derived diagnostics* that the model overwrites at
-start-up, and they never override a curve segment.  This was checked on the
-CA-TPA scenario: for all five horizons ``theta_of_h(-333)``,
-``theta_of_h(-100)`` and ``theta_of_h(-15000)`` reproduce the rec2
-``fc13 fc110 wp`` to the six decimals written in the file, while the file's
-``c2 = 7440.01`` is stale (it equals ``2.59 * hb_k**eps``, i.e. the Ksat of
-horizon 5, not the Ksat of the horizon it sits on) and is silently replaced.
+start-up, and they never override a curve segment.  Checked two ways
+(``tests/integration/test_hydraulics_reference.py``):
+
+* *File semantics, all 15 RZWQM_sw_batch scenarios (105 horizons, every one
+  ``ITYPE = 0`` with ``hb < 333`` cm):* ``theta_of_h(-333)``, ``theta_of_h(-100)``
+  and ``theta_of_h(-15000)`` reproduce the rec2 ``fc13 fc110 wp`` written with six
+  decimals, largest difference 6.95e-7 over the 315 values; a 1 % change of the
+  head would move theta by at least 3.7e-5 on every horizon, so the heads are
+  resolved.  The file ``c2`` differs from ``ksat * hb_k**(eps - n1)`` by more
+  than 1e-4 (relative) on 26 of the 105 horizons (CA-TPA's ``c2 = 7440.01``
+  equals ``2.59 * hb_k**eps``, horizon 5's Ksat, on all five) and is silently
+  replaced.
+* *Binary experiment, CA-TPA 2015 (RZWQM2 ``main_ryzen5_avx512``):* ``fc13``,
+  ``fc110`` and ``wp`` of horizon 1 at -30 % give a ``.ana`` byte-identical to the
+  base run (all 138 columns) and the same yield, 9916 kg/ha.  Positive controls
+  on the same horizon: Ksat at -50 % changes 61 of 138 columns and the yield to
+  9923 kg/ha; theta_r at -30 % (a curve parameter) changes 57 columns and the
+  yield to 9937 kg/ha.  The calibration ranges in ``all_parameters.csv`` for
+  ``FC 1/3 WC``, ``FC 1/10 WC`` and ``WP WC`` therefore perturb nothing in RZWQM
+  (for ``ITYPE = 0``): sampling them is a no-op.
+
 The derived values are still carried in the pytree because other RZWQM
 processes read them directly (``SOILHP(7)`` field capacity and ``SOILHP(9)``
 wilting point in the PET and crop-water routines): use :func:`derive_rzwqm`
@@ -409,6 +424,12 @@ def h_of_theta(theta: Any, params: SoilHydraulicParams) -> Array:
     * below: ``-hb Se**(-1/lambda)``, with ``Se`` floored so that ``h >= H_MIN`` (``-1e30`` cm).
 
     ``theta`` below ``theta_r`` is treated as ``theta_r`` (returns ``H_MIN``).
+    The floor is reached before ``theta_r`` when lambda is small: on 6 of the
+    105 RZWQM_sw_batch horizons (lambda 0.101-0.127) the exact inverse of
+    ``theta_r + 1e-4`` is below ``-1e30`` cm (``-6.6e37`` cm for lambda = 0.101)
+    and ``H_MIN`` is returned for theta up to ``theta_r + 6.2e-4``.  The band is
+    far outside the model range: ``theta(H_CLAMP_RZWQM)`` exceeds it by at least
+    0.0117 on every horizon.
     """
     theta, p = _prepare(theta, params)
     span = p.theta_s - p.theta_r - p.a1 * p.hb  # theta range of the BC segment, > 0 for valid parameters

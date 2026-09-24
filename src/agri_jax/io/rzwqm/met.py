@@ -37,6 +37,7 @@ __all__ = [
     "prepare_rzwqm_forcing",
     "read_brk",
     "read_met",
+    "rzwqm_daily_srad",
 ]
 
 MET_COLUMNS: tuple[str, ...] = (
@@ -60,6 +61,8 @@ MET_UNITS: dict[str, str] = {
     "rain_mm": "mm/day",
 }
 _INCH_MM = 25.4
+#: ``R2D`` of ``Rzmain.for`` (PARAMETER, line 244).
+_R2D = 180.0 / 3.141592654
 
 #: RZWQM2 floors the daily wind run at ``UBREEZ = 100`` km d-1 when it reads a ``.MET`` record
 #: (``INPDAY``, ``Rzmain.for`` lines 3521-3522 PARAMETER and line 3543 ``U = MAX(U, UBREEZ)``).
@@ -116,11 +119,22 @@ def read_met(path: str | Path, *, prepare: bool = False) -> pd.DataFrame:
     return prepare_rzwqm_forcing(df) if prepare else df
 
 
-def prepare_rzwqm_forcing(met: pd.DataFrame, *, wind_floor_km_d: float = WIND_FLOOR_KM_D) -> pd.DataFrame:
+def prepare_rzwqm_forcing(
+    met: pd.DataFrame,
+    *,
+    wind_floor_km_d: float = WIND_FLOOR_KM_D,
+    latitude_rad: float | None = None,
+    slope_rad: float = 0.0,
+    aspect_rad: float = 0.0,
+) -> pd.DataFrame:
     """Apply RZWQM2's daily forcing preparation (``INPDAY``) to a :func:`read_met` frame.
 
     1. wind run floored at ``wind_floor_km_d`` (``UBREEZ = 100`` km d-1, ``Rzmain.for`` line 3543);
-    2. the bounds of :data:`INPDAY_BOUNDS` (``Rzmain.for`` lines 3575-3582).
+    2. the bounds of :data:`INPDAY_BOUNDS` (``Rzmain.for`` lines 3575-3582);
+    3. only when ``latitude_rad`` is given (the ``rzwqm.dat`` physiography, radians): the daily
+       solar radiation the model actually uses, i.e. the re-sum of its hourly disaggregation
+       (:func:`rzwqm_daily_srad`); the ``.MET`` value is kept in ``srad_mj_met``. This is what
+       ``.ana`` column 88 prints (-0.7 % .. +0.5 % from the ``.MET`` value day to day).
 
     With these two steps the CA-TPA ``.MET`` wind equals the ``.ana`` wind column (90) on every
     day; without them the floor is the whole MET-vs-ana difference in reference ET (max 0.535
@@ -136,7 +150,145 @@ def prepare_rzwqm_forcing(met: pd.DataFrame, *, wind_floor_km_d: float = WIND_FL
         if col in out:
             out[col] = np.clip(out[col].to_numpy(dtype=float), lo, hi)
     out.attrs.update(prepared="INPDAY", wind_floor_km_d=wind_floor_km_d)
+    if latitude_rad is not None and "srad_mj" in out:
+        idx = pd.DatetimeIndex(out.index)
+        out["srad_mj_met"] = out["srad_mj"]
+        out["srad_mj"] = rzwqm_daily_srad(
+            out["srad_mj"].to_numpy(dtype=float),
+            np.array([d.timetuple().tm_yday for d in idx], dtype=int),
+            latitude_rad,
+            slope_rad=slope_rad,
+            aspect_rad=aspect_rad,
+        )
+        out.attrs.update(srad="hourly re-sum (rzwqm_daily_srad)")
     return out
+
+
+def _hourly_radiation_dssat40(srad_mj: np.ndarray, doy: np.ndarray, lat_deg: np.float32) -> np.ndarray:
+    """Hourly global radiation [W m-2], hours 1..24, as DSSAT 4.0 ``HMET`` computes it (``[n, 24]``).
+
+    ``DAYLEN`` (declination, day length), ``SOLAR`` (the daily integral ``ISINB`` of Spitters'
+    eq. 6), ``HANG`` (solar elevation at each whole hour, raised to 1 degree once above 1e-4)
+    and ``HRAD`` (``sinB (1 + 0.4 sinB) SRAD / ISINB`` between sunrise and sunset). DSSAT declares
+    these ``REAL``, so the arithmetic is float32 with ``PI = 3.14159``.
+    """
+    f = np.float32
+    pi = f(3.14159)
+    rad = f(pi / f(180.0))
+    srad = srad_mj.astype(f)[:, None]
+    d = doy.astype(f)[:, None]
+    dec = f(-23.45) * np.cos(f(2.0) * pi * (d + f(10.0)) / f(365.0))
+    soc = np.clip(np.tan(rad * dec) * np.tan(rad * lat_deg), f(-1.0), f(1.0))
+    dayl = f(12.0) + f(24.0) * np.arcsin(soc) / pi
+    snup, sndn = f(12.0) - dayl / f(2.0), f(12.0) + dayl / f(2.0)
+    ssin = np.sin(rad * dec) * np.sin(rad * lat_deg)
+    ccos = np.cos(rad * dec) * np.cos(rad * lat_deg)
+    soc2 = np.clip(ssin / ccos, f(-1.0), f(1.0))
+    isinb = f(3600.0) * (
+        dayl * (ssin + f(0.4) * (ssin**2 + f(0.5) * ccos**2))
+        + f(24.0) / pi * ccos * (f(1.0) + f(1.5) * f(0.4) * ssin) * np.sqrt(f(1.0) - soc2**2)
+    )
+    hs = np.arange(1, 25, dtype=f)[None, :]
+    hangl = (hs - f(12.0)) * pi / f(12.0)
+    beta = np.arcsin(np.clip(ssin + ccos * np.cos(hangl), f(-1.0), f(1.0))) / rad
+    beta = np.where(beta > f(1e-4), np.maximum(beta, f(1.0)), beta)
+    sinb = np.sin(rad * beta)
+    day = (hs > snup) & (hs < sndn)
+    radhr = np.where(day, sinb * (f(1.0) + f(0.4) * sinb) * srad * f(1.0e6) / isinb, f(0.0))
+    return radhr.astype(f)
+
+
+def _shaw_slope_sum(
+    sunhor: np.ndarray, doy: np.ndarray, lat: float, slope: float, aspect: float
+) -> np.ndarray:
+    """SHAW's ``CLOUDY`` + ``SOLAR_SHAW`` (double): direct + diffuse on the slope, summed [MJ m-2]."""
+    pi = 3.14159
+    solcon, difatm = 1360.0, 0.76
+    n = sunhor.shape[0]
+    out = np.zeros(n)
+    for k in range(n):
+        declin = 0.4102 * np.sin(2 * pi * (int(doy[k]) - 80) / 365.0)
+        coshaf = -np.tan(lat) * np.tan(declin)
+        hafday = (0.0 if coshaf >= 1.0 else pi) if abs(coshaf) >= 1.0 else float(np.arccos(coshaf))
+        sunris, sunset = 12.0 - hafday / 0.261799, 12.0 + hafday / 0.261799
+        hrwest = pi if abs(declin) >= abs(lat) else float(np.arccos(np.tan(declin) / np.tan(lat)))
+        rts = 0.0
+        for hour in range(1, 25):
+            sh = max(float(sunhor[k, hour - 1]), 0.0)  # CLOUDY clips negative hourly values
+            if sh <= 0.0:
+                continue
+            sinazm = cosazm = sumalt = cosalt = sunmax = 0.0
+            for thour in (hour - 1.0, float(hour)):  # NHRPDT = 1: both ends of the hour
+                hrangl = 0.261799 * (thour - 12.0)
+                if sunris < thour < sunset:
+                    sinalt = np.sin(lat) * np.sin(declin) + np.cos(lat) * np.cos(declin) * np.cos(hrangl)
+                    altitu = np.arcsin(sinalt)
+                    azm = np.arcsin(-np.cos(declin) * np.sin(hrangl) / np.cos(altitu))
+                    if lat - declin > 0.0:
+                        if abs(hrangl) < hrwest:
+                            azm = pi - azm
+                    elif abs(hrangl) >= hrwest:
+                        azm = pi - azm
+                    sun = solcon * sinalt
+                    sumalt += sun * sinalt
+                    cosalt += sun * np.cos(altitu)
+                    sinazm += sun * np.sin(azm)
+                    cosazm += sun * np.cos(azm)
+                    sunmax += sun
+            if sunmax == 0.0:
+                altitu = sunslp = 0.0
+            else:
+                altitu = float(np.arctan(sumalt / cosalt))
+                azmuth = float(np.arctan2(sinazm, cosazm))
+                sunmax /= 2.0
+                sunslp = float(
+                    np.arcsin(
+                        np.sin(altitu) * np.cos(slope)
+                        + np.cos(altitu) * np.sin(slope) * np.cos(azmuth - aspect)
+                    )
+                )
+            if altitu <= 0.0:
+                total = sh
+            else:
+                tt = min(sh / sunmax, difatm)
+                tdiffu = tt * (1.0 - np.exp(0.6 * (1.0 - difatm / tt) / (difatm - 0.4)))
+                diffus = tdiffu * sunmax
+                dirhor = sh - diffus
+                direct = 0.0 if sunslp <= 0.0 else min(dirhor * np.sin(sunslp) / np.sin(altitu), 5.0 * dirhor)
+                total = direct + diffus
+            rts += total * 3.6e3 / 1.0e6
+        out[k] = rts
+    return out
+
+
+def rzwqm_daily_srad(
+    srad_mj: np.ndarray,
+    doy: np.ndarray,
+    latitude_rad: float,
+    *,
+    slope_rad: float = 0.0,
+    aspect_rad: float = 0.0,
+) -> np.ndarray:
+    """Daily solar radiation [MJ m-2 d-1] that RZWQM2 uses and prints in ``.ana`` column 88.
+
+    RZWQM2 (daily ``.MET`` input, ``Iweather = 0``) disaggregates the daily value into 24 hourly
+    values with DSSAT 4.0 ``HMET`` (:func:`_hourly_radiation_dssat40`), partitions each hour
+    into direct and diffuse radiation on the local slope with SHAW's ``SOLAR_SHAW`` and sums the
+    24 hours again (``RTS``, ``Rzmain.for`` 1376-1389). The hourly values are the sine-of-elevation
+    shape sampled at whole hours, so their sum is not the daily input: the ratio is 0.993..1.005
+    at CA-TPA. On a flat surface (``slope_rad == 0``) direct + diffuse is the hourly value itself
+    and the result is the float32 hourly sum; otherwise the SHAW partition is applied.
+
+    Written from the equations (Spitters et al. 1986; Flerchinger 2000), validated against the
+    ``.ana`` column 88 of the RZWQM2 binary on the 15 ``RZWQM_sw_batch`` scenarios.
+    """
+    srad = np.asarray(srad_mj, dtype=float)
+    days = np.asarray(doy).astype(int)
+    lat_deg = np.float32(float(latitude_rad) * _R2D)  # REAL(XLAT*R2D), product in double
+    hourly = _hourly_radiation_dssat40(srad, days, lat_deg).astype(np.float64)
+    if slope_rad == 0.0:
+        return np.maximum(hourly, 0.0).sum(axis=1) * 3.6e3 / 1.0e6
+    return _shaw_slope_sum(hourly, days, float(latitude_rad), float(slope_rad), float(aspect_rad))
 
 
 @dataclass(frozen=True)

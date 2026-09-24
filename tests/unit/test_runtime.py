@@ -150,3 +150,48 @@ def test_stack_days_roundtrip() -> None:
     stacked = stack_days(*days)
     np.testing.assert_array_equal(np.asarray(stacked.rain), np.asarray(forcing.rain))
     assert stacked.n_days == 3
+
+
+# ---------------------------------------------------------------------------- compile reuse
+
+
+def test_run_batch_reuses_one_compilation_across_calls(tol: float) -> None:
+    """Independent references: JAX's own compile counter (``jax.monitoring``) and the NumPy loop."""
+    import gc
+    import weakref
+
+    from jax import monitoring
+
+    event = "/jax/core/compile/backend_compile_duration"
+    n = [0]
+
+    def listener(ev: str, duration_secs: float, **kw: object) -> None:
+        if ev == event:
+            n[0] += 1
+
+    model = toy_model()
+    params, forcing, state0 = toy_inputs(20)
+    batch = jax.tree_util.tree_map(lambda x: jnp.stack([x, x * 1.1, x * 0.9]), params)
+    batch2 = jax.tree_util.tree_map(lambda x: x * 1.01, batch)
+    monitoring.register_event_duration_secs_listener(listener)
+    try:
+        jax.block_until_ready(run_batch(model, batch, forcing, state0))
+        after_first = n[0]
+        out2 = jax.block_until_ready(run_batch(model, batch2, forcing, state0))
+        after_second = n[0]
+    finally:
+        monitoring.unregister_event_duration_listener(listener)
+    assert after_first >= 1
+    assert after_second == after_first, (
+        f"run_batch recompiled {after_second - after_first}x for the same shapes"
+    )
+    for i in range(3):  # the reused runner still computes the new parameters
+        p_i = jax.tree_util.tree_map(lambda x, i=i: x[i], batch2)
+        w_ref, b_ref = _reference(p_i, forcing, state0)
+        np.testing.assert_allclose(np.asarray(out2["water"])[i], w_ref, rtol=tol, atol=tol)
+        np.testing.assert_allclose(np.asarray(out2["biomass"])[i], b_ref, rtol=tol, atol=tol)
+    # the runners live on the model, so they do not keep it alive
+    ref_model = weakref.ref(model)
+    del model
+    gc.collect()
+    assert ref_model() is None

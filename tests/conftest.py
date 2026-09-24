@@ -7,6 +7,11 @@
 * Applies the tier marker of each test's directory automatically.
 * Keeps the unit tier data-free: a unit test that requests ``data_dir`` (directly or through
   another fixture) is a collection error (doc 05 section 4: the unit tier needs no data).
+* Deselects ``@pytest.mark.slow`` tests by default (doc 05: the default run and the unit tier stay
+  fast). They run with ``--runslow`` or ``AGRI_JAX_RUNSLOW=1``, whenever a ``-m`` expression is
+  given (``pytest -m slow`` runs only them), or when a test is named explicitly by node id.
+* Loads a deterministic hypothesis profile (``derandomize=True``, no example database), so every
+  property test draws the same examples on every run and machine.
 * With ``AGRI_JAX_NO_SKIP=1`` (set by the CI unit job) any skipped test fails the run, unless the
   test is marked ``@pytest.mark.allow_skip(reason=...)``; a silently skipped reader test would
   otherwise pass CI without running.
@@ -19,6 +24,10 @@ from pathlib import Path
 
 import jax
 import pytest
+from hypothesis import settings
+
+settings.register_profile("agri_jax", derandomize=True, database=None, deadline=None)
+settings.load_profile("agri_jax")
 
 _X64 = os.environ.get("AGRI_JAX_X64", "1").strip().lower() not in {"0", "false", "no", "off"}
 jax.config.update("jax_enable_x64", _X64)
@@ -26,6 +35,7 @@ jax.config.update("jax_enable_x64", _X64)
 DEFAULT_DATA_DIR = Path.home() / "agri_jax_data"
 TIERS = ("unit", "diff", "integration", "gpu")
 NO_SKIP_ENV = "AGRI_JAX_NO_SKIP"
+RUNSLOW_ENV = "AGRI_JAX_RUNSLOW"
 _DATA_FIXTURE = "data_dir"
 
 
@@ -36,6 +46,22 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=os.environ.get("AGRI_JAX_DATA", str(DEFAULT_DATA_DIR)),
         help="root of the private data tree (scenarios, dumps, Fortran tools)",
     )
+    parser.addoption(
+        "--runslow",
+        action="store_true",
+        default=False,
+        help=f"also run @pytest.mark.slow tests (deselected by default; or set {RUNSLOW_ENV}=1)",
+    )
+
+
+def _run_slow(config: pytest.Config) -> bool:
+    if config.getoption("--runslow"):
+        return True
+    if os.environ.get(RUNSLOW_ENV, "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    if config.getoption("markexpr", ""):  # an explicit -m expression decides by itself
+        return True
+    return any("::" in str(a) for a in config.args)  # a test named by node id
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -58,6 +84,11 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(getattr(pytest.mark, tier))
         if tier == "unit" and _DATA_FIXTURE in getattr(item, "fixturenames", ()):
             offenders.append(item.nodeid)
+    if not _run_slow(config):
+        slow = [it for it in items if it.get_closest_marker("slow") is not None]
+        if slow:
+            config.hook.pytest_deselected(items=slow)
+            items[:] = [it for it in items if it.get_closest_marker("slow") is None]
     if offenders:
         raise pytest.UsageError(
             "unit tests must not depend on the private data tree (fixture 'data_dir'); move them to "

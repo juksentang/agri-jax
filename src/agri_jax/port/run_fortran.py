@@ -4,8 +4,10 @@ This is step 3 ("Collect") of the porting procedure in ``docs/en/04_reference_va
 It implements the verified local recipes without any shell script:
 
 RZWQM2 (:func:`run_rzwqm`)
-    1. Stage the scenario directory plus ``RZWQM_Tool/DSSAT/*`` into a run directory whose
-       absolute path is short (the Fortran reads fixed-width 80-character path records).
+    1. Stage the scenario directory plus ``RZWQM_Tool/DSSAT/*`` into a run directory
+       ``<run_root>/rXXXXXXXX`` whose absolute path is at most :data:`MAX_RZWQM_RUN_DIR_LEN`
+       (45) characters: the Fortran reads fixed-width 80-character path records, and the
+       Cropsim-CERES ecotype path ``<rundir>/DSSAT/WHCER040.ECO`` must fit ``CHARACTER*64``.
     2. Rewrite lines 1-8 of ``IPNAMES.DAT`` to absolute paths inside the run directory and,
        optionally, the simulation date line (line 9, ``DD MM YYYY DD MM YYYY``).
     3. Rewrite the two paths of the ``= DATABASE FILE LOCATIONS`` block of every ``*.RZX``
@@ -15,7 +17,9 @@ RZWQM2 (:func:`run_rzwqm`)
     5. Execute the binary, through ``/lib64/ld-linux-x86-64.so.2`` when its ``PT_INTERP``
        (the cvmfs loader of the Alliance clusters) does not exist on this machine, with
        ``FORT_BUFFERED=TRUE``; stdout/stderr go to ``run.log``.
-    6. Copy the kept files (``*.ana``, ``OVERVIEW.OUT`` and ``run.log``) to ``out_dir``.
+    6. :func:`check_rzwqm_outputs`: the binary exits 0 after a Fortran ``STOP``, so the run
+       fails unless ``run.log`` has no STOP marker and the ``.ana`` covers the whole period.
+    7. Copy the kept files (``*.ana``, ``OVERVIEW.OUT`` and ``run.log``) to ``out_dir``.
 
 DSSAT-CSM (:func:`run_dscsm`)
     The run-dir staging pattern of ``AFSoil/.../0205_Run_DSSAT/01_run_all.py``
@@ -48,11 +52,14 @@ from pathlib import Path
 
 __all__ = [
     "DSSAT_ENGINE",
+    "MAX_RZWQM_RUN_DIR_LEN",
     "RUN_ROOT",
+    "RZWQM_STOP_MARKERS",
     "RZWQM_TOOL",
     "DscsmResult",
     "FortranRunError",
     "RzwqmResult",
+    "check_rzwqm_outputs",
     "elf_interpreter",
     "parse_overview_yields",
     "patch_ipnames",
@@ -77,6 +84,15 @@ SYSTEM_LOADER = Path("/lib64/ld-linux-x86-64.so.2")
 
 #: Fortran path records in IPNAMES.DAT / *.RZX are read into CHARACTER*80.
 MAX_PATH_LEN = 79
+#: Cropsim-CERES (wheat, canola; ``DSSAT40/CSCER/CSCER040.FOR``) builds the ecotype path in
+#: ``CHARACTER*64 ECDIRFLE`` = ``<rundir>/DSSAT/`` + a 12-character name (``WHCER040.ECO``). A
+#: longer run dir truncates the name and the model STOPs with exit status 0, so the RZWQM2 run
+#: dir must be at most this long.
+MAX_RZWQM_RUN_DIR_LEN = 64 - len("/DSSAT/") - len("WHCER040.ECO")
+#: ``run.log`` lines (lower case) printed by RZWQM2 / DSSAT40 before a Fortran ``STOP``; the
+#: binary still exits with status 0.
+RZWQM_STOP_MARKERS = ("program will have to stop", "could not find input file")
+_ANA_ROW = re.compile(r"^\s*(\d{4})\.(\d{3})\s")
 #: IPNAMES.DAT lines 1-8 (0-based index -> file role). Line 3 MET, 4 BRK, 7 SNO, 8 .ana.
 _IPNAMES_ROLES = ("cntrl", "rzwqm", "met", "brk", "rzinit", "plgen", "sno", "ana")
 
@@ -166,10 +182,18 @@ def _exec_argv(binary: Path, name: str) -> list[str]:
     return [f"./{name}"]
 
 
-def _make_run_dir(prefix: str, run_root: Path | None) -> Path:
+def _make_run_dir(prefix: str, run_root: Path | None, max_len: int | None = None) -> Path:
+    """``tempfile.mkdtemp(prefix, dir=run_root)``; raise when the path exceeds ``max_len`` characters."""
     root = Path(run_root) if run_root is not None else RUN_ROOT
     root.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=prefix, dir=root)).resolve()
+    d = Path(tempfile.mkdtemp(prefix=prefix, dir=root)).resolve()
+    if max_len is not None and len(str(d)) > max_len:
+        shutil.rmtree(d, ignore_errors=True)
+        raise FortranRunError(
+            f"run dir {d} is {len(str(d))} characters; RZWQM2 needs <= {max_len} (the Cropsim-CERES "
+            "ecotype path is CHARACTER*64). Use a shorter run_root or AGRI_JAX_RUN_ROOT."
+        )
+    return d
 
 
 def _copy_tree_into(src: Path, dst: Path) -> None:
@@ -288,6 +312,50 @@ def patch_rzx_database(text: str, run_dir: Path) -> str:
     return "\r\n".join(lines) + "\r\n" if "\r\n" in text else "\n".join(lines) + "\n"
 
 
+def _ipnames_period(ip_text: str) -> tuple[_dt.date, _dt.date]:
+    """Simulation period of line 9 of IPNAMES.DAT (``DD MM YYYY DD MM YYYY``)."""
+    f = ip_text.splitlines()[8].split()
+    return _dt.date(int(f[2]), int(f[1]), int(f[0])), _dt.date(int(f[5]), int(f[4]), int(f[3]))
+
+
+def _ana_day_tokens(path: Path) -> list[tuple[int, int]]:
+    """``(year, day)`` of every data row of a ``.ana`` file (``YYYY.DDD`` first token)."""
+    out: list[tuple[int, int]] = []
+    with open(path, errors="replace") as fh:
+        for ln in fh:
+            m = _ANA_ROW.match(ln)
+            if m:
+                out.append((int(m.group(1)), int(m.group(2))))
+    return out
+
+
+def check_rzwqm_outputs(log: Path, ana: Path, start: _dt.date, end: _dt.date) -> None:
+    """Raise :class:`FortranRunError` unless an RZWQM2 run finished its whole period.
+
+    RZWQM2 exits with status 0 after a Fortran ``STOP`` (``Program will have to stop``,
+    ``Could not find input file!``), so the exit status alone does not tell a finished run from a
+    truncated one. Checked: no :data:`RZWQM_STOP_MARKERS` line in ``run.log``; the ``.ana`` holds
+    ``(end - start).days + 2`` rows (a ``YYYY.000`` initial state plus one row per day) and its
+    last row is ``end``.
+    """
+    text = log.read_text(errors="replace") if log.is_file() else ""
+    low = text.lower()
+    hit = next((m for m in RZWQM_STOP_MARKERS if m in low), None)
+    if hit is not None:
+        raise FortranRunError(f"RZWQM exited 0 but run.log reports {hit!r}; log tail:\n{_tail(log)}")
+    if not ana.is_file() or ana.stat().st_size == 0:
+        raise FortranRunError(f"RZWQM finished but {ana} is missing/empty; log tail:\n{_tail(log)}")
+    rows = _ana_day_tokens(ana)
+    want = (end - start).days + 2
+    last = (end.year, end.timetuple().tm_yday)
+    if len(rows) != want or rows[-1] != last:
+        got = f"{rows[-1][0]}.{rows[-1][1]:03d}" if rows else "none"
+        raise FortranRunError(
+            f"{ana.name}: {len(rows)} rows ending {got}, expected {want} rows ending "
+            f"{last[0]}.{last[1]:03d} (truncated run); log tail:\n{_tail(log)}"
+        )
+
+
 def _as_paths(x: str | os.PathLike[str] | Sequence[str | os.PathLike[str]] | None) -> list[Path]:
     if x is None:
         return []
@@ -338,7 +406,9 @@ def run_rzwqm(
     if not db.is_dir():
         raise FileNotFoundError(f"DSSAT database {db} not found")
 
-    run_dir = _make_run_dir("rz_", Path(run_root) if run_root is not None else None)
+    run_dir = _make_run_dir(
+        "r", Path(run_root) if run_root is not None else None, max_len=MAX_RZWQM_RUN_DIR_LEN
+    )
     ok = False
     try:
         _copy_tree_into(scenario, run_dir)
@@ -371,8 +441,7 @@ def run_rzwqm(
         elapsed = _run(_exec_argv(exe, name), run_dir, log, timeout, env, None)
 
         ana = run_dir / ana_name
-        if not ana.is_file() or ana.stat().st_size == 0:
-            raise FortranRunError(f"RZWQM finished but {ana} is missing/empty; log tail:\n{_tail(log)}")
+        check_rzwqm_outputs(log, ana, *_ipnames_period(ip_text))
         kept = _keep(run_dir, out, [*keep_files, "run.log"])
         by_name = {p.name: p for p in kept}
         if ana_name not in by_name:

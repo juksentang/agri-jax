@@ -267,7 +267,9 @@ def clear_sky_radiation(doy: ArrayLike, latitude: ArrayLike) -> ClearSkyRadiatio
     dec = jnp.arcsin(
         0.39785 * jnp.sin(4.868961 + 0.017203 * xj + 0.033446 * jnp.sin(6.224111 + 0.017202 * xj))
     )
-    tssh = jnp.arccos(jnp.clip(-jnp.tan(lat) * jnp.tan(dec), -1.0, 1.0))
+    # clipped strictly inside (-1, 1): d/dx arccos is infinite at +-1, and the clip keeps the
+    # gradient finite (zero) in the polar day / night regime the reference model cannot handle
+    tssh = jnp.arccos(jnp.clip(-jnp.tan(lat) * jnp.tan(dec), -1.0 + _EPS, 1.0 - _EPS))
     tsrh = -tssh
     c1 = jnp.sin(dec) * jnp.sin(lat)
     c2 = jnp.cos(dec) * jnp.cos(lat)
@@ -388,9 +390,9 @@ def resistances(
     stomatal_resistance: ArrayLike,
     *,
     trat: ArrayLike = 1.0,
-    residue_diameter_cm: float = RESIDUE_DIAMETER_CM["corn"],
-    residue_density: float = RESIDUE_DENSITY_G_CM3["corn"],
-    residue_randomness: float = RESIDUE_RANDOMNESS,
+    residue_diameter_cm: ArrayLike = RESIDUE_DIAMETER_CM["corn"],
+    residue_density: ArrayLike = RESIDUE_DENSITY_G_CM3["corn"],
+    residue_randomness: ArrayLike = RESIDUE_RANDOMNESS,
 ) -> AerodynamicResistances:
     """Aerodynamic and surface resistances of the three-source Shuttleworth-Wallace scheme.
 
@@ -409,6 +411,9 @@ def resistances(
     ``rsr = 1.1 HR / (2.12e-5 (1 + 0.007 max(0, Ta - 20)) (1 + 1.25e-3 rhob^-1.79 u2) 0.8)`` with ``u2``
     the wind 2 m above the residue.
     Soil surface resistance is the constant parameter (``rzwqm.dat`` item 11 >= 0).
+    ``residue_diameter_cm``, ``residue_density`` and ``residue_randomness`` may be traced arrays
+    (one value per day under ``vmap``), so that the reference model's switch of the residue-type
+    constants at harvest can be expressed without splitting the batch.
 
     Known deviations: the wetness-dependent ``rss`` options (item 11 = -1 Sakaguchi & Zeng 2009,
     -2 Farahani & Bausch 1995), standing stubble (``sai``), plastic mulch and the PENFLUX residue
@@ -453,19 +458,22 @@ def resistances(
 
     # ---- residue ----
     rm = jnp.asarray(residue_mass)
+    rdia = jnp.asarray(residue_diameter_cm)
+    rhors = jnp.asarray(residue_density)
+    cres = jnp.asarray(residue_randomness)
     has_residue = rm > 1.0e-6
     trm = rm * 1.0e-3
     cs = jnp.where(
         has_residue,
-        jnp.exp(-residue_randomness * 1.27e-2 * trm / (residue_diameter_cm * residue_density)),
+        jnp.exp(-cres * 1.27e-2 * trm / jnp.maximum(rdia * rhors, _EPS)),
         1.0,
     )
-    rhorb = 0.2 * residue_density
-    hr = jnp.where(has_residue, trm * 1.0e-2 / (jnp.maximum(1.0 - cs, _EPS) * rhorb), 0.0)
+    rhorb = 0.2 * rhors
+    hr = jnp.where(has_residue, trm * 1.0e-2 / (jnp.maximum(1.0 - cs, _EPS) * jnp.maximum(rhorb, _EPS)), 0.0)
     hrm = hr / 100.0
     z0r = 0.197 * hrm
     z0r_safe = jnp.maximum(z0r, _EPS)
-    resp = 1.0 - rhorb / residue_density
+    resp = 1.0 - rhorb / jnp.maximum(rhors, _EPS)
     resp = jnp.where((resp <= 0.5) | (resp > 0.95), 0.8, resp)
     u2 = us * jnp.log(2.0 / z0r_safe) / jnp.log(xw_new / z0r_safe)
     rsr = jnp.where(
@@ -475,7 +483,7 @@ def resistances(
         / (
             2.12e-5
             * (1.0 + 0.007 * jnp.maximum(0.0, jnp.asarray(ta) - 20.0))
-            * (1.0 + 1.25e-3 * rhorb ** (-1.79) * jnp.maximum(u2, 0.0))  # u2 > 0 whenever 2 m > z0r
+            * (1.0 + 1.25e-3 * jnp.maximum(rhorb, _EPS) ** (-1.79) * jnp.maximum(u2, 0.0))
             * resp
         ),
         0.0,
@@ -566,7 +574,9 @@ def shuttleworth_wallace(
     soil_heat_flux: ArrayLike = 0.0,
     rainfall_zone: int = 2,
     residue_type: str = "corn",
-    residue_cover_factor: float = RESIDUE_RANDOMNESS,
+    residue_cover_factor: ArrayLike = RESIDUE_RANDOMNESS,
+    residue_diameter_cm: ArrayLike | None = None,
+    residue_density: ArrayLike | None = None,
 ) -> SWResult:
     """Daily Shuttleworth-Wallace potential transpiration, soil and residue evaporation [cm d-1].
 
@@ -583,8 +593,21 @@ def shuttleworth_wallace(
     soil_heat_flux : G [MJ m-2 d-1]; the daily reference model uses 0.
     rainfall_zone : 1 arid, 2 semi-arid, 3 humid (net long-wave coefficients; static).
     residue_type : "corn" | "soybean" | "wheat" (static; RZWQM ``IPR`` residue-type index 1..3).
+        Gives the residue diameter and specific density unless ``residue_diameter_cm`` and
+        ``residue_density`` are passed explicitly (traced values, one per day under ``vmap``).
     residue_cover_factor : ``CRES`` of the ``rzwqm.dat`` residue block (corn 2.0, soybean 2.5,
-        wheat 4.0; the reference model falls back to 1.32 when the file gives <= 0). Static.
+        wheat 4.0; the reference model falls back to 1.32 when the file gives <= 0).
+
+    Input timing (what the reference model passes at its daily PET call, measured on CA-TPA 2015
+    against every ``.ana`` row, see ``poc/coarse_compare.py``): all state inputs are
+    **start-of-day** values. In the reference day loop the management events (tillage, which
+    incorporates residue) precede the PET call, whereas crop growth, harvest (canopy removal and
+    the addition of harvest residue) and the residue-type switch to the harvested crop's
+    constants follow it. Hence LAI, height and residue mass are the previous day's end state,
+    except that a tillage day uses the post-tillage residue mass, and the day after a harvest
+    uses LAI = height = 0 with the harvest residue and residue age 1. Residue age counts from
+    the file's initial age (+1 on the first day) and restarts at harvest. Wind is the forcing
+    after :func:`agri_jax.io.rzwqm.prepare_rzwqm_forcing` (100 km/d floor).
 
     Algorithm (POTEVPHR, ipet = 0, ihourly = 0):
 
@@ -614,10 +637,12 @@ def shuttleworth_wallace(
        where ``Rn_sub = Rns + Rnr``; each divided by ``10 lambda`` and floored at 0 (cm d-1).
 
     Known deviations from the reference model: snow-pack sublimation (``SNOWQE``, whose result
-    the reference model overwrites with a constant anyway), the snow long-wave variant,
-    pan-evaporation input, hourly / SHAW / PENFLUX paths, slope and aspect, standing stubble
-    and plastic mulch are not implemented; infinite resistances are handled by masking rather
-    than 1e30; the sunset-angle argument is clipped.
+    the reference model overwrites with a constant anyway), the snow long-wave variant (its
+    switch ``NSP`` is only set by the SHAW path, never in the daily branch), pan-evaporation
+    input, hourly / SHAW / PENFLUX paths, slope and aspect, standing stubble (``SAI``,
+    ``SDEAD_HEIGHT`` in the wind-height block) and plastic mulch are not implemented; infinite
+    resistances are handled by masking rather than 1e30; the sunset-angle argument and the
+    square root of the vapour pressure are guarded so that gradients stay finite.
 
     Source: POTEVPHR, Rzpet.for lines 1673-2428; Shuttleworth & Wallace (1985); Farahani & Ahuja (1996).
     """
@@ -645,6 +670,8 @@ def shuttleworth_wallace(
     )
     a_res = residue_albedo(params.albedo_dry, params.albedo_residue, residue_age, residue_wet)
 
+    rdia = RESIDUE_DIAMETER_CM[residue_type] if residue_diameter_cm is None else residue_diameter_cm
+    rhors = RESIDUE_DENSITY_G_CM3[residue_type] if residue_density is None else residue_density
     res = resistances(
         wind,
         lai,
@@ -655,8 +682,8 @@ def shuttleworth_wallace(
         params.soil_resistance,
         params.stomatal_resistance,
         trat=trat,
-        residue_diameter_cm=RESIDUE_DIAMETER_CM[residue_type],
-        residue_density=RESIDUE_DENSITY_G_CM3[residue_type],
+        residue_diameter_cm=rdia,
+        residue_density=rhors,
         residue_randomness=residue_cover_factor,
     )
     # Rzpet.for line 1957: the hourly W m-2 night test on the daily total (effective threshold
@@ -674,7 +701,8 @@ def shuttleworth_wallace(
     ccl = 1.0 - jnp.exp(-CANOPY_EXTINCTION * tlai_arr)
 
     tl4 = 0.5 * ((tmax + 273.15) ** 4 + (tmin + 273.15) ** 4)
-    rb0 = (0.39 - 0.158 * jnp.sqrt(jnp.maximum(ec.ed, 0.0))) * STEFAN_BOLTZMANN * tl4
+    # sqrt floored at _EPS: d sqrt(x)/dx is infinite at x = 0 (rh = 0), the floor makes it zero
+    rb0 = (0.39 - 0.158 * jnp.sqrt(jnp.maximum(ec.ed, _EPS))) * STEFAN_BOLTZMANN * tl4
     rsratio = jnp.clip(jnp.where(rch > 0.0, srad / jnp.maximum(rch, _EPS), 0.0), 0.0, 1.0)
     rnl = -(a_lw * rsratio + b_lw) * rb0
 

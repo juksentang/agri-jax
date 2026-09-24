@@ -44,6 +44,7 @@ def leaf_growth(state, params, forcing_t):
 | GPU tier | `uv run pytest tests/gpu -q` (skips without a GPU) |
 | Everything with write checks on | `AGRI_JAX_CHECK=1 uv run pytest -q` |
 | One tier by marker | `uv run pytest -m unit` / `-m "not gpu"` |
+| Slow tests (`@pytest.mark.slow`, deselected by default) | `uv run pytest --runslow` (all) or `uv run pytest -m slow` (only them); any `-m` expression or an explicit node id also selects them |
 
 Tests are marked with their tier automatically from their directory (`tests/<tier>/`). Data-dependent tiers skip when the data is missing; the default data root is `~/agri_jax_data`, overridable with `--data-dir` or `AGRI_JAX_DATA`.
 

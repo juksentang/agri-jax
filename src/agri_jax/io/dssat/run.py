@@ -16,7 +16,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["DssatRun", "run_dssat", "stage_run_dir"]
+__all__ = ["DssatRun", "run_dssat", "stage_run_dir", "weather_stations"]
 
 #: model code by experiment-file extension
 MODEL_BY_EXT = {
@@ -73,6 +73,29 @@ def _soil_ids(filex_text: str) -> list[str]:
     return ids
 
 
+def weather_stations(filex: str | Path) -> list[str]:
+    """``WSTA`` codes of the ``*FIELDS`` section of an experiment file, as written (``UFGA``,
+    ``EBCH8401``); the weather file of a run is ``<first four letters><YY>01.WTH`` (or the
+    full eight-character name), so its first four letters select the station."""
+    text = Path(filex).read_text(errors="replace")
+    out: list[str] = []
+    in_fields = False
+    wcol: int | None = None
+    for line in text.splitlines():
+        if line.startswith("*"):
+            in_fields = line.upper().startswith("*FIELDS")
+            wcol = None
+            continue
+        if in_fields and line.startswith("@"):
+            wcol = line.find("WSTA") if "WSTA" in line else None
+            continue
+        if in_fields and wcol is not None and line.strip() and not line.lstrip().startswith("!"):
+            code = line[wcol : wcol + 8].strip()
+            if code and code != "-99" and code not in out:
+                out.append(code)
+    return out
+
+
 def stage_run_dir(
     filex: Path,
     run_dir: Path,
@@ -125,22 +148,8 @@ def stage_run_dir(
 
     text = filex.read_text(errors="replace")
 
-    # weather: station codes from *FIELDS WSTA column (4 characters)
-    stations: set[str] = set()
-    in_fields = False
-    wcol: int | None = None
-    for line in text.splitlines():
-        if line.startswith("*"):
-            in_fields = line.upper().startswith("*FIELDS")
-            wcol = None
-            continue
-        if in_fields and line.startswith("@"):
-            wcol = line.find("WSTA") if "WSTA" in line else None
-            continue
-        if in_fields and wcol is not None and line.strip():
-            code = line[wcol : wcol + 8].strip()[:4]
-            if code and code != "-99":
-                stations.add(code.upper())
+    # weather: station codes (4 characters) of the *FIELDS WSTA column
+    stations = {w[:4].upper() for w in weather_stations(filex)}
     for d in weather_dirs:
         for f in sorted(Path(d).glob("*.WTH")):
             if f.name[:4].upper() in stations:
