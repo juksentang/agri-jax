@@ -97,7 +97,7 @@ nav.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:v
 .spec td{padding:10px 0;border-top:1px solid var(--rule);vertical-align:baseline}
 .spec tr:last-child td{border-bottom:1px solid var(--rule)}
 .spec td.v{font-family:var(--mono);font-size:22px;font-weight:600;text-align:right;white-space:nowrap;padding-inline:12px}
-.spec td.k{color:var(--muted)} .spec td.g{text-align:right;width:1%}
+.spec td.k{color:var(--muted)} .spec td.k small{display:block;font-size:12px;line-height:18px} .spec td.g{text-align:right;width:1%}
 .spec .r{color:var(--rust)} .spec .t{color:var(--teal)} .spec .v2{color:var(--violet)} .spec small{font-size:14px;color:var(--muted);font-weight:400}
 .hint{font-size:14px;color:var(--muted)}
 .act#a5{min-height:100vh}
@@ -194,10 +194,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
   <section class="intro" id="a0">
     <p class="lead">田块尺度的作物–土壤模型，写成可微分、可批量的形式。全页只有一张图：一个矩阵，行是田块，列是天。</p>
     <table class="spec">
-      <tr><td class="k">10⁵ 次九年模拟</td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">82 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
+      <tr><td class="k">10⁵ 次九年模拟<small>集群实跑 → 计算骨架</small></td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">82 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
       <tr><td class="k">全参数梯度，每万样本</td><td class="v"><span class="v2">56 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
       <tr><td class="k">潜在蒸发，对参考模型</td><td class="v">0.02 <small>mm/d</small></td><td class="g"><span class="tag real">实测</span></td></tr>
     </table>
+    <p class="hint">≈10 h：RZWQM2 在集群上的批量实跑（每节点 8 任务的作业阵列，含排队与读写）。82 s：计算骨架，与模型逐日计算形状相同，单张 H100；整模型仍在验证中。</p>
     <p class="hint">往下滚动，矩阵随之变化；也可以用图下的按钮逐帧播放。</p>
   </section>
 
@@ -205,12 +206,12 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
     <div class="meta"><b>01</b><span>两种形态</span><span class="n">4 帧</span></div>
     <h2>十万块田，Fortran 一块一块跑完，JAX 一天一天一起走</h2>
     <ol class="steps">
-      <li class="step" data-f="0"><span class="i">1.1</span><span>逐行填：一个核一次只跑一块田，32 个核同时开工，屏幕时间等于真实时间</span><i class="pg"></i></li>
-      <li class="step" data-f="1"><span class="i">1.2</span><span>加速到跑完：真实 20.8 小时，磁盘上堆到 80 GB、990 万个文件</span><i class="pg"></i></li>
+      <li class="step" data-f="0"><span class="i">1.1</span><span>逐行填：以 32 核工作站为例，一个核一次只跑一块田，32 个核同时开工，屏幕时间等于估算时间</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">1.2</span><span>加速到跑完：32 核工作站按每次 24 秒估算需 20.8 小时，磁盘上堆到 80 GB、990 万个文件</span><i class="pg"></i></li>
       <li class="step" data-f="2"><span class="i">1.3</span><span>换走法：整列同亮，每一步全部田块前进一天，显存 8 GB，磁盘写入 0</span><i class="pg"></i></li>
-      <li class="step" data-f="3"><span class="i">1.4</span><span>列扫到底：3287 天，真实 82 秒</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">1.4</span><span>列扫到底：3287 天，实测 82 秒（计算骨架）</span><i class="pg"></i></li>
     </ol>
-    <p class="note">同一个矩阵、同一比例尺，只是走法不同。时钟、磁盘、显存为实测；格子颜色为示意。</p>
+    <p class="note">同一个矩阵、同一比例尺，只是走法不同。Fortran 时钟为 32 核工作站估算（每次 24 秒），集群上的批量实跑约 10 h（每节点 8 任务阵列，含排队与读写）；JAX 时钟（计算骨架）、磁盘、显存为实测；格子颜色为示意。</p>
   </section>
 
   <section class="act" id="a2" data-act="2">
@@ -222,7 +223,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="2"><span class="i">2.3</span><span>于是交换两层循环：外层按天，内层对所有行做同一件事</span><i class="pg"></i></li>
       <li class="step" data-f="3"><span class="i">2.4</span><span>一列 = 十万个数上的同一条指令，正是 GPU 擅长的形状</span><i class="pg"></i></li>
     </ol>
-    <p class="note">Fortran 做不到不是因为慢，而是每次运行被全局状态和逐文件读写绑在一个进程里，换不了循环顺序。</p>
+    <p class="note">现有 Fortran 实现不原生支持数组式批量执行：全局状态与逐次运行的文件读写把每次模拟绑在一个进程里。这是实现方式的性质，不是语言的性质。</p>
   </section>
 
   <section class="act" id="a3" data-act="3">
@@ -246,10 +247,10 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="2"><span class="i">4.3</span><span>代价：有限差分要 31 次前向；反向只要 1 次前向加 1 次反向</span><i class="pg"></i></li>
       <li class="step" data-f="3"><span class="i">4.4</span><span>可辨识性：损失谷平的方向是数据分不开的参数组合，一眼看出</span><i class="pg"></i></li>
       <li class="step" data-f="4"><span class="i">4.5</span><span>归因：对每一天的降雨求导，哪场雨决定收成，峰在吐丝期</span><i class="pg"></i></li>
-      <li class="step" data-f="5"><span class="i">4.6</span><span>多链：行从“田块”换成“链”，一千条短链与四条长链花一样的时间</span><i class="pg"></i></li>
+      <li class="step" data-f="5"><span class="i">4.6</span><span>多链 <span class="tag">待验证</span>：行从“田块”换成“链”，一千条链与四条链每步花一样的时间；能否以多条短链代替几条长链，须在相同有效样本量（ESS）下比较</span><i class="pg"></i></li>
       <li class="step" data-f="6"><span class="i">4.7</span><span>嵌入网络：把气孔阻力换成小网络，梯度穿过机理过程流进权重</span><i class="pg"></i></li>
     </ol>
-    <p class="note">撒点标定的样本数随维数指数增长，梯度法几乎不增长。参数柱、损失谷、归因曲线为示意。</p>
+    <p class="note">采样式标定与梯度法的相对代价取决于目标函数、参数相关性与所用算法；梯度在每一步给出下降方向，其代价与参数个数无关。多链一帧是待验证的假设：MCMC 样本自相关，推断效率须在相同有效样本量（ESS）下比较，原始样本数不代表推断质量。参数柱、损失谷、归因曲线为示意。</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
@@ -263,7 +264,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <div><label for="prec">精度</label><select id="prec"><option value="f64">float64</option><option value="f32">float32</option></select></div>
     </div>
     <p class="result" id="ratio"></p>
-    <p class="note">按 H100 实测经内存带宽外推到其它显卡；Fortran 按每次 24 秒除以核数；真模型已按 3 倍折扣计。</p>
+    <p class="note">按 H100 实测经内存带宽外推到其它显卡；Fortran 按每次 24 秒除以核数估算（32 核工作站即 20.8 h；集群批量实跑约 10 h，每节点 8 任务阵列，含排队与读写）；真模型已按 3 倍折扣计。</p>
   </section>
 </div>
 </div>
@@ -283,7 +284,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td class="c">5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td class="c">每日检查点</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td class="c">集群单核；10⁵ 次约 10 h 墙钟、80 GB 输出</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td class="c">集群单核；10⁵ 次批量实跑约 10 h 墙钟（每节点 8 任务阵列，含排队与读写）、80 GB 输出；32 核工作站按此估算 20.8 h</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>ASCE 参考 ET 对 RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td class="c">CA-TPA 2015，逐日</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>S-W 潜在蒸发 / 蒸腾对 RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td class="c">生长季 RMSE，未调参</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>整模型（Richards + CERES-Maize）</td><td class="num">—</td><td class="c">开发中，先把已有模块验证到位</td><td><span class="tag">待测</span></td></tr>
@@ -340,14 +341,14 @@ const ACTS=[
     T('已跑完 '+fmt(Math.floor(filled/COLS*N/ROWS/100)*100)+' 块田',M.x,M.y+M.h+46,{c:'ink m mono'});
     T('一行 ≈ 2,500 块田，一格 ≈ 55 天',M.x+M.w,M.y+M.h+46,{a:'right',c:'s'}); } },
 /* ===== 1 two ways through the same matrix ===== */
-{ name:'两种形态', frames:[{dur:6,text:'逐行填'},{dur:6,text:'加速到完成'},{dur:7,text:'整列同亮'},{dur:1,text:'完成'}], real:'时钟、磁盘、显存', ill:'格子颜色',
+{ name:'两种形态', frames:[{dur:6,text:'逐行填'},{dur:6,text:'加速到完成'},{dur:7,text:'整列同亮'},{dur:1,text:'完成'}], real:'JAX 时钟、磁盘、显存', ill:'格子颜色', ext:'Fortran 时钟：32 核工作站，每次 24 s',
   draw(f,p){ const c=C(); const cores=32;
     if(f<=1){
-      head('Fortran · 逐行：32 个核各跑一块田','r b');
+      head('Fortran · 逐行：32 核工作站（估算）','r b');
       const q=f===0? ease(p)*0.12 : 0.12+ease(p)*0.88; const filledCells=q*ROWS*COLS;
       grid((r,cc)=>{ const block=Math.floor(r/cores); const rowsIn=Math.min(cores,ROWS-block*cores); const blockStart=block*cores*COLS; const k=clamp((filledCells-blockStart)/rowsIn,0,COLS); const cursor=cc===Math.floor(k)&&k<COLS&&k>0; return cursor? c.ink : cc<k? c.rust : c.cell; });
       const hours=q*FORT_H; const speed=f===0? 1+ease(p)*29 : 30+ease(p)*260;
-      readouts([['真实时间（共 20.8 h）',hours<1?Math.round(hours*60)+' min':hours.toFixed(1)+' h','屏幕加速 ×'+Math.round(f===0&&p<0.05?1:speed)],['已完成（共 100,000）',fmt(q*N)],['CPU','32 核','每核一次一块田'],['磁盘写入（共 80 GB）',(q*GB).toFixed(1)+' GB',fmt(q*FILES)+' 个文件']]);
+      readouts([['估算时间（共 20.8 h）',hours<1?Math.round(hours*60)+' min':hours.toFixed(1)+' h','屏幕加速 ×'+Math.round(f===0&&p<0.05?1:speed)],['已完成（共 100,000）',fmt(q*N)],['CPU','32 核','每核一次一块田'],['磁盘写入（共 80 GB）',(q*GB).toFixed(1)+' GB',fmt(q*FILES)+' 个文件']]);
     } else {
       head('Agri-JAX · 整列：全部田块同一天前进','t b');
       const BLOCK=3; const cols=f===2? Math.floor(ease(p)*COLS/BLOCK)*BLOCK : COLS; const day=Math.round(cols/COLS*DAYS); const q=cols/COLS;
@@ -452,7 +453,7 @@ const ACTS=[
       T('4 条链',60,432,{c:'ink b'}); R(x0,412,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,412,bw*(1-k),26,c.cell,{rx:2});
       T('1000 条链',60,492,{c:'ink b'}); R(x0,472,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,472,bw*(1-k),26,c.cell,{rx:2});
       T('一步反向的墙钟',x0+bw+16,450,{c:'s'}); T('两者相同',x0+bw+16,478,{c:'v s b'});
-      T('链是矩阵的行，行数从 4 变 1000，一步仍是一次整列运算',60,560,{c:'s'}); T('于是可以用很多条短链，代替几条长链',60,592,{c:'s ink'}); return; }
+      T('链是矩阵的行，行数从 4 变 1000，一步仍是一次整列运算',60,560,{c:'s'}); T('待验证：很多条短链能否代替几条长链',60,592,{c:'s ink b'}); T('MCMC 样本自相关，须在相同有效样本量（ESS）下比较；原始样本数不代表推断质量',60,622,{c:'xs'}); return; }
     /* parameter bars */
     const by=432, bh=96, n=PAR.length, bw=(Mg.w-(f===3?340:0))/n; const grow= f===0?0 : f===1? q : 1;
     PAR.forEach((nm,i)=>{ const v=SENS[i]*grow; const x=Mg.x+i*bw+4, ww=bw-8; R(x,by,ww,bh,c.cell,{rx:2}); R(x,by+bh-v*bh,ww,v*bh,f===3&&(i===0||i===2)?c.neu:c.vio,{rx:2}); T(nm,x+ww/2,by+bh+24,{a:'center',c:'mono xs'+(f===3&&(i===0||i===2)?' ink':'')}); });
