@@ -1,163 +1,106 @@
-# Agri-JAX — 计划零号
+# Agri-JAX
 
-> 可微分、可批量的作物-土壤过程模型框架，面向参数标定、不确定性量化和机理-机器学习混合建模。
-> GPU 是副产品，可微分和 batch 才是目的。
+**用 JAX 写的田块尺度作物–土壤过程模型：可微分，可成批并行。**
 
-状态：构想阶段（2026-09-23）。本文件是第一版计划，所有内容都可以推翻。
+[English](README.md) · [展示页](https://juksentang.github.io/agri-jax/zh_cn/)
 
-**详细文档（2026-09-23 补充）**：
+> **现状（2026 年 9 月）：早期实现。** 核心运行时、文件读写、参考模型运行器和潜在蒸散过程已经完成并有测试覆盖。接下来要做的是 Richards 土壤水分求解器和 CERES-Maize 作物模块。PyPI 上的包目前只是占位。
 
-| 文档 | 内容 |
+## 致谢
+
+本研究部分得到了[魁北克计算局（Calcul Québec）](https://www.calculquebec.ca)和[加拿大数字研究联盟（Digital Research Alliance of Canada）](https://alliancecan.ca)的支持。所有 GPU 计算都在魁北克计算局运营的 rorqual 集群上完成。
+
+## 这是什么
+
+Agri-JAX 把一套田块尺度的作物–土壤模型写成纯 JAX 函数。作物部分依据开源的 [DSSAT-CSM](https://github.com/DSSAT/dssat-csm-os)（BSD-3）独立实现 CERES-Maize；土壤水分和潜在蒸散按 RZWQM2 的公开文献实现，包括 Brooks–Corey 参数化的 Richards 方程、Shuttleworth–Wallace 蒸散和暗管排水（Ahuja 等，2000；Farahani 与 Ahuja，1996；Shuttleworth 与 Wallace，1985）。
+
+每个过程都是纯函数，所以一次多年的田块模拟可以对 10⁵ 组参数用一个 `vmap` 同时算完，可以直接用 `jax.grad` 求导，也可以放进梯度标定、哈密顿蒙特卡洛、集合数据同化或者过程–机器学习混合训练里。结果是否正确，靠与 DSSAT-CSM 和 RZWQM2 参考模型的输出对照来检验。
+
+快本身不是目的。我们想要的是一个有分层土壤物理、有田间管理事件的模型，批量跑起来和求导起来都像那些较简单的可微作物模型一样方便，同时还能直接读农学界手里现成的 DSSAT 和 RZWQM 参数文件。
+
+## 实现进度
+
+| 组件 | 是否实现 | 与参考的对照 |
+|---|---|---|
+| 核心：状态 pytree、`@process`、scan/vmap 运行时、三条规则的静态检查 | 是 | 运行时与独立的 Python 逐日循环一致（1e-12）；梯度与有限差分一致 |
+| RZWQM2 和 DSSAT-CSM 文件读写 | 是 | 15 个场景读写往返逐字节一致；DSSAT 示例输出 |
+| 参考模型运行器（RZWQM2、DSSAT-CSM） | 是 | 15 个 RZWQM2 场景和全部 DSSAT 玉米示例都能跑通 |
+| Brooks–Corey 水力学 | 是 | 在 100 多个土层上复现参考模型的田间持水量和凋萎点；梯度检查 |
+| Shuttleworth–Wallace、ASCE、Priestley–Taylor 潜在蒸散 | 是 | ASCE 误差 5e-6 mm/d；Shuttleworth–Wallace 生长季 RMSE 为 0.02 / 0.17 mm/d（对照 RZWQM2，一个站点年） |
+| 器官队列、事件表、AmeriFlux 读取 | 是 | 守恒性质；AmeriFlux CA-TPA 数据 |
+| Richards 土壤水分求解器 | 下一步 | — |
+| CERES-Maize 作物模块 | 下一步 | — |
+| 水分–作物耦合、标定、不确定性量化 | 在上面两项之后 | — |
+
+已有模块没有通过与独立参考的自动化、确定性对照之前，不加新模块。
+
+## 为什么要做
+
+| 任务 | 需要的运行次数 | 是否需要梯度 |
+|---|---|---|
+| 标定与不确定性量化（LHS、MCMC、HMC） | 10⁴–10⁶ | 需要，HMC 和变分推断都要 |
+| 区域格点模拟（像元 × 年份 × 情景） | 10⁶–10⁸ | 不需要 |
+| 集合数据同化（EnKF、粒子滤波） | 10³–10⁴ 个成员同步推进 | 不需要 |
+| 过程–机器学习混合模型 | 每个训练步一个批次 | 需要 |
+
+DSSAT、RZWQM2、APSIM、STICS 和 WOFOST 都是顺序执行的 Fortran 或 C# 程序，一次只算一块田。它们的实现本身不支持数组式的批量执行，也不可微。可微的作物模型已经有了：作物生长方面有 diffWOFOST 和 torchcrop，冠层与陆面方面有 JAX-CanVeg。Agri-JAX 的区别在于它可微地耦合了哪些东西：分层土壤水分动态、作物生长和田间管理事件，而且 DSSAT 和 RZWQM 的参数文件原样可用。比较这些工具时，更有意义的是看土壤分层、流动方程、管理过程、梯度处理和验证范围。
+
+## 设计
+
+一个过程就是一个纯函数 `(state, params, forcing) -> state`，用 `@process(reads=..., writes=...)` 声明。写过程的人只需遵守三条规则，不用写 `scan`、`vmap`、`jit` 或 `lax.cond`：
+
+1. 读到的东西都来自参数，改动的东西都放进返回值。
+2. 分支用 `jnp.where` 或 `jnp.select`，不要对状态写 Python 的 `if`。
+3. 不要对土层、日期或样本写循环。时间和批量交给运行时。
+
+这三条由静态检查保证；设置 `AGRI_JAX_CHECK=1` 时，运行时还会核对声明的写入。规则约束的是写过程的人，三对角求解器这类数值内核仍直接用 JAX 编写。
+
+一个模型就是一份状态定义加一串有序的过程，每个过程都可以替换。土壤水分会有两种可互换的写法：DSSAT 式的水桶模型和 RZWQM 式的 Richards 求解器，这样同一个作物模块可以在两种方案下比较。作物是状态的一个维度，间作只是数组形状变了，不需要另写代码。叶片等器官放在一个固定长度的队列里，给烟草这类逐叶采收的作物留好了位置。
+
+## 初步吞吐量
+
+下面的数字来自计算骨架，不是完整模型。骨架的逐日结构和计划中的模型相同：37 个节点的隐式 Richards 步，24 个子步、每步 3 次 Newton 迭代，三对角求解，Shuttleworth–Wallace 形式的蒸散，CERES 形式的作物步，共 3287 天。在一张 NVIDIA H100 上：
+
+| 配置 | 10⁵ 次九年模拟 | 吞吐量 |
+|---|---|---|
+| float64，24 子步 × 3 次 Newton | 243 s | 411 次/s |
+| float32，24 × 3 | 101 s | 993 次/s |
+| float64，12 × 2 | 82 s | 1220 次/s |
+
+RZWQM2 参考程序单核跑一次要 24 s。同样的 10⁵ 次需要 667 核时，在集群上大约要 10 个小时。这个批量下 GPU 已经跑满，耗时取决于每天要做多少次隐式求解。数值格式能削减到什么程度，同时还和参考模型一致、梯度仍然可信，是第一篇论文要回答的问题。
+
+## 路线图
+
+1. **Richards 求解器和 CERES-Maize。** 两者都先与 RZWQM2 和 DSSAT-CSM 的输出逐日对照，再做耦合。
+2. **单站点耦合模型。** 以 AmeriFlux CA-TPA 的玉米为对象，测 10⁵ 样本的耗时，并分三个层次检查梯度：输出合理，导数正确，导数可以用于推断。
+3. **标定与不确定性。** 梯度标定和 HMC 标定、Sobol 敏感性分析、多站点联合标定和参数可识别性。
+4. **扩展。** 间作、碳氮循环、过程–机器学习混合模型，以及面向农业经济学研究者的报告接口，配 Stata 和 R 前端。
+
+## 开发
+
+```bash
+git clone https://github.com/juksentang/agri-jax && cd agri-jax
+uv sync --all-extras
+uv run pytest -q tests/unit tests/integration
+uv run ruff check . && uv run pyright
+uv run python -m agri_jax.core.lint src --strict
+```
+
+依赖数据的测试从 `--data-dir` 或环境变量 `AGRI_JAX_DATA` 读取数据，单元测试不需要任何数据。耦合模型跑通之前，PyPI 上的 `agri-jax` 一直保持占位版本。
+
+| 目录 | 内容 |
 |---|---|
+| `src/agri_jax/core` | 状态、过程装饰器、运行时、事件、器官队列、单位、静态检查 |
+| `src/agri_jax/processes` | 土壤水分、蒸散、作物、冠层、资源分配 |
+| `src/agri_jax/models` | 组装好的模型 |
+| `src/agri_jax/io` | RZWQM2、DSSAT、AmeriFlux 和 CA-TPA 的读取 |
+| `src/agri_jax/port` | 参考模型运行器和对照报告 |
+| `docs/showcase` | 展示页源码 |
 
-**对本文假设的更正**：RZWQM2 4.6 参考模型在本机 16 s 跑完 CA-TPA 九年；dssat-csm-os 4.8.5 源码与静态二进制在本机 `~/AFSoil`；CA-TPA 的 10 万次 LHS 已全部跑完；`agri-jax` 名字可用；GPU 作业去 rorqual H100 而非 narval。
+## 许可与来源
 
----
+Apache-2.0。CERES-Maize 依据开源的 DSSAT-CSM（BSD-3）独立实现，并保留其署名。土壤水分和潜在蒸散按 RZWQM2 的公开文献实现，不包含也不分发任何 RZWQM2 代码。RZWQM2 只用作参考模型：与它的输出对照在内部进行，对外只报告数字。与 DSSAT-CSM 的对照是公开的，可以复现。
 
-## 1. 为什么做
+## 引用
 
-现有作物模型（DSSAT、RZWQM2、APSIM、STICS、WOFOST）都是几十年积累的顺序代码。它们跑一块田很快，但下面四类工作需要成千上万份相同结构的模拟同时推进，而且越来越需要梯度：
-
-| 用途 | 规模 | 需要梯度 |
-|---|---|---|
-| 参数标定 / 不确定性量化（LHS、MCMC、HMC） | 10⁴–10⁶ 次运行 | 是（HMC、变分推断） |
-| 区域网格模拟（像元 × 年 × 情景） | 10⁶–10⁸ 次运行 | 否 |
-| 集合数据同化（EnKF、粒子滤波） | 10³–10⁴ 成员同步推进 | 否 |
-| 机理-ML 混合模型（模型嵌在训练循环里） | 每步一个 batch | 是 |
-
-JAX 的 `scan`（时间）+ `vmap`（样本）+ `jit` + 自动微分正好对应这个形状。这条路线在水文里已经证明有效（differentiable modeling，Shen 等 2023，Nat. Rev. Earth Environ.），作物模型里还是空白。
-
-**什么不是目的**：让农学家写 JAX；把单块田的模拟跑得更快。
-
-## 2. 直接动机（我们自己的需求）
-
-- RZWQM2 的 LHS 标定：每个站点 10 万次运行，narval 上 24–70 s/次，每站 700 GB 输出，排队和 I/O 是瓶颈，标定本身还是 GLUE 式的筛选。
-- OpenET 项目：7 个通量塔站点（4 加拿大 + 3 美国）的 ET 序列和 4–6 个遥感 ET 模型结果，可作为验证集。
-- 现成数据资产：15 个 RZWQM scenario、12 个已完成的 10 万样本 LHS 结果（`/project/def-zhiming/jsentang/RZWQM_sw_batch`，narval）。
-
-## 3. 设计原则
-
-### 3.1 农学家写过程，框架管其余
-
-过程函数只有一种形状：
-
-```python
-@process
-def leaf_growth(state, params, forcing):
-    """CERES-Maize leaf expansion, Jones & Kiniry 1986 eq. 3.12"""
-    stress = jnp.minimum(state.water_stress, state.n_stress)
-    dlai = params.plai_rate * forcing.tt_today * stress
-    dlai = jnp.where(state.stage == LEAF_GROWTH, dlai, 0.0)
-    return state.replace(lai=state.lai + dlai)
-```
-
-给过程作者的规则只有三条：
-1. 读的东西全在参数里，改的东西全在返回值里（纯函数）。
-2. 分支用 `jnp.where` / `jnp.select`，不用 Python `if` 作用于状态量。
-3. 不写循环；时间循环和样本循环由运行时负责。
-
-`scan`、`vmap`、`jit`、`lax.cond` 对过程作者不可见。lint 规则在 CI 里拦截违规写法（traced 值上的 `if`、原地赋值、Python `for` 遍历土层）。
-
-这三条比全局变量和 OOP 框架（APSIM NG、PCSE）的事件回调都简单：每个过程读什么、改什么，签名上一目了然。DSSAT 之所以难维护，根因是无接口、无测试、全局状态，不是语言；这三条规则正是补这三样。
-
-### 3.2 三层接口
-
-| 层 | 用户 | 内容 |
-|---|---|---|
-| 顶层 | 用模型的人 | `load_dssat_experiment()`、`calibrate(model, obs, method="hmc")`、`sensitivity()`、`ensemble()` |
-| 中层 | 建模者 | 模型 = 状态定义 + 有序过程列表；可替换任一过程 |
-| 底层 | 我们 | 运行时（scan/vmap/jit）、对照参考模型输出的验证工具 |
-
-预期 90% 用户停在顶层和参数文件。
-
-### 3.3 兼容现有参数文件（最强的采用钩子）
-
-直接读 DSSAT 的 `.CUL / .ECO / .SPE / .SOL / .WTH` 和 RZWQM 的 `rzwqm.dat`，农学家几十年积累的品种参数一行不改就能用。
-
-### 3.4 状态是带名字的 pytree
-
-状态用 `NamedTuple` / `flax.struct` 定义，字段有名字和单位，`state.lai`、`state.sw[layer]`，不是数组下标。带 `n_crop` 维度（见第 5 节），单作只是 `n_crop = 1`。
-
-### 3.5 精度与数值
-
-- 验证阶段 `jax_enable_x64`，对照参考模型的双精度输出。
-- 数据相关的迭代（Richards 方程收敛、根系吸水迭代）改为固定迭代数或固定步长隐式格式，接受与参考模型的小差异，差异写进验证报告。
-
-## 4. 基础模型选择：DSSAT-CSM 作物模块 + RZWQM2 土壤/ET（按已发表公式独立实现）
-
-| 候选 | 优点 | 问题 |
-|---|---|---|
-| 原版 DSSAT-CSM | 源码公开（GitHub `DSSAT/dssat-csm-os`），版本新，社区大，品种文件生态完整 | 土壤水是 tipping bucket，ET 选项简单，没有 Richards、大孔隙、SHAW |
-| RZWQM2 | 土壤物理强（Richards + Green-Ampt、大孔隙、SHAW 能量平衡、S-W PET），氮磷碳循环完整，组里的标定流程都建在它上面 | 由 USDA-ARS 分发，只作为参考模型使用；内嵌的 DSSAT 作物模块是旧版 |
-
-**决定**：
-- 作物模块基于 **DSSAT-CSM 开源仓库**（BSD-3）独立实现（先 CERES-Maize），版本新且许可干净，保留 DSSAT-CSM 署名。
-- 土壤水、PET、能量平衡按 **已发表的 RZWQM2 公式**（Ahuja 等 2000《Root Zone Water Quality Model》；Farahani & Ahuja 1996；Shuttleworth & Wallace 1985）独立实现。公式是公开的，实现是我们的。
-- 土壤水模块做成可插拔：`tipping_bucket`（复现 DSSAT）和 `richards`（复现 RZWQM）两套，同一作物模块可以对照两种土壤物理，本身就是一个可发表的比较。
-- 验证对象两个参考模型：DSSAT-CSM（作物部分）和 RZWQM2（土壤 + 作物整体，用现有 15 个 scenario），比较两者的输出。
-
-## 5. 间作：DSSAT 不原生支持，这是设计机会而不是障碍
-
-DSSAT-CSM 一块地一种作物，间作只有零散的实验性工作（玉米-豆间作的研究分支），没进主线。APSIM 支持间作（多作物共享土壤，冠层光截获按高度分层仲裁）。
-
-Agri-JAX 从第一天就把作物当作状态的一个维度：
-- 状态 `state.crop[n_crop]`，每种作物有自己的物候、生物量、根系分布；
-- **光**：多层冠层截获，按各作物高度和 LAI 分层用 Beer 定律分配 PAR（APSIM 的做法）；
-- **水和氮**：土壤各层是共享资源，各作物按根长密度和需求比例竞争（仲裁函数是一个可替换的过程）；
-- 单作是 `n_crop = 1` 的特例，不需要单独代码路径。
-
-`vmap` 下 `n_crop` 是静态形状，间作不增加编译复杂度。轮作（时间上的多作物）通过管理事件表实现，与间作正交。
-
-## 6. PoC（第一阶段，目标 4 周）
-
-范围：**RZWQM 水分平衡 + Shuttleworth-Wallace PET + CERES-Maize，单站 CA-TPA（玉米）**。
-
-验收标准：
-1. 同一组参数下，逐日 ET、LAI、各层土壤含水量、产量与 RZWQM2 参考模型输出对比，定量容差（初定：日 ET RMSE < 0.1 mm/d，产量差 < 2%）。
-2. `vmap` 10 万组参数（现成的 `parameter.csv`）在一块 GPU 上的墙钟时间，对比 narval/rorqual 上 Fortran 的核时。
-3. 对 6 个土壤水力参数的梯度数值稳定（有限差分核对），能跑通一次梯度标定或 NUTS。
-
-不做：大豆/小麦、氮循环、SHAW、大孔隙流、管理事件之外的任何东西。
-
-## 7. 验证方法：对照参考模型输出
-
-每个过程按已发表的公式写成符合 3.1 规则的纯函数，再分三步验证：
-
-1. **单元测试**：守恒、单调、边界、有限差分梯度；闭式关系（如 Brooks-Corey θ(h)、K(h)）核对到 1e-10。
-2. **模块对照**：单独驱动一个模块（例如给定 PET 和根系吸水时的土壤水剖面），与参考模型输出逐日对比。
-3. **整模型对照**：同一组参数下逐日对比 ET、LAI、各层土壤含水量、产量，容差写成数字（初定：日 ET RMSE < 0.1 mm/d，产量差 < 2%）；差异归因写进验证报告。
-
-作物部分对照 DSSAT-CSM（公开、可复现），土壤水与 ET 对照 RZWQM2（私下运行，只报告数字）。
-
-## 8. 路线图
-
-| 阶段 | 产出 | 去处 |
-|---|---|---|
-| PoC（1 个月） | 第 6 节验收报告 | 内部决策 |
-| 框架 + 首批模型（6 个月） | pip 包、文档、验证报告、参考模型对照工具 | GMD 或 Environmental Modelling & Software |
-| 应用（之后） | 多站点联合梯度标定与参数可辨识性；机理-ML 混合模型在留出站点上的表现 | Nature Food / Nature Sustainability 级别取决于结果 |
-
-## 9. 开放问题
-
-- PoC 的 RZWQM2 对照：RZWQM2 不随本项目分发，对照在私下运行；公开的验证报告只放对比数字。需确认 USDA 对"按公开公式独立实现"的态度。
-- CERES-Maize 以 DSSAT-CSM 哪个版本为准：最新主线，还是 RZWQM 内嵌的旧版（便于和现有 RZWQM 结果对齐）？倾向主线，旧版差异写进报告。
-- 管理事件（播种、收获、施肥、灌溉）在 `scan` 里的表示：逐日展开的事件表是最简单的，但灌溉决策（自动灌溉）依赖状态，需要作为过程处理。
-- 状态定义的稳定性：状态字段一旦公开就难改，PoC 阶段刻意不承诺。
-- 名字：`agri-jax` 在 PyPI 是否可用，未查。
-
-## 10. 目录规划（尚未创建）
-
-```
-Agri_JAX/
-├── README.md              ← 本文件
-├── docs/showcase/         ← 展示页
-├── agri_jax/
-│   ├── core/              ← 状态定义、process 装饰器、运行时（scan/vmap）
-│   ├── processes/         ← 过程函数库：soil_water/, pet/, crop/ceres_maize/, ...
-│   ├── models/            ← 用过程拼出的模型：rzwqm_water_maize, dssat_maize, ...
-│   ├── io/                ← DSSAT / RZWQM 参数与气象文件读取
-│   ├── calib/             ← 标定、敏感性、UQ 顶层接口
-│   └── report/            ← 面向农经的一页报告
-├── tests/                 ← unit / integration / gpu / benchmark 四层
-└── poc/                   ← 第 6 节 PoC 的脚本与结果
-```
+见 `CITATION.cff`。设计说明和验证报告之后会以预印本形式发布。

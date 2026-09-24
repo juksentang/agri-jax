@@ -2,87 +2,105 @@
 
 **Differentiable, batch-parallel field-scale crop–soil process models in JAX.**
 
-Agri-JAX is an independent JAX implementation of the CERES-Maize crop module from the open-source [DSSAT-CSM](https://github.com/DSSAT/dssat-csm-os) (BSD-3), and of RZWQM2-style soil water and potential evapotranspiration from the published equations (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985): Brooks–Corey Richards equation, Shuttleworth–Wallace potential evapotranspiration and tile drainage, written as pure JAX functions so that a full multi-year field simulation can be run for 10⁵ parameter sets in one `vmap`, differentiated with `jax.grad`, and embedded in gradient-based calibration, Hamiltonian Monte Carlo, ensemble data assimilation, or hybrid process–ML training loops. It is validated by comparing its outputs against the DSSAT-CSM and RZWQM2 reference models.
+[中文](README.zh.md) · [Showcase](https://juksentang.github.io/agri-jax/)
 
-The goal is not speed for its own sake. It is to make a field-scale model with layered soil physics and management events as cheap to run in bulk, and as differentiable, as the simpler differentiable crop models that already exist, while staying compatible with the DSSAT and RZWQM parameter files that agronomists have built up over decades.
+> **Status (September 2026): early implementation.** The core runtime, file readers, reference-model runners and the potential-evapotranspiration processes are in place and tested. The Richards soil-water solver and the CERES-Maize crop module are the next two pieces. The PyPI package is a name-reserving placeholder.
 
-> **Status (September 2026): early implementation.** The PyPI package is a name-reserving placeholder. The table below is the ground truth for what exists; the showcase page's throughput numbers come from a computational skeleton with the same per-day shape as the planned model, not from the full model.
+## Acknowledgements
 
-| Component | Implemented | Compared against a reference | Notes |
-|---|---|---|---|
-| Core (state pytrees, `@process`, scan/vmap runtime, lint) | yes | runtime vs an independent Python day loop (1e-12), gradients vs finite differences | |
-| RZWQM2 / DSSAT-CSM file readers and writers | yes | byte-identical round trips on 15 scenarios; DSSAT example outputs | |
-| Reference-model runners (RZWQM2, DSSAT-CSM) | yes | all 15 RZWQM scenarios, all DSSAT maize examples run | private RZWQM2 binary |
-| Brooks–Corey hydraulics | yes | reproduces reference-model FC/WP values on 100+ horizons; gradient checks | |
-| Shuttleworth–Wallace / ASCE / Priestley–Taylor PET | yes | ASCE to 5e-6 mm/d, S-W growing-season RMSE 0.02 / 0.17 mm/d vs RZWQM2 (one site-year) | |
-| Organ queue, event table, AmeriFlux loader | yes | conservation properties; AmeriFlux CA-TPA data | |
-| Richards soil-water solver | not yet | — | next |
-| CERES-Maize crop module | not yet | — | next |
-| Coupled water–crop model, calibration, UQ | not yet | — | after the two above |
+This research was enabled in part by support provided by [Calcul Québec](https://www.calculquebec.ca) and the [Digital Research Alliance of Canada](https://alliancecan.ca). All GPU work runs on the rorqual cluster operated by Calcul Québec.
 
+## What it is
 
-## Showcase
+Agri-JAX writes a field-scale crop–soil model as pure JAX functions. The crop part is an independent implementation of CERES-Maize from the open-source [DSSAT-CSM](https://github.com/DSSAT/dssat-csm-os) (BSD-3). Soil water and potential evapotranspiration follow the published RZWQM2 equations: a Brooks–Corey Richards equation, Shuttleworth–Wallace evapotranspiration and tile drainage (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985).
 
-An interactive walkthrough of the design is live at <https://juksentang.github.io/agri-jax/> (English) and <https://juksentang.github.io/agri-jax/zh_cn/> (Chinese).
+Because every process is a pure function, a multi-year field simulation can be run for 10⁵ parameter sets in one `vmap`, differentiated with `jax.grad`, and placed inside gradient-based calibration, Hamiltonian Monte Carlo, ensemble data assimilation or a hybrid process–ML training loop. Correctness is checked against the outputs of the DSSAT-CSM and RZWQM2 reference models.
+
+Speed is not the goal in itself. The aim is a model with layered soil physics and management events that is as cheap to run in bulk and as easy to differentiate as the simpler differentiable crop models, while still reading the DSSAT and RZWQM parameter files that agronomists already have.
+
+## Implementation status
+
+| Component | Implemented | Compared against a reference |
+|---|---|---|
+| Core: state pytrees, `@process`, scan/vmap runtime, three-rules lint | yes | runtime vs an independent Python day loop (1e-12); gradients vs finite differences |
+| RZWQM2 and DSSAT-CSM file readers and writers | yes | byte-identical round trips on 15 scenarios; DSSAT example outputs |
+| Reference-model runners (RZWQM2, DSSAT-CSM) | yes | all 15 RZWQM2 scenarios and all DSSAT maize examples run |
+| Brooks–Corey hydraulics | yes | reference-model field capacity and wilting point on 100+ horizons; gradient checks |
+| Shuttleworth–Wallace, ASCE and Priestley–Taylor PET | yes | ASCE to 5e-6 mm/d; Shuttleworth–Wallace growing-season RMSE 0.02 / 0.17 mm/d vs RZWQM2 on one site-year |
+| Organ queue, event table, AmeriFlux loader | yes | conservation properties; AmeriFlux CA-TPA data |
+| Richards soil-water solver | next | — |
+| CERES-Maize crop module | next | — |
+| Coupled water–crop model, calibration, uncertainty quantification | after the two above | — |
+
+New modules are added only after the existing ones pass automated, deterministic comparisons against an independent reference.
 
 ## Why
 
 | Task | Runs needed | Needs gradients |
 |---|---|---|
-| Calibration / uncertainty quantification (LHS, MCMC, HMC) | 10⁴–10⁶ | yes (HMC, variational) |
+| Calibration and uncertainty quantification (LHS, MCMC, HMC) | 10⁴–10⁶ | yes, for HMC and variational inference |
 | Regional gridded simulation (pixels × years × scenarios) | 10⁶–10⁸ | no |
 | Ensemble data assimilation (EnKF, particle filters) | 10³–10⁴ members in lockstep | no |
-| Hybrid process–ML models (model inside a training loop) | one batch per step | yes |
+| Hybrid process–ML models | one batch per training step | yes |
 
-Existing crop models (DSSAT, RZWQM2, APSIM, STICS, WOFOST) are sequential Fortran or C# codes written for one field at a time; their implementations do not natively support array-style batch execution and are not differentiable. Differentiable modelling has reshaped hydrology, and differentiable crop models now exist (diffWOFOST, torchcrop; JAX-CanVeg for the canopy–land surface). Agri-JAX differs in what it couples differentiably: layered soil-water dynamics, crop growth and management events, while keeping the DSSAT and RZWQM parameter files usable as they are. Comparisons should be made on soil layering, the flow equation, management processes, gradient handling and validation scope rather than on spatial scale alone.
+DSSAT, RZWQM2, APSIM, STICS and WOFOST are sequential Fortran or C# codes built for one field at a time. Their implementations do not natively support array-style batch execution and are not differentiable. Differentiable crop models do exist: diffWOFOST and torchcrop for crop growth, JAX-CanVeg for the canopy and land surface. Agri-JAX differs in what it couples differentiably: layered soil-water dynamics, crop growth and management events, with the DSSAT and RZWQM parameter files usable as they are. Comparisons between these tools are best made on soil layering, the flow equation, management processes, gradient handling and validation scope.
 
-## Design in three rules
+## Design
 
-A process is a pure function of `(state, params, forcing) -> state`. Authors follow three rules and never see `scan`, `vmap`, `jit`, or `lax.cond`:
+A process is a pure function `(state, params, forcing) -> state`, declared with `@process(reads=..., writes=...)`. Process authors follow three rules and never write `scan`, `vmap`, `jit` or `lax.cond`:
 
-1. Everything read is in the arguments; everything changed is in the return value.
-2. Branch with `jnp.where` / `jnp.select`, never with Python `if` on state.
-3. Never write a loop. Time and samples are handled by the runtime.
+1. Everything read is an argument; everything changed is in the return value.
+2. Branch with `jnp.where` or `jnp.select`, never with a Python `if` on state.
+3. Never write a loop over layers, days or samples. The runtime owns time and batch.
 
-A model is a state definition plus an ordered list of processes; any process can be swapped. Soil water comes in two interchangeable flavours, `tipping_bucket` (DSSAT) and `richards` (RZWQM), so the same crop module can be compared under both. Crops are a state dimension (`n_crop`), so intercropping is a shape, not a code path.
+The rules are enforced by an AST lint and, with `AGRI_JAX_CHECK=1`, by a runtime check of declared writes. They bind process authors; numerical kernels such as the tridiagonal solver are written directly in JAX.
 
-## Preliminary throughput (skeleton, not the real model)
+A model is a state definition plus an ordered list of processes, and any process can be swapped. Soil water will come in two interchangeable forms, a DSSAT-style tipping bucket and an RZWQM-style Richards solver, so one crop module can be compared under both. Crops are a state dimension, so intercropping is a change of array shape rather than a new code path. Organs such as leaves are held in a fixed-size queue, which leaves room for crops like tobacco that are harvested leaf by leaf.
 
-A computational skeleton with the same per-day shape as the planned model (37-node implicit Richards × 24 sub-steps × 3 Newton iterations, tridiagonal solve, Shuttleworth–Wallace-shaped PET, CERES-shaped crop step, 3287 days) on one NVIDIA H100:
+## Preliminary throughput
 
-| Precision | 10⁵ nine-year runs | Throughput |
+These numbers come from a computational skeleton, not the full model. The skeleton has the planned per-day shape: a 37-node implicit Richards step with 24 sub-steps and 3 Newton iterations, a tridiagonal solve, Shuttleworth–Wallace-shaped PET and a CERES-shaped crop step, over 3287 days. On one NVIDIA H100:
+
+| Configuration | 10⁵ nine-year runs | Throughput |
 |---|---|---|
-| float64 | 243 s | 411 sims/s |
-| float32 | 101 s | 993 sims/s |
+| float64, 24 sub-steps × 3 Newton | 243 s | 411 runs/s |
+| float32, 24 × 3 | 101 s | 993 runs/s |
+| float64, 12 × 2 | 82 s | 1220 runs/s |
 
-The Fortran reference (RZWQM2, one CPU core) takes 24 s per run: 667 core-hours and roughly 10 wall-clock hours for the same 10⁵ runs on a cluster. At this batch size the GPU is saturated and time scales with the number of implicit solves per day: halving sub-steps and Newton iterations (12 × 2) gives 82 s for 10⁵ runs and 14 minutes for 10⁶ runs on one H100. How far the scheme can be thinned without losing agreement with the reference model is the core question of the first paper.
+The RZWQM2 reference binary takes 24 s per run on one CPU core. The same 10⁵ runs cost 667 core-hours, roughly 10 wall-clock hours on a cluster. At this batch size the GPU is saturated, so run time follows the number of implicit solves per day. How far the scheme can be thinned while staying in agreement with the reference model, and while keeping gradients trustworthy, is the question the first paper will answer.
 
 ## Roadmap
 
-| Phase | Deliverable |
-|---|---|
-| Proof of concept (4 weeks) | RZWQM water balance + Shuttleworth–Wallace PET + CERES-Maize on one site, validated day by day against RZWQM2 and DSSAT-CSM reference-model outputs; 10⁵-sample `vmap` timing; gradient check and one NUTS run |
-| Framework + first models (6 months) | pip package, docs, validation report, reference-model comparison tools, Sobol and multi-site calibration, intercropping, an economist-facing report API (posterior intervals, marginal effects, elasticities, identifiability diagnostics) with Stata/R front ends |
-| Applications | Multi-site joint gradient calibration and parameter identifiability; hybrid process–ML models on held-out flux-tower sites |
+1. **Richards solver and CERES-Maize.** Each is validated day by day against RZWQM2 and DSSAT-CSM outputs before coupling.
+2. **Coupled model on one site.** AmeriFlux CA-TPA maize, 10⁵-sample timing, gradient checks at three levels: plausible outputs, correct derivatives, and derivatives fit for inference.
+3. **Calibration and uncertainty.** Gradient-based and HMC calibration, Sobol sensitivity, multi-site joint calibration and parameter identifiability.
+4. **Extensions.** Intercropping, nitrogen and carbon cycling, hybrid process–ML models, and a report interface for agricultural economists with Stata and R front ends.
 
-## Documentation
-
-Design documentation is maintained in an internal archive and will be published with the first validated release.
-
-| Document | Content |
-|---|---|
-| [README.zh.md](README.zh.md) | Original plan (Chinese) |
-
-## Install
+## Development
 
 ```bash
-pip install agri-jax        # placeholder 0.0.x: reserves the name, no model code yet
+git clone https://github.com/juksentang/agri-jax && cd agri-jax
+uv sync --all-extras
+uv run pytest -q tests/unit tests/integration
+uv run ruff check . && uv run pyright
+uv run python -m agri_jax.core.lint src --strict
 ```
+
+Data-backed tests read from `--data-dir` or `AGRI_JAX_DATA`. The unit tier needs no data. The PyPI release (`pip install agri-jax`) stays a placeholder until the coupled model works.
+
+| Directory | Contents |
+|---|---|
+| `src/agri_jax/core` | state, process decorator, runtime, events, organ queue, units, lint |
+| `src/agri_jax/processes` | soil water, PET, crop, canopy, arbitration |
+| `src/agri_jax/models` | assembled models |
+| `src/agri_jax/io` | RZWQM2, DSSAT, AmeriFlux and CA-TPA readers |
+| `src/agri_jax/port` | reference-model runners and comparison reports |
+| `docs/showcase` | source of the showcase page |
 
 ## Licensing and provenance
 
-Apache-2.0. CERES-Maize is implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained. Soil water and PET are implemented from the published RZWQM2 equations (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985); no RZWQM2 code is included or redistributed. RZWQM2 is used only as a reference model: the comparison against its outputs is run privately and reported as numbers only. The comparison against DSSAT-CSM is public and reproducible.
+Apache-2.0. CERES-Maize is implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained. Soil water and PET are implemented from the published RZWQM2 equations. No RZWQM2 code is included or redistributed. RZWQM2 is used only as a reference model: its outputs are compared privately and only the resulting numbers are reported. The comparison against DSSAT-CSM is public and reproducible.
 
 ## Citation
 
-See `CITATION.cff`. A design note and the validation report will be posted as preprints.
+See `CITATION.cff`. A design note and a validation report will follow as preprints.
