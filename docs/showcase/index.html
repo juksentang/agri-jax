@@ -400,10 +400,10 @@ reg('race',{dur:RACE_S,keys:[[0,'开始：右侧将十万组参数装入一个�
       const gb=GB*done/N;g.text('磁盘写入',10,H-34,{s:11});g.rect(70,H-44,W-170,14,c.surf);g.rect(70,H-44,(W-170)*done/N,14,c.f);g.text(gb.toFixed(1)+' / 80 GB',W-10,H-33,{s:12,m:true,b:true,c:'ink',a:'right'});
       g.text(`${fmt(done*99)} 个文件`,70,H-14,{s:11,m:true});g.text(`${(done/N*100).toFixed(1)} %`,W-10,H-14,{s:11,m:true,a:'right'});
       document.getElementById('fDone').textContent=`${fmt(done)} / ${fmt(N)}`;document.getElementById('fFiles').textContent=gb.toFixed(2)+' GB';document.getElementById('fClock').textContent=rm<60?Math.floor(rm)+' min':(rm/60).toFixed(1)+' h';}
-    /* JAX */ {const g=G.j,W=g.W,H=g.H;const day=Math.min(DAYS,Math.floor(s/JAX_ANIM*DAYS));const done=day>=DAYS;const doy=day%365,yr=Math.floor(day/365)+1;
+    /* JAX */ {const g=G.j,W=g.W,H=g.H;const TICK=0.25,BLOCK=Math.ceil(DAYS*TICK/JAX_ANIM);const day=Math.min(DAYS,Math.floor(s/TICK)*BLOCK);const done=day>=DAYS;const doy=day%365,yr=Math.floor(day/365)+1;
       const cx=100,cy=50,cw=(W-20)/cx,ch=(H-96)/cy;const season=Math.max(0,Math.sin(Math.PI*clamp((doy-125)/150,0,1)));
       for(let i=0;i<cx*cy;i++){const v=0.18+0.55*season*(0.7+0.3*seeds[i]);g.rect(10+(i%cx)*cw,26+Math.floor(i/cx)*ch,cw-0.6,ch-0.6,mix(c.js,c.j,v));}
-      g.text('每格 20 次模拟',10,17,{s:11});g.text(done?'完成 · 放慢 ×4':`第 ${yr} 年 · 放慢 ×4`,W-10,17,{s:12,m:true,b:true,c:'j',a:'right'});
+      g.text('每格 20 次模拟 · 整批逐日推进',10,17,{s:11});g.text(done?'完成 · 放慢 ×4':`第 ${yr} 年 · 放慢 ×4`,W-10,17,{s:12,m:true,b:true,c:'j',a:'right'});
       g.text('显存',10,H-34,{s:11});g.rect(70,H-44,W-170,14,c.surf);g.rect(70,H-44,(W-170)*(day>0?0.1:0),14,c.j);g.text((day>0?'8':'0')+' / 80 GB',W-10,H-33,{s:12,m:true,b:true,c:'ink',a:'right'});
       g.text(done?'落盘一次，几 MB':'磁盘写入 0',70,H-14,{s:11});g.text(`day ${day}`,W-10,H-14,{s:11,m:true,a:'right'});
       document.getElementById('jDay').textContent=`${day} / ${DAYS}`;document.getElementById('jClock').textContent=Math.min(JAX_S,day/DAYS*JAX_S).toFixed(0)+' s';}
