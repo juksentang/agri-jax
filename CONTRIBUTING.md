@@ -28,7 +28,7 @@ def leaf_growth(state, params, forcing_t):
 2. **Branch with `jnp.where` / `jnp.select`, never with Python `if` on state, params or forcing.** Both branches must stay finite (guard `log`, `sqrt`, `/` with `jnp.maximum` / `jnp.clip`).
 3. **Never write a loop.** Time and samples are handled by the runtime (`lax.scan`, `vmap`); soil layers are an array axis.
 
-`python -m agri_jax.core.lint <paths>` enforces these as AJ001-AJ005 (see `docs/en/05_maintenance_pipeline.md` section 3). Set `AGRI_JAX_CHECK=1` to make every process call verify at runtime that only the declared `writes` changed.
+`python -m agri_jax.core.lint <paths>` enforces these as AJ001-AJ005. Set `AGRI_JAX_CHECK=1` to make every process call verify at runtime that only the declared `writes` changed.
 
 ## Commands
 
@@ -50,8 +50,8 @@ Tests are marked with their tier automatically from their directory (`tests/<tie
 
 ## Layout
 
-`src/agri_jax/` (see `docs/en/02_architecture.md` section 2): `core/` (State/Params/Forcing, `@process`, `Model`, runtime, units, lint), `processes/` (soil_water, pet, crop/ceres_maize, canopy, arbitration), `models/`, `io/` (dssat, rzwqm), `calib/`, `port/`, `report/`.
+`src/agri_jax/`: `core/` (State/Params/Forcing, `@process`, `Model`, runtime, units, lint), `processes/` (soil_water, pet, crop/ceres_maize, canopy, arbitration), `models/`, `io/` (dssat, rzwqm), `calib/`, `port/`, `report/`.
 
 ## Pull requests
 
-Branch names `port/<subroutine>`, `proc/<name>`, `io/<format>`, `calib/<method>`, `fix/...`. CI runs ruff, pyright, the three-rules lint and the unit tier on Python 3.11/3.12/3.13 plus one float32 pass. PRs containing ported Fortran code state the number of dump cases, the tolerance grade passed and the ledger row (`docs/port_ledger.md`, step 7 of `docs/en/04_reference_validation.md`). Never commit data, dumps, run directories or anything from `docs/internal/`.
+Branch names `port/<subroutine>`, `proc/<name>`, `io/<format>`, `calib/<method>`, `fix/...`. CI runs ruff, pyright, the three-rules lint and the unit tier on Python 3.11/3.12/3.13 plus one float32 pass. PRs containing ported Fortran code state the number of dump cases, the tolerance grade passed. Never commit data, dumps or run directories.
