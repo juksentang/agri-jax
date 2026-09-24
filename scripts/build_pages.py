@@ -6,8 +6,8 @@ The showcase pages in docs/showcase/ are written without the
 adds one.  This script wraps them into complete standalone documents with a
 reset that matches that host, adds a language switch, and writes
 
-    docs/showcase/index.html     (zh, source)  ->  docs/index.html
-    docs/showcase/en/index.html  (en, source)  ->  docs/en/index.html
+    docs/showcase/en/index.html  (en, source)  ->  docs/index.html
+    docs/showcase/index.html     (zh, source)  ->  docs/zh_cn/index.html
 
 Usage:  python scripts/build_pages.py
 """
@@ -22,8 +22,8 @@ DOCS = ROOT / "docs"
 
 # (source, output, html lang, href to the other language, which label is current)
 PAGES = [
-    (DOCS / "showcase" / "index.html", DOCS / "index.html", "zh-CN", "en/", "zh"),
-    (DOCS / "showcase" / "en" / "index.html", DOCS / "en" / "index.html", "en", "../", "en"),
+    (DOCS / "showcase" / "en" / "index.html", DOCS / "index.html", "en", "zh_cn/", "en"),
+    (DOCS / "showcase" / "index.html", DOCS / "zh_cn" / "index.html", "zh-CN", "../", "zh"),
 ]
 
 # Reset matching the artifact host; the page's own <style> follows and overrides it.

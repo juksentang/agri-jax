@@ -10,7 +10,7 @@ The goal is not speed for its own sake. It is to make a *field-scale* model, wit
 
 ## Showcase
 
-An interactive walkthrough of the design is live at <https://juksentang.github.io/agri-jax/en/> (English) and <https://juksentang.github.io/agri-jax/> (Chinese).
+An interactive walkthrough of the design is live at <https://juksentang.github.io/agri-jax/> (English) and <https://juksentang.github.io/agri-jax/zh_cn/> (Chinese).
 
 ## Why
 
