@@ -29,7 +29,7 @@ import pandas as pd
 from agrijax.io.dssat import read_eco, read_out, read_plantgro, read_soilwat, read_spe
 
 from ._util import daylength, twilight_daylength
-from .coefficients import BSGDD, CANHT_POT
+from .coefficients import BSGDD, CANHT_POT, DSSAT_COEFFICIENTS
 from .state import CeresCultivar, CeresForcing, CeresMaizeParams, CeresSoil, CeresSpecies
 
 __all__ = ["ceres_forcing", "ceres_params", "read_inp", "yrdoy_range"]
@@ -82,8 +82,15 @@ def read_inp(path: str) -> dict[str, object]:
     }
 
 
-def ceres_params(inp_path: str, eco_path: str, spe_path: str, iswwat: bool = True) -> CeresMaizeParams:
-    """:class:`CeresMaizeParams` of a DSSAT run: INP cultivar / planting / soil + ECO + SPE."""
+def ceres_params(
+    inp_path: str, eco_path: str, spe_path: str, iswwat: bool = True, *, calibratable: bool = True
+) -> CeresMaizeParams:
+    """:class:`CeresMaizeParams` of a DSSAT run: INP cultivar / planting / soil + ECO + SPE.
+
+    With ``calibratable=True`` (default) the coefficients DSSAT hard-codes are array leaves of the
+    parameter tree (their DSSAT-CSM v4.8.6.0 values), so they can be calibrated and differentiated
+    like the cultivar and species coefficients; ``False`` leaves them as trace-time constants.
+    """
     inp = read_inp(inp_path)
     cul = inp["cultivar"]
     assert isinstance(cul, dict)
@@ -154,6 +161,7 @@ def ceres_params(inp_path: str, eco_path: str, spe_path: str, iswwat: bool = Tru
         rowspc=a(inp["rowspc"]),
         yrplt=jnp.asarray(int(inp["yrplt"]), dtype=jnp.int32),  # type: ignore[arg-type]
         iswwat=iswwat,
+        coefficients=DSSAT_COEFFICIENTS.as_arrays() if calibratable else None,
     )
 
 

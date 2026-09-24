@@ -254,8 +254,9 @@ def compare_case(
 
     Floats: ``|got - ref| <= atol + rtol |ref|`` (NaN equal to NaN); integers / booleans: exact."""
     prefix = f"{cid}/"
+    coef = f"{cid}/params/coefficients"  # calibratable coefficient leaves, added after the snapshot
     keys_ref = sorted(k for k in ref if k.startswith(prefix))
-    keys_got = sorted(k for k in got if k.startswith(prefix))
+    keys_got = sorted(k for k in got if k.startswith(prefix) and not k.startswith(coef))
     if keys_ref != keys_got:
         missing = sorted(set(keys_ref) - set(keys_got))
         extra = sorted(set(keys_got) - set(keys_ref))

@@ -227,3 +227,40 @@ def test_thermal_time_gradient_is_finite_across_every_branch_boundary():
                 )(tx, tn, a(15.0), a(13.0), a(snow), jnp.asarray(leafno), jnp.asarray(istage))
                 for leaf in g:
                     assert np.all(np.isfinite(np.asarray(leaf)))
+
+
+@needs_x64
+@pytest.mark.parametrize(("seed", "stress"), [(33, True)])
+def test_hardcoded_coefficients_are_calibratable(seed, stress):
+    """Every hoisted DSSAT coefficient is a differentiable leaf: the AD Jacobian of the season
+    outputs w.r.t. all of them is finite, many act, and the five with the largest effect agree
+    with central differences taken on the same smooth piece (no stage date or leaf step moved)."""
+    from agrijax.processes.crop.ceres_maize.coefficients import DSSAT_COEFFICIENTS
+
+    f, w = season_forcing(seed, stress=stress, waterlog=False)
+    p = make_params(yrplt=int(w["yrdoy"][2])).replace(coefficients=DSSAT_COEFFICIENTS.as_arrays())
+    leaves, treedef = jax.tree_util.tree_flatten(p.coefficients)
+    x0 = np.array([float(v) for v in leaves])
+
+    def with_x(x):
+        return p.replace(
+            coefficients=jax.tree_util.tree_unflatten(treedef, [x[k] for k in range(len(leaves))])
+        )
+
+    jac = np.asarray(jax.jit(jax.jacfwd(lambda x: _losses(with_x(x), f)[0]))(a(x0)))
+    assert jac.shape == (3, len(leaves)) and len(leaves) > 100
+    assert np.all(np.isfinite(jac))
+    acting = np.flatnonzero(np.any(jac != 0.0, axis=0))
+    assert acting.size >= 20, acting.size
+    top = np.argsort(-np.abs(jac[2] * np.maximum(np.abs(x0), 1e-12)))[:5]
+    h = 1e-6 * np.maximum(np.abs(x0[top]), 1.0)
+    pts = np.repeat(x0[None], 11, axis=0)
+    for i, k in enumerate(top):
+        pts[1 + i, k] += h[i]
+        pts[6 + i, k] -= h[i]
+    vals, (stages, leafno) = jax.jit(jax.vmap(lambda x: _losses(with_x(x), f)))(a(pts))
+    vals, stages, leafno = np.asarray(vals), np.asarray(stages), np.asarray(leafno)
+    for k in range(1, 11):
+        assert np.array_equal(stages[k], stages[0]) and np.array_equal(leafno[k], leafno[0])
+    fd = ((vals[1:6] - vals[6:11]) / (2 * h[:, None])).T
+    np.testing.assert_allclose(jac[:, top], fd, rtol=2e-4, atol=1e-8 * np.abs(vals[0]).max())

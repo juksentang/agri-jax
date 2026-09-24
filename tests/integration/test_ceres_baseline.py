@@ -72,6 +72,13 @@ def test_matches_baseline(snapshot, tmp_path, exp, trno):
     got = bl.compute_case(exp, trno, tmp_path / f"{exp}_{trno}")
     msg = bl.compare_case(bl.case_id(exp, trno), got, ref)
     assert msg is None, msg
+    # the calibratable coefficient leaves carry exactly the DSSAT values
+    from agrijax.processes.crop.ceres_maize.coefficients import DSSAT_COEFFICIENTS
+
+    want = jax.tree_util.tree_flatten_with_path(DSSAT_COEFFICIENTS)[0]
+    coef = {k: v for k, v in got.items() if k.startswith(f"{bl.case_id(exp, trno)}/params/coefficients")}
+    assert len(coef) == len(want) > 100, (len(coef), len(want))
+    assert sorted(float(np.asarray(v)) for v in coef.values()) == sorted(float(v) for _, v in want)
 
 
 def test_compare_names_first_field_and_day():
