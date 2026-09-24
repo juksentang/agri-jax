@@ -284,6 +284,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <tr><td>10⁵ nine-year simulations, 24 sub-steps × 3 iterations, float64</td><td class="num">243 s</td><td class="c">1 × H100, computational skeleton</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>Same, 12 × 2</td><td class="num">82 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>Same, float32, 24 × 3</td><td class="num">101 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>float32 vs. float64, nine-year total ET</td><td class="num">4×10⁻⁸</td><td class="c">Median relative difference, 1000 parameter sets, same on H100 and CPU; gradients 6×10⁻⁷</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>10⁶ simulations, 12 × 2</td><td class="num">14 min</td><td class="c">5 batches × 2×10⁵, single GPU</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>One full-parameter gradient, 10⁴ samples, 12 × 2</td><td class="num">56 s</td><td class="c">Daily checkpoints</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>Fortran RZWQM2, one nine-year simulation</td><td class="num">24 s</td><td class="c">One cluster core; the 10⁵-run cluster batch took about 10 h wall clock (job array, 8 tasks per node, including queueing and I/O) and 80 GB of output; a 32-core workstation is estimated at 20.8 h</td><td><span class="tag real">measured</span></td></tr>
@@ -359,7 +360,7 @@ const TX={
        idle:'Drag the slider and change the options on the left; both time bars update.',
        title:n=>n+' nine-year simulations, wall time required (log scale)', verdict:{jax:x=>`Agri-JAX about ${x}× faster`,fort:x=>`Fortran about ${x}× faster`,tie:()=>'About the same'},
        fp64:'Consumer GPUs run float64 at 1/64 of float32 speed, so compute limits; try float32',
-       fp64Hint:'This card is weak in double precision; float32 is the better choice (its accuracy is still to be validated).',
+       fp64Hint:'This card is weak in double precision; use float32: on the skeleton it agrees with float64 to about 1e-7 (measured), to be re-checked on the full model.',
        under:'Below 10⁴ runs the GPU is under-utilized and the ratio drops; above, memory bandwidth limits',
        result:(n,f,j,v)=>`${n} nine-year simulations: Fortran ${f}, Agri-JAX ${j}. ${v}.` },
 };

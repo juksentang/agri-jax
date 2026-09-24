@@ -284,6 +284,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <tr><td>10⁵ 次九年模拟，24 子步 × 3 迭代，float64</td><td class="num">243 s</td><td class="c">1 × H100，计算骨架</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>同上，12 × 2</td><td class="num">82 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>float32 对 float64，九年累计蒸散</td><td class="num">4×10⁻⁸</td><td class="c">相对差中位数，1000 组参数，H100 与 CPU 一致；梯度 6×10⁻⁷</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td class="c">5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td class="c">每日检查点</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td class="c">集群单核；10⁵ 次批量实跑约 10 h 墙钟（每节点 8 任务阵列，含排队与读写）、80 GB 输出；32 核工作站按此估算 20.8 h</td><td><span class="tag real">实测</span></td></tr>
@@ -547,7 +548,7 @@ function estimate(){ const n=Math.round(Math.pow(10,+$('n').value)); const hw=HW
   const jax=cfg.floor*hw.floor+n*per, fort=n*RUN_S/cores, r=fort/jax, m=r>=1?r:1/r;
   return {n,jax,fort,jaxH:human(jax),fortH:human(fort),verdict:r>=1.25?'jax':r<=0.8?'fort':'tie',mx:m<10?m.toFixed(1):Math.round(m).toLocaleString('zh-CN'),fp64Bound}; }
 const VERD={jax:x=>`Agri-JAX 约快 ${x} 倍`,fort:x=>`Fortran 约快 ${x} 倍`,tie:()=>'两者相当'};
-function estUI(){ const e=estimate(); $('nLab').textContent=fmt(e.n); $('ratio').textContent=`${fmt(e.n)} 次九年模拟：Fortran ${e.fortH}，Agri-JAX ${e.jaxH}，${VERD[e.verdict](e.mx)}。`+(e.fp64Bound?'这张卡的双精度算力太弱，建议改用 float32（精度是否够用尚待验证）。':''); if(state.act===5) render(); }
+function estUI(){ const e=estimate(); $('nLab').textContent=fmt(e.n); $('ratio').textContent=`${fmt(e.n)} 次九年模拟：Fortran ${e.fortH}，Agri-JAX ${e.jaxH}，${VERD[e.verdict](e.mx)}。`+(e.fp64Bound?'这张卡的双精度算力太弱，建议改用 float32：计算骨架上它与 float64 的相对差约 10⁻⁷（实测），完整模型还要重测。':''); if(state.act===5) render(); }
 ['n','gpu','cfg','prec','cores'].forEach(id=>$(id).addEventListener('input',estUI));
 /* ---------- engine ---------- */
 const state={act:0,frame:0,p:0,playing:false};
