@@ -1,209 +1,296 @@
 <title>Agri-JAX 计算图景</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
 <style>
+/* Design plan
+   Identity: a field instrument read as a ledger. The page is one 2-column grid (text | figure); the act strip at the top is a
+   1×6 row of cells laid exactly over the figure column, so navigation, keyframe progress and the matrix share one set of edges.
+   Colour: paper #F1F2EE · panel #E6E9E3 · ink #16201C · muted #56625D · rule #C8CEC7 · cell #D8DCD5;
+           accents only rust #C2591A (Fortran) · teal #0F8A66 (JAX) · violet #6B4FBB (gradients). Dark: re-stepped, same roles.
+   Type: Noto Sans SC 400/500/700 for all words; IBM Plex Mono only for numbers and indices.
+         Scale 12 · 14 · 16 · 18 · 22 · 30 · 56 (px). Figure text in viewBox units 15 · 17 · 20 · 26 · 32.
+   Space: 4 · 8 · 12 · 16 · 24 · 32 · 48 · 72. Radii 2 px. No cards, no shadows. Motion: sweep and reveal only. */
 :root{
-  --bg:#F2F3F1; --scene:#E9EBE7; --ink:#17201D; --muted:#5E6864; --line:#CDD2CD; --neutral:#C9CDC7; --cell:#DDE0DB;
+  --bg:#F1F2EE; --panel:#E6E9E3; --ink:#16201C; --muted:#56625D; --rule:#C8CEC7; --neutral:#B9C0B7; --cell:#D8DCD5;
   --rust:#C2591A; --teal:#0F8A66; --violet:#6B4FBB; --rust-soft:#F1D9C9; --teal-soft:#CFE9DF; --violet-soft:#DDD6F2;
   --sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif; --mono:"IBM Plex Mono",Menlo,Consolas,monospace;
+  --barh:52px; --gap:48px; --cols:minmax(0,5fr) minmax(0,9fr);
 }
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ color-scheme:dark;
-  --bg:#141715; --scene:#1B1F1D; --ink:#ECEDE8; --muted:#9AA39E; --line:#2F3532; --neutral:#3A403C; --cell:#262B28;
+  --bg:#121614; --panel:#1A201D; --ink:#E8EBE5; --muted:#97A29C; --rule:#2E3632; --neutral:#48504C; --cell:#252C29;
   --rust:#D96A28; --teal:#2FA582; --violet:#8E78D8; --rust-soft:#3C2416; --teal-soft:#153229; --violet-soft:#282142; } }
 :root[data-theme="dark"]{ color-scheme:dark;
-  --bg:#141715; --scene:#1B1F1D; --ink:#ECEDE8; --muted:#9AA39E; --line:#2F3532; --neutral:#3A403C; --cell:#262B28;
+  --bg:#121614; --panel:#1A201D; --ink:#E8EBE5; --muted:#97A29C; --rule:#2E3632; --neutral:#48504C; --cell:#252C29;
   --rust:#D96A28; --teal:#2FA582; --violet:#8E78D8; --rust-soft:#3C2416; --teal-soft:#153229; --violet-soft:#282142; }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.65;padding-block:0 48px;padding-inline:16px}
-h1,h2,h3{font-family:var(--sans);font-weight:700;letter-spacing:-.01em;line-height:1.25;margin:0;text-wrap:balance}
-h1{font-size:clamp(30px,4.6vw,46px)}
-h2{font-size:clamp(21px,2.6vw,27px)}
-p{margin:0}
-.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.tag{display:inline-block;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;padding:1px 7px;border-radius:3px;border:1px solid var(--line);color:var(--muted);vertical-align:middle;white-space:nowrap}
-.tag.real{border-color:var(--teal);color:var(--teal)} .tag.ill{border-color:var(--violet);color:var(--violet)}
-.wrap{max-width:1180px;margin:0 auto}
-/* nav rail */
-nav.rail{position:fixed;left:max(8px,calc((100vw - 1180px)/2 - 96px));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--muted);z-index:5}
-nav.rail a{color:inherit;text-decoration:none;display:flex;gap:8px;align-items:center}
-nav.rail a b{font-family:var(--mono);font-weight:600;font-size:11px;width:16px}
-nav.rail a.on{color:var(--ink)} nav.rail a.on b{color:var(--teal)}
-@media (max-width:1380px){nav.rail{display:none}}
-/* story grid: text left, sticky scene right */
-.story{display:grid;grid-template-columns:40% 58%;column-gap:2%;align-items:start}
-.text{min-width:0}
-.sceneCol{position:sticky;top:env(safe-area-inset-top,0px);height:100vh;display:flex;flex-direction:column;justify-content:center;gap:10px}
-.scene{position:relative;background:var(--scene);border-radius:6px;overflow:hidden;aspect-ratio:1000/620;width:100%}
-.scene canvas,.scene svg{position:absolute;inset:0;width:100%;height:100%}
-.scene svg{pointer-events:none;overflow:visible}
-.scene svg text{font-family:var(--sans);fill:var(--muted);font-size:14px}
-.scene svg text.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.scene svg text.ink{fill:var(--ink)} .scene svg text.r{fill:var(--rust)} .scene svg text.t{fill:var(--teal)} .scene svg text.v{fill:var(--violet)} .scene svg text.b{font-weight:700}
-.scene svg text.s{font-size:12px} .scene svg text.xs{font-size:11px} .scene svg text.l{font-size:17px}
-.stepper{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
-.stepper button{font:inherit;font-size:13px;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 10px;cursor:pointer}
-.stepper button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.stepper button:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
-.dots{display:flex;gap:6px;margin-inline:6px}
-.dots i{width:9px;height:9px;border-radius:50%;background:var(--line);cursor:pointer;display:block}
-.dots i.on{background:var(--teal)}
-.legend{margin-left:auto;font-size:12px;color:var(--muted)}
-/* acts */
-.hero{min-height:88vh;display:flex;flex-direction:column;justify-content:center;gap:18px;padding-block:32px}
-.hero .lead{font-size:18px;color:var(--muted);max-width:30ch}
-.caps{display:flex;flex-wrap:wrap;gap:8px}
-.cap{font-family:var(--mono);font-size:12.5px;padding:5px 10px;border:1px solid var(--line);border-radius:4px;color:var(--ink)}
-.cap b{font-weight:600} .cap .r{color:var(--rust)} .cap .t{color:var(--teal)} .cap .v{color:var(--violet)}
-.hint{font-size:13px;color:var(--muted)}
-.act{min-height:86vh;padding-block:10vh 6vh;display:flex;flex-direction:column;justify-content:center;gap:14px}
-.act .no{font-family:var(--mono);font-size:12px;color:var(--teal);letter-spacing:.14em}
-.steps{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:2px}
-.step{display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start;padding:9px 6px;border-radius:4px;color:var(--muted);cursor:pointer;font-size:15.5px;line-height:1.5}
-.step i{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line);margin-top:8px;display:block}
-.step.on{color:var(--ink);background:color-mix(in srgb,var(--teal) 8%,transparent)} .step.on i{background:var(--teal);border-color:var(--teal)}
-.note{font-size:13.5px;color:var(--muted);border-left:2px solid var(--line);padding-left:10px;max-width:44ch}
-/* estimator */
-.est{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;font-size:13px;color:var(--muted)}
-.est label{display:block;margin-bottom:3px}
-.est select,.est input[type=range]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:5px 6px}
-.est input[type=range]{padding:0;border:0}
-.est .full{grid-column:1/-1}
-.est output{font-family:var(--mono);color:var(--ink)}
-/* measured table */
-.measured{padding-block:10vh 4vh;max-width:900px}
-table{border-collapse:collapse;width:100%;font-size:14px;margin-top:14px}
-th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-weight:500;color:var(--muted);font-size:12.5px}
-td.num{text-align:right;font-family:var(--mono);white-space:nowrap}
-.tblwrap{overflow-x:auto}
-footer{font-size:12.5px;color:var(--muted);margin-top:28px;max-width:900px}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-block:0 48px;padding-inline:16px}
+h1,h2{font-family:var(--sans);font-weight:700;margin:0;text-wrap:balance}
+p,ol,ul{margin:0}
 a{color:var(--teal)}
-@media (max-width:860px){
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1680px;margin:0 auto;padding-inline:clamp(0px,2.2vw,32px)}
+.tag{display:inline-block;font-size:12px;line-height:18px;padding:0 6px;border:1px solid var(--rule);color:var(--muted);border-radius:2px;white-space:nowrap;font-weight:500}
+.tag.real{border-color:var(--teal);color:var(--teal)} .tag.ill{border-color:var(--violet);color:var(--violet)} .tag.ext{border-color:var(--rust);color:var(--rust)}
+
+/* ---------- act strip: a 1×6 row of cells over the figure column ---------- */
+nav.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--bg);margin-inline:-16px;padding-inline:16px;border-bottom:1px solid var(--rule)}
+.barin{max-width:1680px;margin:0 auto;padding-inline:clamp(0px,2.2vw,32px);display:grid;grid-template-columns:var(--cols);column-gap:var(--gap);height:var(--barh)}
+.mark{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-size:14px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.mark span{font-weight:400;color:var(--muted)}
+.acts{list-style:none;padding:0;display:grid;grid-template-columns:repeat(6,1fr);border-left:1px solid var(--rule)}
+.acts a{position:relative;display:flex;align-items:center;gap:8px;height:100%;padding:0 12px;border-right:1px solid var(--rule);text-decoration:none;color:var(--muted);font-size:14px;white-space:nowrap;overflow:hidden}
+.acts a b{font-family:var(--mono);font-weight:600;font-size:12px}
+.acts a i{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:var(--teal)}
+.acts a.on{color:var(--ink);background:var(--panel)} .acts a.on b{color:var(--teal)}
+.acts a.done i{width:100%;background:var(--rule)}
+.acts a:hover{color:var(--ink)}
+.acts a:focus-visible,.mark:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+
+/* ---------- title ---------- */
+.title{padding-block:40px 28px;border-bottom:1px solid var(--rule)}
+.title .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--muted);margin-bottom:16px}
+.title h1{font-size:clamp(30px,3.4vw,52px);line-height:1.2;letter-spacing:-.02em}
+.title h1 span{display:inline-block}
+
+/* ---------- story grid ---------- */
+.story{display:grid;grid-template-columns:var(--cols);column-gap:var(--gap);align-items:start}
+.text{grid-column:1;grid-row:1;min-width:0}
+.sceneCol{grid-column:2;grid-row:1;position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--barh));height:calc(100vh - var(--barh));display:flex;flex-direction:column;justify-content:flex-start;gap:12px;padding-block:28px 16px;min-width:0}
+.figcap{display:flex;justify-content:space-between;align-items:baseline;gap:8px 16px;flex-wrap:wrap;font-size:14px;line-height:1.5;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+.figcap .fn{display:flex;gap:12px;align-items:baseline;min-width:0}
+.figcap .fn b{font-family:var(--mono);font-weight:600;color:var(--teal);font-size:14px}
+.figcap .fn span{color:var(--ink);font-weight:500}
+.figcap .fn em{font-style:normal;color:var(--muted)}
+.figcap .tags{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+.figcap .tags span.t{display:inline-flex;gap:6px;align-items:center}
+.scene{position:relative;background:var(--panel);border-radius:2px;overflow:hidden;aspect-ratio:1000/640;width:100%;max-width:100%}
+@media (min-width:901px){ .scene{width:min(100%,calc((100vh - var(--barh) - 190px) * 1.5625));align-self:center} .figcap,.ctl{width:min(100%,calc((100vh - var(--barh) - 190px) * 1.5625));align-self:center} }
+.scene canvas,.scene svg{position:absolute;inset:0;width:100%;height:100%}
+.scene svg{pointer-events:none}
+.scene svg text{font-family:var(--sans);fill:var(--muted);font-size:20px;white-space:pre}
+.scene svg text.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.scene svg text.ink{fill:var(--ink)} .scene svg text.r{fill:var(--rust)} .scene svg text.t{fill:var(--teal)} .scene svg text.v{fill:var(--violet)}
+.scene svg text.b{font-weight:700} .scene svg text.m{font-weight:500}
+.scene svg text.s{font-size:17px} .scene svg text.xs{font-size:15px} .scene svg text.l{font-size:26px} .scene svg text.xl{font-size:32px}
+
+/* ---------- keyframe control: segmented buttons + frame track ---------- */
+.ctl{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:16px;min-height:52px}
+.btns{display:flex;border:1px solid var(--rule);border-radius:2px}
+.btns button{font:inherit;font-size:14px;line-height:20px;background:transparent;color:var(--ink);border:0;border-left:1px solid var(--rule);padding:6px 12px;cursor:pointer;white-space:nowrap}
+.btns button:first-child{border-left:0}
+.btns button.primary{background:var(--ink);color:var(--bg);min-width:88px}
+.btns button:hover{background:var(--panel)} .btns button.primary:hover{background:var(--ink)}
+.btns button:focus-visible,.seg:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.track{display:flex;gap:4px;min-width:0;padding-top:4px}
+.seg{flex:1 1 0;min-width:0;font:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left;color:var(--muted)}
+.seg .bar{display:block;height:4px;background:var(--rule);position:relative;overflow:hidden}
+.seg .bar i{position:absolute;inset:0 auto 0 0;width:0;background:var(--teal)}
+.seg .lab{display:block;font-size:12px;line-height:1.4;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg.on .lab{color:var(--ink);font-weight:500}
+.pos{font-family:var(--mono);font-size:14px;color:var(--muted);padding-top:6px;white-space:nowrap}
+.idle{font-size:14px;color:var(--muted);padding-top:6px}
+
+/* ---------- text column ---------- */
+.intro{min-height:calc(100vh - 240px);display:flex;flex-direction:column;justify-content:flex-start;gap:24px;padding-block:28px 32px}
+.lead{font-size:18px;color:var(--muted);max-width:32ch}
+.spec{width:100%;border-collapse:collapse;font-size:14px}
+.spec td{padding:10px 0;border-top:1px solid var(--rule);vertical-align:baseline}
+.spec tr:last-child td{border-bottom:1px solid var(--rule)}
+.spec td.v{font-family:var(--mono);font-size:22px;font-weight:600;text-align:right;white-space:nowrap;padding-inline:12px}
+.spec td.k{color:var(--muted)} .spec td.g{text-align:right;width:1%}
+.spec .r{color:var(--rust)} .spec .t{color:var(--teal)} .spec .v2{color:var(--violet)} .spec small{font-size:14px;color:var(--muted);font-weight:400}
+.hint{font-size:14px;color:var(--muted)}
+.act#a5{min-height:100vh}
+.act{min-height:92vh;padding-block:12vh 8vh;display:flex;flex-direction:column;justify-content:center;gap:16px}
+.meta{display:flex;gap:12px;align-items:baseline;font-size:14px;color:var(--muted);padding-top:8px;border-top:2px solid var(--ink)}
+.meta b{font-family:var(--mono);font-weight:600;color:var(--teal)}
+.meta .n{margin-left:auto;font-family:var(--mono);font-size:12px}
+.act h2,.measured h2{font-size:clamp(22px,2.1vw,30px);line-height:1.35;letter-spacing:-.01em}
+.steps{list-style:none;padding:0;border-top:1px solid var(--rule)}
+.step{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;padding:12px 0;border-bottom:1px solid var(--rule);color:var(--muted);cursor:pointer;font-size:16px;line-height:1.6}
+.step .i{font-family:var(--mono);font-size:13px;padding-top:2px}
+.step .pg{position:absolute;left:0;bottom:-1px;height:2px;width:0;background:var(--teal)}
+.step.on{color:var(--ink)} .step.on .i{color:var(--teal);font-weight:600}
+.step:hover{color:var(--ink)}
+.note{font-size:14px;color:var(--muted);max-width:46ch;display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px}
+.note::before{content:"注";font-weight:700;color:var(--ink)}
+/* estimator */
+.est{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:14px;color:var(--muted)}
+.est label{display:flex;justify-content:space-between;margin-bottom:4px}
+.est select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:2px;padding:6px 8px}
+.est input[type=range]{width:100%;accent-color:var(--teal)}
+.est .full{grid-column:1/-1}
+.est output{font-family:var(--mono);color:var(--ink);font-weight:600}
+.result{font-size:16px;color:var(--ink);padding:12px 0;border-block:1px solid var(--rule)}
+/* measured */
+.measured{padding-block:12vh 16px;display:grid;grid-template-columns:var(--cols);column-gap:var(--gap);row-gap:16px}
+.measured .head{grid-column:1;display:flex;flex-direction:column;gap:16px}
+.measured .body{grid-column:2;min-width:0}
+.tblwrap{overflow-x:auto}
+table.ledger{border-collapse:collapse;width:100%;min-width:620px;font-size:14px}
+.ledger th,.ledger td{text-align:left;padding:10px 12px 10px 0;border-bottom:1px solid var(--rule);vertical-align:baseline}
+.ledger thead th{font-weight:500;color:var(--muted);font-size:12px;border-bottom:2px solid var(--ink)}
+.ledger td.num,.ledger th.num{text-align:right;white-space:nowrap}
+.ledger td.num{font-size:16px;font-weight:600}
+.ledger td.c{color:var(--muted)}
+footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
+
+@media (max-width:1180px){ :root{--gap:32px;--cols:minmax(0,4fr) minmax(0,7fr)} .acts a span{display:none} .acts a{justify-content:center} }
+@media (max-width:900px){
+  :root{--barh:44px}
+  .barin{grid-template-columns:auto minmax(0,1fr);column-gap:16px}
   .story{display:block}
-  .sceneCol{position:sticky;top:env(safe-area-inset-top,0px);height:auto;padding-block:6px;background:var(--bg);z-index:4}
-  .scene{aspect-ratio:1000/620}
-  .hero{min-height:auto;padding-block:20px}
-  .act{min-height:auto;padding-block:34px 10px}
-  .legend{margin-left:0;width:100%}
+  .sceneCol{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--barh));height:auto;padding-block:8px;background:var(--bg);z-index:4;border-bottom:1px solid var(--rule);gap:8px}
+  .figcap{font-size:12px;padding-bottom:4px} .figcap .fn b{font-size:12px} .figcap .tags{font-size:12px}
+  .ctl{min-height:0;gap:10px;grid-template-columns:auto minmax(0,1fr) auto}
+  .btns button{padding:4px 10px} .btns button .w{display:none} .btns button.primary{min-width:0}
+  .seg .lab{display:none} .track{padding-top:12px}
+  .pos{padding-top:4px;font-size:12px} .idle{padding-top:4px;font-size:12px}
+  .title{padding-block:32px 20px}
+  .intro{min-height:auto;padding-block:24px 8px}
+  .act,.act#a5{min-height:auto;padding-block:48px 16px}
   .est{grid-template-columns:1fr}
+  .measured{display:block;padding-block:56px 16px} .measured .body{margin-top:16px}
 }
-@media (prefers-reduced-motion: reduce){ .step,.dots i{transition:none} }
+@media (max-width:480px){ .mark span{display:none} .acts a{padding:0 4px} .title h1{font-size:26px} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto!important} }
 </style>
 
-<nav class="rail" aria-label="幕">
-  <a href="#a1" data-nav="1"><b>1</b>两种形态</a><a href="#a2" data-nav="2"><b>2</b>为什么可以</a><a href="#a3" data-nav="3"><b>3</b>一列里发生什么</a><a href="#a4" data-nav="4"><b>4</b>求导</a><a href="#a5" data-nav="5"><b>5</b>你的硬件</a><a href="#a6" data-nav="6"><b>6</b>实测</a>
+<nav class="bar" aria-label="六幕">
+  <div class="barin">
+    <a class="mark" href="#top">AGRI-JAX <span>计算图景</span></a>
+    <ol class="acts">
+      <li><a href="#a1" data-nav="1"><b>1</b><span>两种形态</span><i></i></a></li>
+      <li><a href="#a2" data-nav="2"><b>2</b><span>为什么可以</span><i></i></a></li>
+      <li><a href="#a3" data-nav="3"><b>3</b><span>一列里</span><i></i></a></li>
+      <li><a href="#a4" data-nav="4"><b>4</b><span>求导</span><i></i></a></li>
+      <li><a href="#a5" data-nav="5"><b>5</b><span>你的硬件</span><i></i></a></li>
+      <li><a href="#a6" data-nav="6"><b>6</b><span>实测</span><i></i></a></li>
+    </ol>
+  </div>
 </nav>
 
-<div class="wrap">
-<div class="story">
-<div class="text">
+<div class="wrap" id="top">
+<header class="title">
+  <div class="kicker">AGRI-JAX · 田块尺度作物–土壤模型</div>
+  <h1><span>十万块田，同一天，一起算；</span><span>算完还能求导。</span></h1>
+</header>
 
-  <header class="hero" id="a0">
-    <div class="no">AGRI-JAX</div>
-    <h1>十万块田，同一天，一起算；<br>算完还能求导。</h1>
-    <p class="lead">田块尺度的作物–土壤模型，写成可微分、可批量的形式。右侧的矩阵是全页唯一的图：行是田块，列是天。</p>
-    <div class="caps">
-      <span class="cap">10⁵ 次 × 九年 <b class="r">≈10 h</b> → <b class="t">82 s</b> <span class="tag real">实测</span></span>
-      <span class="cap">全参数梯度 <b class="v">56 s</b> / 万样本 <span class="tag real">实测</span></span>
-      <span class="cap">潜在蒸发对参考模型 <b>0.02 mm/d</b> <span class="tag real">实测</span></span>
+<div class="story">
+<div class="sceneCol" id="sceneCol">
+  <div class="figcap"><div class="fn"><b id="figNo">图 0</b><span id="figName"></span><em id="figFrame"></em></div><div class="tags" id="figTags"></div></div>
+  <div class="scene" id="scene"><canvas id="cv" width="1000" height="640"></canvas><svg id="ov" viewBox="0 0 1000 640" aria-hidden="true"></svg></div>
+  <div class="ctl" id="stepper">
+    <div class="btns">
+      <button type="button" data-k="prev" aria-label="上一帧">◀<span class="w"> 上一帧</span></button><button type="button" data-k="play" class="primary" id="playBtn">▶<span class="w"> 播放</span></button><button type="button" data-k="next" aria-label="下一帧"><span class="w">下一帧 </span>▶</button><button type="button" data-k="replay" aria-label="重播">↻<span class="w"> 重播</span></button>
     </div>
-    <p class="hint">↓ 往下滚动，矩阵会变</p>
-  </header>
+    <div class="track" id="track"></div>
+    <div class="pos" id="pos"></div>
+  </div>
+  <div class="idle" id="idle" hidden></div>
+</div>
+
+<div class="text">
+  <section class="intro" id="a0">
+    <p class="lead">田块尺度的作物–土壤模型，写成可微分、可批量的形式。全页只有一张图：一个矩阵，行是田块，列是天。</p>
+    <table class="spec">
+      <tr><td class="k">10⁵ 次九年模拟</td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">82 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
+      <tr><td class="k">全参数梯度，每万样本</td><td class="v"><span class="v2">56 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
+      <tr><td class="k">潜在蒸发，对参考模型</td><td class="v">0.02 <small>mm/d</small></td><td class="g"><span class="tag real">实测</span></td></tr>
+    </table>
+    <p class="hint">往下滚动，矩阵随之变化；也可以用图下的按钮逐帧播放。</p>
+  </section>
 
   <section class="act" id="a1" data-act="1">
-    <div class="no">01</div>
+    <div class="meta"><b>01</b><span>两种形态</span><span class="n">4 帧</span></div>
     <h2>十万块田，Fortran 一块一块跑完，JAX 一天一天一起走</h2>
     <ol class="steps">
-      <li class="step" data-f="0"><i></i><span>逐行填：一个核一次只跑一块田，32 个核同时开工，屏幕时间等于真实时间</span></li>
-      <li class="step" data-f="1"><i></i><span>加速到跑完：真实 20.8 小时，磁盘上堆到 80 GB、990 万个文件</span></li>
-      <li class="step" data-f="2"><i></i><span>换走法：整列同亮，每一步全部田块前进一天，显存 8 GB，磁盘写入 0</span></li>
-      <li class="step" data-f="3"><i></i><span>列扫到底：3287 天，真实 82 秒</span></li>
+      <li class="step" data-f="0"><span class="i">1.1</span><span>逐行填：一个核一次只跑一块田，32 个核同时开工，屏幕时间等于真实时间</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">1.2</span><span>加速到跑完：真实 20.8 小时，磁盘上堆到 80 GB、990 万个文件</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">1.3</span><span>换走法：整列同亮，每一步全部田块前进一天，显存 8 GB，磁盘写入 0</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">1.4</span><span>列扫到底：3287 天，真实 82 秒</span><i class="pg"></i></li>
     </ol>
     <p class="note">同一个矩阵、同一比例尺，只是走法不同。时钟、磁盘、显存为实测；格子颜色为示意。</p>
   </section>
 
   <section class="act" id="a2" data-act="2">
-    <div class="no">02</div>
+    <div class="meta"><b>02</b><span>为什么可以</span><span class="n">4 帧</span></div>
     <h2>顺序只沿着行，所以可以按列推进</h2>
     <ol class="steps">
-      <li class="step" data-f="0"><i></i><span>每一格只依赖同一行左边的一格：今天只依赖自己的昨天</span></li>
-      <li class="step" data-f="1"><i></i><span>行与行之间没有箭头：这块田的水不会流进另一块田的方程</span></li>
-      <li class="step" data-f="2"><i></i><span>于是交换两层循环：外层按天，内层对所有行做同一件事</span></li>
-      <li class="step" data-f="3"><i></i><span>一列 = 十万个数上的同一条指令，正是 GPU 擅长的形状</span></li>
+      <li class="step" data-f="0"><span class="i">2.1</span><span>每一格只依赖同一行左边的一格：今天只依赖自己的昨天</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">2.2</span><span>行与行之间没有箭头：这块田的水不会流进另一块田的方程</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">2.3</span><span>于是交换两层循环：外层按天，内层对所有行做同一件事</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">2.4</span><span>一列 = 十万个数上的同一条指令，正是 GPU 擅长的形状</span><i class="pg"></i></li>
     </ol>
     <p class="note">Fortran 做不到不是因为慢，而是每次运行被全局状态和逐文件读写绑在一个进程里，换不了循环顺序。</p>
   </section>
 
   <section class="act" id="a3" data-act="3">
-    <div class="no">03</div>
+    <div class="meta"><b>03</b><span>一列里发生什么</span><span class="n">5 帧</span></div>
     <h2>一天 = 七个过程接力；过程只是方程，读什么写什么写在签名上</h2>
     <ol class="steps">
-      <li class="step" data-f="0"><i></i><span>把一列抽出来：天气、潜在蒸散、截光、作物、争水、土壤水、诊断依次执行，虚线是各自读写的字段</span></li>
-      <li class="step" data-f="1"><i></i><span>放大"作物"：叶面积增长 = 展叶速率 × 积温 × 水分胁迫，只在营养生长期发生</span></li>
-      <li class="step" data-f="2"><i></i><span>规则一，纯函数：共享格子被两块田同时写会撞车，所以状态每田一行</span></li>
-      <li class="step" data-f="3"><i></i><span>规则二，用 where 分支：同一天各田处于不同生育期，两条都算、逐行挑</span></li>
-      <li class="step" data-f="4"><i></i><span>规则三，不写循环：37 层土壤整列一次算完，时间与样本的循环交给运行时</span></li>
+      <li class="step" data-f="0"><span class="i">3.1</span><span>把一列抽出来：天气、潜在蒸散、截光、作物、争水、土壤水、诊断依次执行，右侧是各自读写的字段</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">3.2</span><span>放大“作物”：叶面积增长 = 展叶速率 × 积温 × 水分胁迫，只在营养生长期发生</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">3.3</span><span>规则一，纯函数：共享格子被两块田同时写会撞车，所以状态每田一行</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">3.4</span><span>规则二，用 where 分支：同一天各田处于不同生育期，两条都算、逐行挑</span><i class="pg"></i></li>
+      <li class="step" data-f="4"><span class="i">3.5</span><span>规则三，不写循环：37 层土壤整列一次算完，时间与样本的循环交给运行时</span><i class="pg"></i></li>
     </ol>
   </section>
 
   <section class="act" id="a4" data-act="4">
-    <div class="no">04</div>
+    <div class="meta"><b>04</b><span>求导</span><span class="n">7 帧</span></div>
     <h2>沿同一条路倒着走一遍，全部参数、全部输入的导数一次得到</h2>
     <ol class="steps">
-      <li class="step" data-f="0"><i></i><span>前向：列从左到右扫一遍，每一天的状态留下来</span></li>
-      <li class="step" data-f="1"><i></i><span>反向：从最后一天往回扫，经过每一列，参数的导数各累积一点</span></li>
-      <li class="step" data-f="2"><i></i><span>代价：有限差分要 31 次前向；反向只要 1 次前向加 1 次反向</span></li>
-      <li class="step" data-f="3"><i></i><span>可辨识性：损失谷平的方向是数据分不开的参数组合，一眼看出</span></li>
-      <li class="step" data-f="4"><i></i><span>归因：对每一天的降雨求导，哪场雨决定收成，峰在吐丝期</span></li>
-      <li class="step" data-f="5"><i></i><span>多链：行从"田块"换成"链"，一千条短链与四条长链花一样的时间</span></li>
-      <li class="step" data-f="6"><i></i><span>嵌入网络：把气孔阻力换成小网络，梯度穿过机理过程流进权重</span></li>
+      <li class="step" data-f="0"><span class="i">4.1</span><span>前向：列从左到右扫一遍，每一天的状态留下来</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">4.2</span><span>反向：从最后一天往回扫，经过每一列，参数的导数各累积一点</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">4.3</span><span>代价：有限差分要 31 次前向；反向只要 1 次前向加 1 次反向</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">4.4</span><span>可辨识性：损失谷平的方向是数据分不开的参数组合，一眼看出</span><i class="pg"></i></li>
+      <li class="step" data-f="4"><span class="i">4.5</span><span>归因：对每一天的降雨求导，哪场雨决定收成，峰在吐丝期</span><i class="pg"></i></li>
+      <li class="step" data-f="5"><span class="i">4.6</span><span>多链：行从“田块”换成“链”，一千条短链与四条长链花一样的时间</span><i class="pg"></i></li>
+      <li class="step" data-f="6"><span class="i">4.7</span><span>嵌入网络：把气孔阻力换成小网络，梯度穿过机理过程流进权重</span><i class="pg"></i></li>
     </ol>
     <p class="note">撒点标定的样本数随维数指数增长，梯度法几乎不增长。参数柱、损失谷、归因曲线为示意。</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
-    <div class="no">05</div>
+    <div class="meta"><b>05</b><span>你的硬件</span><span class="n">估算器</span></div>
     <h2>你的实验室有一张卡就够</h2>
     <div class="est">
-      <div class="full"><label for="n">模拟次数 <output id="nLab">100,000</output></label><input type="range" id="n" min="3" max="6" step="0.05" value="5"></div>
+      <div class="full"><label for="n"><span>模拟次数</span><output id="nLab">100,000</output></label><input type="range" id="n" min="3" max="6" step="0.05" value="5"></div>
       <div><label for="gpu">GPU</label><select id="gpu"><option value="h100">H100 80 GB</option><option value="a100">A100 40 GB</option><option value="4090">RTX 4090</option><option value="4060">RTX 4060 笔记本</option></select></div>
       <div><label for="cores">Fortran 核数</label><select id="cores"><option value="1">1 核</option><option value="32" selected>32 核工作站</option><option value="96">96 核</option><option value="192">192 核节点</option></select></div>
       <div><label for="cfg">数值方案</label><select id="cfg"><option value="24x3">24 子步 × 3 迭代</option><option value="12x2" selected>12 × 2</option><option value="6x1">6 × 1</option></select></div>
       <div><label for="prec">精度</label><select id="prec"><option value="f64">float64</option><option value="f32">float32</option></select></div>
     </div>
-    <p class="note" id="ratio"></p>
-    <p class="note">按 H100 实测经内存带宽外推到其它显卡；Fortran 按每次 24 秒除以核数；真模型已按 3 倍折扣计。<span class="tag ill">外推</span></p>
+    <p class="result" id="ratio"></p>
+    <p class="note">按 H100 实测经内存带宽外推到其它显卡；Fortran 按每次 24 秒除以核数；真模型已按 3 倍折扣计。</p>
   </section>
-
-</div>
-
-<div class="sceneCol">
-  <div class="scene" id="scene"><canvas id="cv" width="1000" height="620"></canvas><svg id="ov" viewBox="0 0 1000 620" aria-hidden="true"></svg></div>
-  <div class="stepper" id="stepper">
-    <button data-act="prev">◀ 上一帧</button><button data-act="play" class="primary">▶ 播放</button><button data-act="next">下一帧 ▶</button><button data-act="replay">↻ 重播</button>
-    <span class="dots" id="dots"></span><span class="mono" id="pos"></span>
-    <span class="legend" id="legend"></span>
-  </div>
 </div>
 </div>
 
 <section class="measured" id="a6">
-  <div class="no">06</div>
-  <h2>标了实测的数字都能重跑</h2>
-  <div class="tblwrap"><table>
+  <div class="head">
+    <div class="meta"><b>06</b><span>实测与来源</span><span class="n">9 行</span></div>
+    <h2>标了实测的数字都能重跑</h2>
+    <p class="note">计算骨架 = 与目标模型同计算形状的基准程序，不是最终模型。</p>
+  </div>
+  <div class="body">
+  <div class="tblwrap"><table class="ledger">
     <thead><tr><th>指标</th><th class="num">数值</th><th>条件</th><th>性质</th></tr></thead>
     <tbody>
-      <tr><td>10⁵ 次九年模拟，24 子步 × 3 迭代，float64</td><td class="num">243 s</td><td>1 × H100，计算骨架</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>同上，12 × 2</td><td class="num">82 s</td><td>同上</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td>同上</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td>5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td>每日检查点</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td>集群单核；10⁵ 次约 10 h 墙钟、80 GB 输出</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>ASCE 参考 ET 对 RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td>CA-TPA 2015，逐日</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>S-W 潜在蒸发 / 蒸腾对 RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td>生长季 RMSE，未调参</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>整模型（Richards + CERES-Maize）</td><td class="num">—</td><td>开发中，先把已有模块验证到位</td><td><span class="tag">待测</span></td></tr>
+      <tr><td>10⁵ 次九年模拟，24 子步 × 3 迭代，float64</td><td class="num">243 s</td><td class="c">1 × H100，计算骨架</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>同上，12 × 2</td><td class="num">82 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td class="c">5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td class="c">每日检查点</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td class="c">集群单核；10⁵ 次约 10 h 墙钟、80 GB 输出</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>ASCE 参考 ET 对 RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td class="c">CA-TPA 2015，逐日</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>S-W 潜在蒸发 / 蒸腾对 RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td class="c">生长季 RMSE，未调参</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>整模型（Richards + CERES-Maize）</td><td class="num">—</td><td class="c">开发中，先把已有模块验证到位</td><td><span class="tag">待测</span></td></tr>
     </tbody>
   </table></div>
-  <footer>计算骨架 = 与目标模型同计算形状的基准程序（37 节点隐式 Richards、S-W 型 PET、CERES 型作物日步、3287 天），不是最终模型。代码 <a href="https://github.com/juksentang/agri-jax">github.com/juksentang/agri-jax</a> · <a href="https://pypi.org/project/agri-jax/">pypi.org/project/agri-jax</a> · Apache-2.0。CERES-Maize 来自 DSSAT-CSM（BSD-3）；土壤水与潜在蒸散按 Ahuja 等 2000、Farahani &amp; Ahuja 1996、Shuttleworth &amp; Wallace 1985 的公式实现，对照 RZWQM2 与 DSSAT-CSM 输出验证。</footer>
+  <footer>计算骨架：37 节点隐式 Richards、S-W 型 PET、CERES 型作物日步、3287 天。代码 <a href="https://github.com/juksentang/agri-jax">github.com/juksentang/agri-jax</a> · <a href="https://pypi.org/project/agri-jax/">pypi.org/project/agri-jax</a> · Apache-2.0。CERES-Maize 来自 DSSAT-CSM（BSD-3）；土壤水与潜在蒸散按 Ahuja 等 2000、Farahani &amp; Ahuja 1996、Shuttleworth &amp; Wallace 1985 的公式实现，对照 RZWQM2 与 DSSAT-CSM 输出验证。</footer>
+  </div>
 </section>
 </div>
 
@@ -212,179 +299,234 @@ a{color:var(--teal)}
 'use strict';
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
-const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),ov=document.getElementById('ov');
-const W=1000,H=620;
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d'),ov=$('ov');
+const W=1000,H=640;
 const ease=x=>x<=0?0:x>=1?1:1-Math.pow(1-x,3);
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const fmt=n=>Math.round(n).toLocaleString('zh-CN');
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
-/* ---------- SVG label/shape buffer ---------- */
+/* ---------- SVG buffer ---------- */
 let S=[];
+const SIZE={xs:15,s:17,l:26,xl:32};
+const sizeOf=c=>{ for(const k of ['xs','s','l','xl']) if((' '+c+' ').includes(' '+k+' ')) return SIZE[k]; return 20; };
+const textW=(s,c='')=>{ const z=sizeOf(c),mono=/\bmono\b/.test(c); let w=0; for(const ch of String(s)) w+= /[　-鿿＀-￯]/.test(ch)? z : z*(mono?0.6:0.56); return w; };
 const T=(s,x,y,o={})=>S.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="${o.c||''}" text-anchor="${o.a==='center'?'middle':o.a==='right'?'end':'start'}">${esc(s)}</text>`);
 const R=(x,y,w,h,fill,o={})=>S.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0,w).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="${o.rx||0}" fill="${fill}" stroke="${o.stroke||'none'}" stroke-width="${o.sw||1}" opacity="${o.op??1}" ${o.dash?`stroke-dasharray="${o.dash}"`:''}/>`);
 const L=(x1,y1,x2,y2,stroke,o={})=>S.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${stroke}" stroke-width="${o.sw||1.5}" ${o.dash?`stroke-dasharray="${o.dash}"`:''} opacity="${o.op??1}" stroke-linecap="round"/>`);
 const P=(d,stroke,o={})=>S.push(`<path d="${d}" fill="${o.fill||'none'}" stroke="${stroke}" stroke-width="${o.sw||2}" opacity="${o.op??1}" ${o.dash?`stroke-dasharray="${o.dash}"`:''} stroke-linecap="round" stroke-linejoin="round"/>`);
-const ARROW=(x1,y1,x2,y2,stroke,p,o={})=>{ p=clamp(p,0,1); if(p<=0) return; const xe=x1+(x2-x1)*p,ye=y1+(y2-y1)*p; L(x1,y1,xe,ye,stroke,{sw:o.sw||2}); if(p>=1){ const a=Math.atan2(y2-y1,x2-x1),k=o.head||7; P(`M${x2} ${y2} L${x2-k*Math.cos(a-.45)} ${y2-k*Math.sin(a-.45)} L${x2-k*Math.cos(a+.45)} ${y2-k*Math.sin(a+.45)} Z`,stroke,{fill:stroke,sw:1}); } };
-const BOX=(x,y,w,h,label,stroke,fill,o={})=>{ R(x,y,w,h,fill,{rx:6,stroke,sw:o.sw||2}); T(label,x+w/2,y+h/2+(o.sub?-1:5),{a:'center',c:'ink b'+(o.small?' s':'')}); if(o.sub) T(o.sub,x+w/2,y+h/2+15,{a:'center',c:'xs'}); };
-const C=()=>({rust:css('--rust'),teal:css('--teal'),vio:css('--violet'),ink:css('--ink'),muted:css('--muted'),line:css('--line'),neu:css('--neutral'),cell:css('--cell'),rs:css('--rust-soft'),ts:css('--teal-soft'),vs:css('--violet-soft'),scene:css('--scene')});
+const ARROW=(x1,y1,x2,y2,stroke,p,o={})=>{ p=clamp(p,0,1); if(p<=0) return; const xe=x1+(x2-x1)*p,ye=y1+(y2-y1)*p; L(x1,y1,xe,ye,stroke,{sw:o.sw||2}); if(p>=1){ const a=Math.atan2(y2-y1,x2-x1),k=o.head||8; P(`M${x2} ${y2} L${x2-k*Math.cos(a-.45)} ${y2-k*Math.sin(a-.45)} L${x2-k*Math.cos(a+.45)} ${y2-k*Math.sin(a+.45)} Z`,stroke,{fill:stroke,sw:1}); } };
+/* label on a panel-coloured plate, so it never sits on top of a line */
+const TP=(s,x,y,o={})=>{ const w=textW(s,o.c||''),z=sizeOf(o.c||''); const x0=o.a==='center'?x-w/2:o.a==='right'?x-w:x; R(x0-6,y-z*0.95,w+12,z*1.3,C().scene); T(s,x,y,o); };
+const BOX=(x,y,w,h,label,stroke,fill,o={})=>{ R(x,y,w,h,fill,{rx:2,stroke,sw:o.sw||2}); if(o.sub){ T(label,x+w/2,y+h/2-3,{a:'center',c:'ink b s'}); T(o.sub,x+w/2,y+h/2+17,{a:'center',c:'xs'}); } else T(label,x+w/2,y+h/2+6,{a:'center',c:'ink b s'}); };
+let COL=null; const C=()=>COL||(COL={rust:css('--rust'),teal:css('--teal'),vio:css('--violet'),ink:css('--ink'),muted:css('--muted'),line:css('--rule'),neu:css('--neutral'),cell:css('--cell'),rs:css('--rust-soft'),ts:css('--teal-soft'),vs:css('--violet-soft'),scene:css('--panel')});
 /* ---------- matrix (canvas) ---------- */
-const ROWS=40,COLS=60; const M={x:70,y:40,w:860,h:400}; const cw=M.w/COLS,ch=M.h/ROWS;
-function grid(fillFn,alpha=1){ ctx.globalAlpha=alpha; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const f=fillFn(r,c); if(!f) continue; ctx.fillStyle=f; ctx.fillRect(M.x+c*cw+0.6,M.y+r*ch+0.6,cw-1.2,ch-1.2);} ctx.globalAlpha=1; }
-function axes(k,rowLabel){ T(rowLabel||'田块 / 参数组 ↓',M.x,M.y-12,{c:'s'}); T('天 →',M.x+M.w,M.y-12,{a:'right',c:'s'}); }
-function readouts(items){ /* bottom-left key/value pairs */ const y0=M.y+M.h+34; items.forEach((it,i)=>{ const x=M.x+i*215; T(it[0],x,y0,{c:'s'}); T(it[1],x,y0+24,{c:'ink b l mono'+(it[2]?' '+it[2]:'')}); }); }
-function bar(x,y,w,h,frac,color,label,val){ R(x,y,w,h,C().cell,{rx:3}); R(x,y,w*clamp(frac,0,1),h,color,{rx:3}); T(label,x,y-6,{c:'s'}); T(val,x+w,y-6,{a:'right',c:'mono s ink'}); }
-/* ---------- acts ---------- */
+const ROWS=40,COLS=60; const M={x:60,y:64,w:880,h:410}; const cw=M.w/COLS,ch=M.h/ROWS;
+function grid(fillFn,alpha=1,G=M){ const w=G.w/COLS,h=G.h/ROWS; ctx.globalAlpha=alpha; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const f=fillFn(r,c); if(!f) continue; ctx.fillStyle=f; ctx.fillRect(G.x+c*w+0.7,G.y+r*h+0.7,w-1.4,h-1.4);} ctx.globalAlpha=1; }
+function head(left,cls,right){ T(left,M.x,40,{c:cls||'ink b'}); T(right||'行 = 田块 · 列 = 天',M.x+M.w,40,{a:'right',c:'s'}); }
+function readouts(items){ const y0=M.y+M.h+46; items.forEach((it,i)=>{ const x=M.x+i*225; T(it[0],x,y0,{c:'s'}); T(it[1],x,y0+38,{c:'ink b xl mono'}); if(it[2]) T(it[2],x,y0+64,{c:'xs'}); }); }
+/* ---------- constants (measured, see docs/en/08) ---------- */
 const FORT_H=20.8, JAX_S=82, DAYS=3287, N=100000, FILES=99*N, GB=80;
 const seeds=new Float32Array(ROWS*COLS); { let a=7; for(let i=0;i<seeds.length;i++){ a=(a*1103515245+12345)&0x7fffffff; seeds[i]=0.6+0.4*(a/0x7fffffff);} }
-const laiColor=(c,q,base,strong)=>{ const doy=(c/COLS*DAYS)%365, s=Math.max(0,Math.sin(Math.PI*clamp((doy-125)/150,0,1))); const v=0.22+0.42*s*q; return mix(base,strong,v); };
 function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function mix(a,b,t){ const A=hexToRgb(a),B=hexToRgb(b); return `rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`; }
+const laiColor=(c,q,base,strong)=>{ const doy=(c/COLS*DAYS)%365, s=Math.max(0,Math.sin(Math.PI*clamp((doy-125)/150,0,1))); return mix(base,strong,0.25+0.5*s*q); };
 
 const ACTS=[
-/* ===== 0 hero: idle row filling ===== */
-{ frames:[{dur:60,text:''}], legend:'示意：格子',
-  draw(f,p){ const c=C(); const filled=p*0.35*ROWS*COLS; axes(); grid((r,cc)=>{ const k=r*COLS+cc; return k<filled? c.rust : c.cell; });
-    T('Fortran：一个核一次一块田，正在按行填',M.x,M.y+M.h+30,{c:'r'}); } },
-/* ===== 1 两种形态 ===== */
-{ frames:[{dur:6,text:'逐行填'},{dur:6,text:'加速到完成'},{dur:7,text:'整列同亮'},{dur:1,text:'完成'}], legend:'实测：时钟、磁盘、显存 · 示意：格子颜色',
-  draw(f,p){ const c=C(); axes(); const cores=32;
-    if(f<=1){ /* Fortran: 32 concurrent rows; each core sweeps its row, then next block of rows */
-      const q=f===0? ease(p)*0.12 : 0.12+ease(p)*0.88;               /* fraction of matrix filled */
-      const perRow=COLS; const totalCells=ROWS*COLS; const filledCells=q*totalCells;
-      /* rows are processed in blocks of 32 concurrent rows */
-      grid((r,cc)=>{ const block=Math.floor(r/cores); const rowsIn=Math.min(cores,ROWS-block*cores); const blockStart=block*cores*perRow; const cellsInBlock=clamp((filledCells-blockStart)/rowsIn,0,perRow); const active=cc<cellsInBlock; const cursor=cc===Math.floor(cellsInBlock)&&cellsInBlock<perRow&&cellsInBlock>0; return cursor? c.ink : active? c.rust : c.cell; });
+/* ===== 0 opening: Fortran fills row by row, looping ===== */
+{ name:'起点', frames:[{dur:60,text:'Fortran 按行填'}], real:'', ill:'格子', idle:'往下滚动进入第 1 幕；此处循环播放。',
+  draw(f,p){ const c=C(); const filled=p*0.35*ROWS*COLS; head('Fortran · 一个核一次跑一块田','r b');
+    grid((r,cc)=>{ const k=r*COLS+cc; return k<filled? c.rust : c.cell; });
+    T('已跑完 '+fmt(Math.floor(filled/COLS*N/ROWS/100)*100)+' 块田',M.x,M.y+M.h+46,{c:'ink m mono'});
+    T('一行 ≈ 2,500 块田，一格 ≈ 55 天',M.x+M.w,M.y+M.h+46,{a:'right',c:'s'}); } },
+/* ===== 1 two ways through the same matrix ===== */
+{ name:'两种形态', frames:[{dur:6,text:'逐行填'},{dur:6,text:'加速到完成'},{dur:7,text:'整列同亮'},{dur:1,text:'完成'}], real:'时钟、磁盘、显存', ill:'格子颜色',
+  draw(f,p){ const c=C(); const cores=32;
+    if(f<=1){
+      head('Fortran · 逐行：32 个核各跑一块田','r b');
+      const q=f===0? ease(p)*0.12 : 0.12+ease(p)*0.88; const filledCells=q*ROWS*COLS;
+      grid((r,cc)=>{ const block=Math.floor(r/cores); const rowsIn=Math.min(cores,ROWS-block*cores); const blockStart=block*cores*COLS; const k=clamp((filledCells-blockStart)/rowsIn,0,COLS); const cursor=cc===Math.floor(k)&&k<COLS&&k>0; return cursor? c.ink : cc<k? c.rust : c.cell; });
       const hours=q*FORT_H; const speed=f===0? 1+ease(p)*29 : 30+ease(p)*260;
-      readouts([['真实时间',hours<1?Math.round(hours*60)+' min':hours.toFixed(1)+' h'],['已完成',fmt(q*N)+' / '+fmt(N)],['磁盘写入',(q*GB).toFixed(1)+' / 80 GB'],['加速',f===0&&p<0.05?'×1':'×'+Math.round(speed)]]);
-      bar(M.x+645,M.y+M.h+62,215,10,q,c.rust,'',''); T(fmt(q*FILES)+' 个文件',M.x+645,M.y+M.h+92,{c:'xs mono'});
-      T('Fortran · 逐行',M.x+M.w,M.y+M.h+30,{a:'right',c:'r b'});
+      readouts([['真实时间（共 20.8 h）',hours<1?Math.round(hours*60)+' min':hours.toFixed(1)+' h','屏幕加速 ×'+Math.round(f===0&&p<0.05?1:speed)],['已完成（共 100,000）',fmt(q*N)],['CPU','32 核','每核一次一块田'],['磁盘写入（共 80 GB）',(q*GB).toFixed(1)+' GB',fmt(q*FILES)+' 个文件']]);
     } else {
+      head('Agri-JAX · 整列：全部田块同一天前进','t b');
       const BLOCK=3; const cols=f===2? Math.floor(ease(p)*COLS/BLOCK)*BLOCK : COLS; const day=Math.round(cols/COLS*DAYS); const q=cols/COLS;
       grid((r,cc)=> cc<cols? laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal) : c.cell);
-      if(cols<COLS) R(M.x+cols*cw,M.y,BLOCK*cw,M.h,'none',{stroke:c.ink,sw:1.5});
-      readouts([['真实时间',(q*JAX_S).toFixed(0)+' s'],['模拟日',day+' / '+DAYS],['显存','8 / 80 GB'],['磁盘写入','0'+(f===3?' → 落盘一次，几 MB':'')]]);
-      bar(M.x+645,M.y+M.h+62,215,10,0.1,c.teal,'',''); T(f===2?'每步全部田块前进 '+(BLOCK/COLS*DAYS|0)+' 天 · 放慢 ×4':'3287 天完成',M.x+645,M.y+M.h+92,{c:'xs'});
-      T('Agri-JAX · 整列',M.x+M.w,M.y+M.h+30,{a:'right',c:'t b'});
+      if(cols<COLS){ R(M.x+cols*cw,M.y-4,BLOCK*cw,M.h+8,'none',{stroke:c.ink,sw:2}); }
+      readouts([['真实时间（共 82 s）',(q*JAX_S).toFixed(0)+' s','屏幕加速 ×12'],['模拟日（共 3287）',String(day),f===2?'屏幕每步 +'+(BLOCK/COLS*DAYS|0)+' 天':'全部完成'],['GPU 显存','8 GB','共 80 GB，全程不变'],['磁盘写入',f===3?'几 MB':'0 GB',f===3?'结束时落盘一次':'全程不落盘']]);
     } } },
-/* ===== 2 为什么可以 ===== */
-{ frames:[{dur:3,text:'行内依赖'},{dur:3,text:'行间无依赖'},{dur:2.5,text:'交换循环'},{dur:1.5,text:'一列一条指令'}], legend:'示意：格子、箭头',
-  draw(f,p){ const c=C(); const r=8,n=12; const gx=90,gy=70,gw=820,gh=330; const w=gw/n,h=gh/r; const q=ease(p);
-    T('田块 ↓',gx,gy-12,{c:'s'}); T('天 →',gx+gw,gy-12,{a:'right',c:'s'});
-    for(let i=0;i<r;i++) for(let j=0;j<n;j++){ const hot=f===3&&j===5; R(gx+j*w+3,gy+i*h+3,w-6,h-6,hot?c.teal:c.cell,{rx:3}); }
-    if(f>=0){ const show=f===0? q*n : n; for(let i=0;i<r;i++) for(let j=1;j<Math.min(n,show+1);j++){ const pp= f===0? clamp(show-(j-1),0,1):1; ARROW(gx+(j-1)*w+w/2+10,gy+i*h+h/2,gx+j*w+w/2-10,gy+i*h+h/2,c.teal,pp,{sw:1.6,head:6}); } }
-    if(f===1){ const x1=gx+3*w+w/2,y1=gy+2*h+h/2,x2=gx+6*w+w/2,y2=gy+5*h+h/2; const pp=clamp(q*2,0,1); ARROW(x1,y1,x2,y2,c.rust,pp,{sw:2.5}); if(q>0.5){ const mx=(x1+x2)/2,my=(y1+y2)/2; L(mx-12,my-12,mx+12,my+12,c.rust,{sw:3}); L(mx-12,my+12,mx+12,my-12,c.rust,{sw:3}); T('没有这种箭头',mx+18,my+5,{c:'r b'}); } }
-    if(f===2){ const y0=gy+gh+46, d=q*28; T('for 田块 in 十万块:',gx,y0+(d),{c:'mono ink'}); T('    for 天 in 3287 天:',gx,y0+28-(d),{c:'mono ink'}); T('        state = 日步(state)',gx,y0+56,{c:'mono'});
-      if(q>0.95){ T('→ 外层按天，内层对所有田块做同一件事',gx+400,y0+28,{c:'t'}); } }
-    if(f===3){ T('一列 = 十万个数上的同一条指令',gx,gy+gh+46,{c:'t b l'}); T('day t',gx+5*w+w/2,gy+gh+18,{a:'center',c:'mono xs t'}); }
+/* ===== 2 why the loop order can be swapped ===== */
+{ name:'为什么可以', frames:[{dur:3,text:'行内依赖'},{dur:3,text:'行间无关'},{dur:3,text:'交换循环'},{dur:1.5,text:'一条指令'}], real:'', ill:'格子、箭头',
+  draw(f,p){ const c=C(); const r=8,n=12; const gx=60,gy=64,gw=880,gh=f===2?280:380; const w=gw/n,h=gh/r; const q=ease(p);
+    head('局部放大：8 块田 × 12 天','ink b');
+    for(let i=0;i<r;i++) for(let j=0;j<n;j++){ const hot=f===3&&j===5; R(gx+j*w+4,gy+i*h+4,w-8,h-8,hot?c.teal:c.cell,{rx:2}); }
+    const show=f===0? q*n : n; for(let i=0;i<r;i++) for(let j=1;j<Math.min(n,show+1);j++){ const pp= f===0? clamp(show-(j-1),0,1):1; ARROW(gx+(j-1)*w+w/2+12,gy+i*h+h/2,gx+j*w+w/2-12,gy+i*h+h/2,f===3&&(j===5||j===6)?c.ink:c.teal,pp,{sw:2,head:7}); }
+    const yb=gy+gh+52;
+    if(f===0) T('箭头只在行内：今天只依赖自己的昨天',gx,yb,{c:'t b l'});
+    if(f===1){ const x1=gx+3*w+w/2,y1=gy+2*h+h/2,x2=gx+6*w+w/2,y2=gy+5*h+h/2; ARROW(x1,y1,x2,y2,c.rust,clamp(q*2,0,1),{sw:3,head:10});
+      if(q>0.5){ const mx=(x1+x2)/2,my=(y1+y2)/2; L(mx-14,my-14,mx+14,my+14,c.rust,{sw:4}); L(mx-14,my+14,mx+14,my-14,c.rust,{sw:4}); }
+      T('行与行之间没有这种箭头',gx,yb,{c:'r b l'}); }
+    if(f===2){ const y0=gy+gh+40; const lx=gx, rx=gx+470;
+      T('Fortran：外层按田块',lx,y0,{c:'r b s'}); ['for 田块 in 十万块:','    for 天 in 3287 天:','        state = 日步(state)'].forEach((s,i)=>T(s,lx,y0+36+i*32,{c:'mono ink'}));
+      const k=clamp(q*2-0.6,0,1); if(k>0){ ARROW(rx-86,y0+68,rx-22,y0+68,c.ink,k,{sw:2.5,head:9}); if(k>=1) T('交换',rx-54,y0+54,{a:'center',c:'s ink m'}); }
+      if(q>0.55){ T('Agri-JAX：外层按天',rx,y0,{c:'t b s'}); T('for 天 in 3287 天:',rx,y0+36,{c:'mono ink'}); T('    state = 日步(全部田块的 state)',rx,y0+68,{c:'mono ink'}); T('内层不再是循环，是一次数组运算',rx,y0+108,{c:'t s b'}); } }
+    if(f===3){ T('第 t 天',gx+5*w+w/2,gy+gh+26,{a:'center',c:'t s b'}); T('一列 = 十万个数上的同一条指令',gx,yb+22,{c:'t b l'}); }
   } },
-/* ===== 3 一列里发生了什么 ===== */
-{ frames:[{dur:5,text:'七个过程'},{dur:3,text:'叶面积方程'},{dur:3,text:'规则一'},{dur:3.5,text:'规则二'},{dur:3,text:'规则三'}], legend:'示意：全部',
+/* ===== 3 inside one column ===== */
+{ name:'一列里发生什么', frames:[{dur:5,text:'七个过程'},{dur:3,text:'叶面积'},{dur:3,text:'规则一'},{dur:3.5,text:'规则二'},{dur:3,text:'规则三'}], real:'', ill:'读写关系、方程、层数',
   draw(f,p){ const c=C(); const q=ease(p);
-    const procs=[['天气','辐射·积温'],['潜在蒸散','S-W'],['截光','Beer'],['作物','物候·生长'],['争水','多作物'],['土壤水','Richards'],['诊断','ET·排水']];
-    const fields=['天气','PET','LAI','θ 各层','根系','产量'];
-    const mini=(hi)=>{ /* compact chain on the left for frames 1-4 */ const x=40,w=118,bh=44; T('一天',x+w/2,48,{a:'center',c:'s'}); procs.forEach((pr,i)=>{ const y=64+i*76; const on=i===hi; BOX(x,y,w,bh,pr[0],on?(f===4&&i===5?c.teal:c.teal):c.line,on?c.ts:'none',{small:true}); if(i<6) ARROW(x+w/2,y+bh,x+w/2,y+76,c.muted,1,{sw:1.2,head:5}); }); };
-    if(f===0){ const x=300,w=200,bh=48; T('一列 = 一天',x+w/2,40,{a:'center',c:'s'}); T('状态字段',740,40,{c:'s'});
-      fields.forEach((fl,i)=>{ R(700,64+i*82,220,44,c.cell,{rx:5}); T(fl,810,92+i*82,{a:'center',c:'ink'}); });
-      const rw=[[0],[0,1],[1,2],[1,2,3,5],[3,4],[3,4],[1,3,5]];
-      procs.forEach((pr,i)=>{ const y=64+i*76; const on=q*7>i; BOX(x,y,w,bh,pr[0],on?c.teal:c.line,on?c.ts:'none',{sub:pr[1]}); if(i<6) ARROW(x+w/2,y+bh,x+w/2,y+76,c.muted,clamp(q*7-i-0.5,0,1),{sw:1.4,head:6});
-        if(on) rw[i].forEach(fi=>L(x+w,y+bh/2,700,64+fi*82+22,c.vio,{sw:1.6,dash:'5 4'})); });
-    }
-    if(f===1){ mini(3); const ins=[['昨天的状态','LAI · 生育期 · 土壤水'],['品种参数','展叶速率'],['今日天气','积温']];
-      ins.forEach((it,i)=>{ const y=110+i*120; BOX(220,y,200,70,it[0],c.line,'none',{sub:it[1]}); ARROW(420,y+35,540,300,c.muted,clamp(q*3-i*0.6,0,1)); });
-      R(540,230,260,140,c.ts,{rx:6,stroke:c.teal,sw:2}); T('叶面积增长',670,258,{a:'center',c:'ink b'}); T('ΔLAI = 展叶速率 × 积温',670,296,{a:'center',c:'ink s'}); T('× 水分胁迫因子',670,316,{a:'center',c:'ink s'}); T('仅营养生长期',670,348,{a:'center',c:'xs'});
-      ARROW(800,300,880,300,c.teal,clamp(q*3-2,0,1)); BOX(880,265,90,70,'今天的',c.teal,'none',{sub:'LAI',small:true});
-      T('读 3 处 · 写 1 处',670,420,{a:'center',c:'ink b'}); }
-    if(f===2){ mini(3); const hit=p>0.35, split=p>0.7; if(!split) T('共享格子（COMMON）',330,80,{c:'r b'});
-      if(!split){ R(330,100,420,54,hit?c.rust:c.cell,{rx:6}); T(hit?'撞车：谁写的？':'theta · h · …',540,133,{a:'center',c:hit?'ink b':'ink'});
-        ARROW(300,200,400,158,c.rust,clamp(q*3,0,1)); T('田块 A 写入',230,222,{c:'s r'}); ARROW(780,200,680,158,c.rust,clamp(q*3-0.4,0,1)); T('田块 B 写入',700,222,{c:'s r'}); }
-      else { T('→ 每块田自己的一行',330,100,{c:'t b'}); for(let i=0;i<6;i++){ R(330,116+i*40,420,30,c.ts,{rx:4}); T('田块 '+(i+1),350,136+i*40,{c:'ink s'}); T('θ · h · LAI · 生育期',560,136+i*40,{a:'center',c:'s'}); } }
-      T('规则一：纯函数，状态显式传入传出',330,H-40,{c:'ink'}); }
-    if(f===3){ mini(3); const st=['出苗','营养生长','吐丝','营养生长','灌浆','营养生长']; T('同一天，六块田',330,80,{c:'s'});
-      st.forEach((s,i)=>{ const y=96+i*46; R(330,y,300,34,c.cell,{rx:4}); T('田块 '+(i+1),345,y+22,{c:'ink s'}); T(s,430,y+22,{c:s==='营养生长'?'t s':'s'}); });
-      const ifp=q<0.45; if(ifp){ T('if 生育期 == 营养生长',660,82,{c:'r mono s'}); T('整列只能走一条路 ✕',660,120,{c:'r b'}); }
-      else { T('where(营养生长, 增长值, 0)',660,82,{c:'t mono s'}); const sel=Math.floor((q-0.45)/0.5*6); st.forEach((s,i)=>{ if(i<sel){ R(660,96+i*46+6,120,22,s==='营养生长'?c.teal:c.cell,{rx:3}); T(s==='营养生长'?'增长值':'0',720,96+i*46+22,{a:'center',c:s==='营养生长'?'xs':'xs ink'}); } }); if(sel>=6) T('两条都算，逐行挑 · 仍是一次数组运算',660,400,{c:'t'}); }
-      T('规则二：用 where 分支，不用 if',330,H-40,{c:'ink'}); }
-    if(f===4){ mini(5); const Ls=37, x0=330,y0=70,lh=(H-160)/Ls; T('Fortran：逐层循环',x0,52,{c:'r b s'}); T('Agri-JAX：整列一次',620,52,{c:'t b s'});
-      const done=Math.min(Ls,Math.floor(q*1.7*Ls)); for(let i=0;i<Ls;i++){ R(x0,y0+i*lh,160,lh-1,i<done?c.rust:c.cell); } if(done<Ls) T('第 '+(done+1)+' 层',x0+170,y0+done*lh+lh,{c:'xs r'});
-      const cols=Math.min(24,Math.floor(q*3*24)); for(let j=0;j<cols;j++) for(let i=0;i<Ls;i++){ R(620+j*13,y0+i*lh,11,lh-1,c.teal); } T('37 层',600,y0+Ls*lh/2,{a:'right',c:'xs'}); if(cols>=24) T('37 × 十万，一次运算',620,y0+Ls*lh+18,{c:'t'});
-      T('规则三：不写循环，层、天、样本的循环交给运行时',330,H-40,{c:'ink'}); }
-  } },
-/* ===== 4 求导 ===== */
-{ frames:[{dur:3,text:'前向'},{dur:5,text:'反向'},{dur:1.5,text:'代价'},{dur:2.5,text:'可辨识性'},{dur:4,text:'降雨归因'},{dur:4,text:'多链'},{dur:3,text:'嵌入网络'}], legend:'实测：56 s / 万样本 · 示意：参数柱、损失谷、归因曲线',
-  draw(f,p){ const c=C(); const q=ease(p); const Mg={x:70,y:f===4?120:60,w:860,h:f===4?260:300}; const cw2=Mg.w/COLS,ch2=Mg.h/ROWS;
-    const rowLab= f===5? '链 ↓' : '田块 / 参数组 ↓'; T(rowLab,Mg.x,Mg.y-12,{c:'s'}); T('天 →',Mg.x+Mg.w,Mg.y-12,{a:'right',c:'s'});
-    const fwd = f===0? q : 1; const bwd = f===1? q : (f>=2&&f!==5? 1 : 0); const bwd2 = f===5? q : 0;
-    const PAR=['λ','h_b','K_sat','θ_r','θ_s','反照率','r_s','r_ss','P1','P5','G2','G3'], SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
-    if(f===6){ /* embedded network: loss box above the chain, violet gradient path walking back along the chain */
-      const procs=['天气','潜在蒸散','气孔阻力','截光','作物','争水','土壤水','诊断']; const x0=60,w=100,gap=118,y=300;
-      procs.forEach((pr,i)=>{ const x=x0+i*gap; const net=i===2; BOX(x,y,w,56,pr,net?c.vio:c.line,net?c.vs:'none',{small:true,sub:net?'小网络':undefined}); if(i<7) ARROW(x+w,y+28,x+gap,y+28,c.muted,1,{sw:1.2,head:5}); });
-      const lx=x0+7*gap+w/2; const bx=Math.min(lx,W-160); R(bx-150,120,300,52,c.vs,{rx:6,stroke:c.vio,sw:2}); T('损失 = (模拟 ET − 通量塔 ET)²',bx,152,{a:'center',c:'ink s b'});
-      const steps=7; const reach=q*steps; /* path: loss → 诊断 top, then leftwards along y=260 to 气孔阻力 */
-      let d=`M${bx} 172 L${bx} 232 L${lx} 232`; const toX=x0+2*gap+w/2; const xEnd=Math.max(toX,lx-reach*gap);
-      d+=` L${lx} 260 L${xEnd} 260`; if(reach>=5) d+=` L${toX} ${y}`; P(d,c.vio,{sw:3,dash:'7 5'});
-      const k=Math.round(reach); for(let i=7;i>7-Math.min(k,5);i--){ const x=x0+i*gap+w/2; R(x-w/2,y,w,56,'none',{rx:6,stroke:c.vio,sw:2,op:0.5}); }
-      T('梯度沿链倒流',lx-16,254,{a:'right',c:'v s'}); if(reach>=5) T('穿过机理过程，流进网络权重，也流进机理参数',x0,y+100,{c:'v'});
+    const procs=[['天气','辐射 · 积温'],['潜在蒸散','S-W'],['截光','Beer'],['作物','物候 · 生长'],['争水','多作物'],['土壤水','Richards'],['诊断','ET · 排水']];
+    const cx=30,cwid=170,bh=50,ry=i=>86+i*76;
+    const chain=(hi)=>{ procs.forEach((pr,i)=>{ const y=ry(i); const on= hi===undefined? q*7>i : i===hi; BOX(cx,y,cwid,bh,pr[0],on?c.teal:c.line,on?c.ts:'none',{sub:pr[1]}); if(i<6) ARROW(cx+cwid/2,y+bh+2,cx+cwid/2,ry(i+1)-2,c.muted,hi===undefined?clamp(q*7-i-0.5,0,1):1,{sw:1.5,head:6}); }); };
+    const zoom=(hi,title)=>{ chain(hi); const y=ry(hi)+bh/2; L(cx+cwid,y,250,y,c.teal,{sw:2}); R(250,64,730,560,'none',{rx:2,stroke:c.teal,sw:1.5,op:0.7}); T('一天',cx+cwid/2,40,{a:'center',c:'s'}); T(title,270,40,{c:'ink b'}); };
+    if(f===0){ chain(); T('一天 = 七个过程依次执行',cx,40,{c:'ink b'});
+      const fields=['天气','PET','截获光','LAI','θ 各层','根系','产量']; const x0=250,x1=990,colw=(x1-x0)/fields.length;
+      /* legend */ S.push(`<circle cx="${x1-150}" cy="34" r="8" fill="none" stroke="${c.ink}" stroke-width="2"/>`); T('读',x1-134,40,{c:'s ink'}); R(x1-90,26,16,16,c.teal); T('写',x1-66,40,{c:'s ink'});
+      fields.forEach((fl,j)=>T(fl,x0+colw*j+colw/2,74,{a:'center',c:'s ink m'}));
+      L(x0,82,x1,82,c.ink,{sw:1.5});
+      const RW=[{w:[0]},{r:[0,3],w:[1]},{r:[0,3],w:[2]},{r:[0,2,4],w:[3,5,6]},{r:[1,4,5],w:[4]},{r:[0,1],w:[4]},{r:[1,4,6]}];
+      procs.forEach((pr,i)=>{ const yc=ry(i)+bh/2; L(x0,ry(i)+bh+13,x1,ry(i)+bh+13,c.line,{sw:1}); const on=q*7>i+0.3; if(!on) return;
+        (RW[i].r||[]).forEach(j=>S.push(`<circle cx="${x0+colw*j+colw/2}" cy="${yc}" r="9" fill="none" stroke="${c.ink}" stroke-width="2"/>`));
+        (RW[i].w||[]).forEach(j=>R(x0+colw*j+colw/2-10,yc-10,20,20,c.teal)); });
       return; }
-    /* matrix */
-    for(let r=0;r<ROWS;r++) for(let cc=0;cc<COLS;cc++){ const fx=cc/COLS; let col=c.cell; if(fx<fwd) col=laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal); if(bwd>0 && fx>1-bwd) col=mix(c.vs,c.vio,0.35+0.5*seeds[r*COLS+cc]); if(bwd2>0 && fx>1-bwd2) col=mix(c.vs,c.vio,0.35+0.5*seeds[r*COLS+cc]); ctx.fillStyle=col; ctx.fillRect(Mg.x+cc*cw2+0.6,Mg.y+r*ch2+0.6,cw2-1.2,ch2-1.2); }
-    if(f===1||f===5){ const xb=Mg.x+(1-(f===1?bwd:bwd2))*Mg.w; L(xb,Mg.y-4,xb,Mg.y+Mg.h+4,c.vio,{sw:2}); T('← 反向',xb-6,Mg.y-18,{a:'right',c:'v s'}); }
-    if(f===0){ const xf=Mg.x+fwd*Mg.w; L(xf,Mg.y-4,xf,Mg.y+Mg.h+4,c.teal,{sw:2}); T('前向 →',xf+6,Mg.y-18,{c:'t s'}); }
-    if(f===4){ /* rain bars in a band above the matrix + attribution curve below */ let a=3; const y0=Mg.y-26; for(let cc=0;cc<COLS;cc++){ a=(a*1103515245+12345)&0x7fffffff; const rr=(a/0x7fffffff); const hgt=rr<0.3? 6+rr*44:0; if(hgt) R(Mg.x+cc*cw2+2,y0-hgt,cw2-4,hgt,c.teal); } L(Mg.x,y0,Mg.x+Mg.w,y0,c.line); T('逐日降雨（输入）',Mg.x,38,{c:'s t b'});
-      const yc=Mg.y+Mg.h+120; let d=''; const from=1-q; for(let cc=COLS;cc>=0;cc--){ const fx=cc/COLS; if(fx<from) break; const v=Math.exp(-Math.pow((fx-0.58)/0.14,2))*80+Math.exp(-Math.pow((fx-0.25)/0.1,2))*18; const x=Mg.x+fx*Mg.w,y=yc-v; d+= d?` L${x} ${y}`:`M${x} ${y}`; } L(Mg.x,yc,Mg.x+Mg.w,yc,c.line); if(d) P(d,c.vio,{sw:2.5});
-      T('∂产量/∂降雨_t',Mg.x,Mg.y+Mg.h+34,{c:'v b'}); T('播种',Mg.x,yc+18,{c:'xs'}); T('吐丝期',Mg.x+0.58*Mg.w,yc+18,{a:'center',c:'xs'}); T('成熟',Mg.x+Mg.w,yc+18,{a:'right',c:'xs'}); const xb=Mg.x+(1-q)*Mg.w; L(xb,Mg.y-4,xb,yc,c.vio,{sw:1.5,dash:'4 4'}); return; }
-    /* parameter bars below */
-    const by=Mg.y+Mg.h+96, bh=76, n=PAR.length, bw=(Mg.w-(f===3?300:0))/n; const fill= f===0?0 : f===1? q : 1;
-    PAR.forEach((nm,i)=>{ const v=SENS[i]*(f===1? clamp((q*n-i*0.6)/1,0,1)*1:fill); const x=Mg.x+i*bw+6; R(x,by,bw-12,bh,c.cell,{rx:2}); R(x,by+bh-v*bh,bw-12,v*bh,f===3&&(i===0||i===2)?c.neu:c.vio,{rx:2}); T(nm,x+(bw-12)/2,by+bh+18,{a:'center',c:'mono xs'}); });
-    T(f===0?'参数导数：尚未开始':'∂产量/∂参数（示意）',Mg.x,by-10,{c:f===0?'s':'v s b'});
-    if(f===2){ T('有限差分 31 次前向 ｜ 反向 1 次前向 + 1 次反向',Mg.x+Mg.w,by-10,{a:'right',c:'ink b'}); }
-    if(f===3){ const ex=Mg.x+Mg.w-140, ey=by+bh/2; for(let k=4;k>=1;k--){ S.push(`<ellipse cx="${ex}" cy="${ey}" rx="${k*30}" ry="${k*8}" transform="rotate(-25 ${ex} ${ey})" fill="none" stroke="${c.line}"/>`); } L(ex-120*Math.cos(0.436),ey+120*Math.sin(0.436),ex+120*Math.cos(0.436),ey-120*Math.sin(0.436),c.neu,{sw:3,op:q}); T('平的方向：λ 与 K_sat 一起变，辨识不出',ex,by+bh+22,{a:'center',c:'s'}); T('陡的方向：数据约束住了',ex,by-10,{a:'center',c:'s t'}); }
-    if(f===5){ T('4 条长链 × 1000 步 ＝ 1000 条短链 × 4 步 的墙钟；样本 4,000 对 4,000，但后者一小时内跑完',Mg.x,by+bh+44,{c:'ink s'}); }
+    if(f===1){ zoom(3,'放大“作物”：叶面积增长');
+      const ins=[['昨天的状态','LAI · 生育期 · 土壤水'],['品种参数','展叶速率'],['今日天气','积温']];
+      ins.forEach((it,i)=>{ const y=108+i*140; BOX(280,y,210,76,it[0],c.line,c.scene,{sub:it[1]}); ARROW(490,y+38,556,338,c.muted,clamp(q*3-i*0.6,0,1),{sw:2}); });
+      R(560,250,250,176,c.ts,{rx:2,stroke:c.teal,sw:2}); T('叶面积增长',685,284,{a:'center',c:'ink b'}); T('ΔLAI = 展叶速率',685,326,{a:'center',c:'ink s'}); T('× 积温 × 水分胁迫',685,352,{a:'center',c:'ink s'}); T('仅营养生长期',685,400,{a:'center',c:'xs'});
+      ARROW(810,338,850,338,c.teal,clamp(q*3-2,0,1),{sw:2}); BOX(850,300,112,76,'今天的',c.teal,c.scene,{sub:'LAI'});
+      T('读 3 处 · 写 1 处',615,520,{a:'center',c:'ink b l'}); T('签名：日步(昨天状态, 参数, 天气) → 今天状态',615,560,{a:'center',c:'s'}); return; }
+    if(f===2){ zoom(3,'规则一：纯函数，状态显式传入传出'); const hit=p>0.35, split=p>0.7;
+      if(!split){ T('共享格子（COMMON 块）',300,112,{c:'r b s'}); R(300,130,560,72,hit?c.rust:c.cell,{rx:2}); T(hit?'撞车：谁写的？':'θ · h · LAI · …',580,176,{a:'center',c:hit?'b':'ink'}); if(hit) S.push(`<text x="580" y="176" class="b" text-anchor="middle" style="fill:${c.scene}">撞车：谁写的？</text>`);
+        ARROW(380,290,470,208,c.rust,clamp(q*3,0,1),{sw:2.5}); T('田块 A 写入',300,320,{c:'r m'}); ARROW(780,290,690,208,c.rust,clamp(q*3-0.4,0,1),{sw:2.5}); T('田块 B 写入',860,320,{a:'right',c:'r m'}); }
+      else { T('→ 每块田自己的一行，互不相干',300,112,{c:'t b s'}); for(let i=0;i<6;i++){ R(300,130+i*52,560,40,c.ts,{rx:2}); T('田块 '+(i+1),318,157+i*52,{c:'ink s m'}); T('θ · h · LAI · 生育期',620,157+i*52,{a:'center',c:'s'}); } }
+      return; }
+    if(f===3){ zoom(3,'规则二：用 where 分支，不用 if'); const st=['出苗','营养生长','吐丝','营养生长','灌浆','营养生长']; T('同一天，六块田',280,112,{c:'s'});
+      st.forEach((s,i)=>{ const y=128+i*56; R(280,y,280,42,c.cell,{rx:2}); T('田块 '+(i+1),296,y+28,{c:'ink s m'}); T(s,400,y+28,{c:s==='营养生长'?'t s b':'s'}); });
+      if(q<0.45){ T('if 生育期 == 营养生长:',600,112,{c:'r mono s'}); T('整列只能走一条路',600,160,{c:'r b'}); T('十万块田不在同一生育期',600,194,{c:'r s'}); }
+      else { T('where(营养生长, 增长值, 0)',600,112,{c:'t mono s'}); const sel=Math.floor((q-0.45)/0.5*6); st.forEach((s,i)=>{ if(i<sel){ const y=128+i*56; const g=s==='营养生长'; R(600,y+6,150,30,g?c.teal:c.cell,{rx:2}); if(g) S.push(`<text x="675" y="${y+27}" class="s b" text-anchor="middle" style="fill:${c.scene}">增长值</text>`); else T('0',675,y+27,{a:'center',c:'s ink mono'}); } });
+        if(sel>=6){ T('两条都算，逐行挑',600,500,{c:'t b'}); T('仍是一次数组运算',600,532,{c:'t s'}); } }
+      return; }
+    if(f===4){ zoom(5,'规则三：不写循环，循环交给运行时'); const Ls=37, y0=130, lh=400/Ls;
+      T('Fortran：逐层循环',280,108,{c:'r b s'}); T('Agri-JAX：整列一次',600,108,{c:'t b s'});
+      const done=Math.min(Ls,Math.floor(q*1.7*Ls)); for(let i=0;i<Ls;i++) R(280,y0+i*lh,200,lh-1.5,i<done?c.rust:c.cell);
+      if(done<Ls) T('第 '+(done+1)+' 层',492,y0+done*lh+lh,{c:'xs r mono'});
+      const cols=Math.min(24,Math.floor(q*3*24)); for(let j=0;j<24;j++) for(let i=0;i<Ls;i++) R(600+j*15,y0+i*lh,12,lh-1.5,j<cols?c.teal:c.cell);
+      T('37 层，一层接一层',280,y0+400+34,{c:'r s'}); T('37 层 × 十万块田，一次运算',600,y0+400+34,{c:cols>=24?'t s b':'s'}); T('每一小列 = 一块田',600,y0+400+60,{c:'xs'});
+      return; }
   } },
-/* ===== 5 估算器 ===== */
-{ frames:[{dur:0.6,text:'估算'}], legend:'外推：按带宽由 H100 实测推得',
-  draw(f,p){ const c=C(); grid((r,cc)=>laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal),0.12); const e=estimate();
-    const x=110,w=780; T('同一批模拟，两条时间条（对数刻度）',x,80,{c:'s'});
-    const lo=0, hi=Math.log10(14*86400); const wf=s=>w*clamp((Math.log10(Math.max(1,s))-lo)/(hi-lo),0,1);
-    T('Fortran',x,150,{c:'r b l'}); R(x,165,w,22,c.cell,{rx:3}); R(x,165,wf(e.fort),22,c.rust,{rx:3}); T(e.fortH,x+w,150,{a:'right',c:'mono ink b l'});
-    T('Agri-JAX',x,250,{c:'t b l'}); R(x,265,w,22,c.cell,{rx:3}); R(x,265,wf(e.jax),22,c.teal,{rx:3}); T(e.jaxH,x+w,250,{a:'right',c:'mono ink b l'});
-    ['1 秒','1 分钟','1 小时','1 天','1 周'].forEach((lb,i)=>{ const s=[1,60,3600,86400,7*86400][i]; const xx=x+wf(s); L(xx,300,xx,310,c.line); T(lb,xx,326,{a:'center',c:'xs mono'}); });
-    T(`约快 ${e.ratio.toLocaleString('zh-CN')} 倍`,x,400,{c:'ink b l'}); T('批量小于一万时 GPU 吃不饱，倍数缩小；再大是内存带宽墙',x,428,{c:'s'});
+/* ===== 4 the gradient ===== */
+{ name:'求导', frames:[{dur:3,text:'前向'},{dur:5,text:'反向'},{dur:2.5,text:'代价'},{dur:2.5,text:'辨识'},{dur:4,text:'归因'},{dur:4,text:'多链'},{dur:3,text:'网络'}], real:'反向 / 前向耗时比、56 s', ill:'参数柱、损失谷、归因曲线',
+  draw(f,p){ const c=C(); const q=ease(p);
+    const Mg= f===4? {x:60,y:150,w:880,h:200} : {x:60,y:64,w:880,h:280}; const cw2=Mg.w/COLS,ch2=Mg.h/ROWS;
+    const PAR=['λ','h_b','K_sat','θ_r','θ_s','反照率','r_s','r_ss','P1','P5','G2','G3'], SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
+    if(f===6){ T('嵌入网络：气孔阻力换成小网络',60,40,{c:'ink b'});
+      const procs=['天气','潜在蒸散','气孔阻力','截光','作物','争水','土壤水','诊断']; const x0=36,w=104,gap=116,y=330;
+      procs.forEach((pr,i)=>{ const x=x0+i*gap; const net=i===2; BOX(x,y,w,60,pr,net?c.vio:c.line,net?c.vs:c.scene,{sub:net?'小网络':undefined}); if(i<7) ARROW(x+w+1,y+30,x+gap-1,y+30,c.muted,1,{sw:1.5,head:6}); });
+      T('前向 →',x0,y+96,{c:'s'});
+      const lx=x0+7*gap+w/2, bx=820; R(bx-170,110,340,60,c.vs,{rx:2,stroke:c.vio,sw:2}); T('损失 = (模拟 ET − 通量塔 ET)²',bx,148,{a:'center',c:'ink s b'});
+      const reach=q*7; const toX=x0+2*gap+w/2; const xEnd=Math.max(toX,lx-reach*gap);
+      let d=`M${bx} 170 L${bx} 230 L${lx} 230 L${lx} 290 L${xEnd} 290`; if(reach>=5) d+=` L${toX} ${y}`; P(d,c.vio,{sw:3,dash:'8 6'});
+      for(let i=7;i>7-Math.min(Math.round(reach),5);i--){ const x=x0+i*gap; R(x,y,w,60,'none',{rx:2,stroke:c.vio,sw:2.5}); }
+      T('← 梯度沿链倒流',lx-20,276,{a:'right',c:'v s b'});
+      if(reach>=5){ T('穿过机理过程，流进网络权重，也流进机理参数',x0,470,{c:'v b'}); T('网络只替换一个过程；其余仍是方程',x0,506,{c:'s'}); }
+      return; }
+    head(f===4?'逐日降雨（输入）':f===5?'行 = 马尔可夫链':'行 = 田块 / 参数组',f===4?'t b s':'ink b s','列 = 天');
+    const fwd = f===0? q : 1; const bwd = f===1? q : (f>=2&&f!==5? 1 : 0); const bwd2 = f===5? q : 0; const back=Math.max(bwd,bwd2);
+    for(let r=0;r<ROWS;r++) for(let cc=0;cc<COLS;cc++){ const fx=cc/COLS; let col=c.cell; if(fx<fwd) col=laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal); if(back>0 && fx>=1-back) col=mix(c.vs,c.vio,0.35+0.5*seeds[r*COLS+cc]); ctx.fillStyle=col; ctx.fillRect(Mg.x+cc*cw2+0.7,Mg.y+r*ch2+0.7,cw2-1.4,ch2-1.4); }
+    const ys=Mg.y+Mg.h+28;
+    if(f===0&&fwd<1){ const xf=Mg.x+fwd*Mg.w; L(xf,Mg.y-6,xf,Mg.y+Mg.h+6,c.teal,{sw:3}); } if(f===0) T('前向 → 每天的状态存下',clamp(Mg.x+fwd*Mg.w,Mg.x+120,Mg.x+Mg.w),ys,{a:'right',c:'t s b'});
+    if((f===1||f===5)&&back<1){ const xb=Mg.x+(1-back)*Mg.w; L(xb,Mg.y-6,xb,Mg.y+Mg.h+6,c.vio,{sw:3}); }
+    if(f===1||f===5) T('← 反向',clamp(Mg.x+(1-back)*Mg.w,Mg.x,Mg.x+Mg.w-80),ys,{c:'v s b'});
+    if(f===4){ let a=3; const y0=Mg.y-14; for(let cc=0;cc<COLS;cc++){ a=(a*1103515245+12345)&0x7fffffff; const rr=(a/0x7fffffff); const hgt=rr<0.3? 8+rr*48:0; if(hgt) R(Mg.x+cc*cw2+2,y0-hgt,cw2-4,hgt,c.teal); } L(Mg.x,y0,Mg.x+Mg.w,y0,c.line);
+      const yc=Mg.y+Mg.h+210; let d=''; const from=1-q; for(let cc=COLS;cc>=0;cc--){ const fx=cc/COLS; if(fx<from) break; const v=Math.exp(-Math.pow((fx-0.58)/0.14,2))*140+Math.exp(-Math.pow((fx-0.25)/0.1,2))*30; const x=Mg.x+fx*Mg.w,y=yc-v; d+= d?` L${x} ${y}`:`M${x} ${y}`; }
+      L(Mg.x,yc,Mg.x+Mg.w,yc,c.line); if(d) P(d,c.vio,{sw:3}); const xb=Mg.x+(1-q)*Mg.w; if(q<1) L(xb,Mg.y-6,xb,yc,c.vio,{sw:2,dash:'5 5'});
+      T('∂产量 / ∂降雨（第 t 天）',Mg.x,Mg.y+Mg.h+40,{c:'v b s'}); T('播种',Mg.x,yc+26,{c:'xs'}); T('吐丝期',Mg.x+0.58*Mg.w,yc+26,{a:'center',c:'xs ink'}); T('成熟',Mg.x+Mg.w,yc+26,{a:'right',c:'xs'});
+      if(q>0.9) TP('峰：吐丝期前后的雨决定收成',Mg.x+0.58*Mg.w+90,yc-120,{c:'v s b'}); return; }
+    if(f===2){ /* cost in forward-run units */ const x0=210,u=22;
+      T('有限差分',60,432,{c:'ink b'}); const k=Math.round(clamp(q*1.4,0,1)*31); for(let i=0;i<31;i++) R(x0+i*u,410,u-4,28,i<k?c.teal:c.cell,{rx:2});
+      T('30 个参数各扰动一次 + 1 次基准 = 31 次前向',x0,468,{c:'s'});
+      T('反向求导',60,528,{c:'ink b'}); const k2=clamp(q*2-0.4,0,1); R(x0,506,u-4,28,c.teal,{rx:2}); R(x0+u,506,(6.5*u-4)*k2,28,c.vio,{rx:2});
+      if(k2>=1){ T('1 次前向 + 1 次反向',x0+7.5*u+14,528,{c:'ink m s'}); T('反向约 6.5 次前向的耗时（实测），合计 ≈ 7.5 对 31',x0,566,{c:'s'}); T('一次全参数梯度，10⁴ 样本：56 s（实测）',x0,598,{c:'v s b'}); }
+      T('每格 = 一次前向的耗时',Mg.x+Mg.w,ys,{a:'right',c:'xs'}); return; }
+    if(f===5){ const x0=230,bw=520,k=clamp(q*1.3,0,1);
+      T('4 条链',60,432,{c:'ink b'}); R(x0,412,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,412,bw*(1-k),26,c.cell,{rx:2});
+      T('1000 条链',60,492,{c:'ink b'}); R(x0,472,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,472,bw*(1-k),26,c.cell,{rx:2});
+      T('一步反向的墙钟',x0+bw+16,450,{c:'s'}); T('两者相同',x0+bw+16,478,{c:'v s b'});
+      T('链是矩阵的行，行数从 4 变 1000，一步仍是一次整列运算',60,560,{c:'s'}); T('于是可以用很多条短链，代替几条长链',60,592,{c:'s ink'}); return; }
+    /* parameter bars */
+    const by=432, bh=96, n=PAR.length, bw=(Mg.w-(f===3?340:0))/n; const grow= f===0?0 : f===1? q : 1;
+    PAR.forEach((nm,i)=>{ const v=SENS[i]*grow; const x=Mg.x+i*bw+4, ww=bw-8; R(x,by,ww,bh,c.cell,{rx:2}); R(x,by+bh-v*bh,ww,v*bh,f===3&&(i===0||i===2)?c.neu:c.vio,{rx:2}); T(nm,x+ww/2,by+bh+24,{a:'center',c:'mono xs'+(f===3&&(i===0||i===2)?' ink':'')}); });
+    T(f===0?'参数导数：尚未开始':'∂产量 / ∂参数',Mg.x,by-16,{c:f===0?'s':'v s b'});
+    if(f===3){ const ex=820, ey=500; for(let k=4;k>=1;k--) S.push(`<ellipse cx="${ex}" cy="${ey}" rx="${k*32}" ry="${k*9}" transform="rotate(-25 ${ex} ${ey})" fill="none" stroke="${c.muted}" stroke-width="1.2" opacity="${0.35+0.12*k}"/>`);
+      const a=25*Math.PI/180; L(ex-140*Math.cos(a),ey+140*Math.sin(a),ex+140*Math.cos(a),ey-140*Math.sin(a),c.neu,{sw:4,op:q});
+      L(ex-44*Math.sin(a),ey-44*Math.cos(a),ex+44*Math.sin(a),ey+44*Math.cos(a),c.teal,{sw:4,op:q});
+      T('损失谷（λ, K_sat 平面）',ex,398,{a:'center',c:'s ink m'}); T('灰：平的方向，λ 与 K_sat 一起变',ex,598,{a:'center',c:'xs'}); T('辨识不出；绿：陡的方向，约束住了',ex,620,{a:'center',c:'xs'}); }
+  } },
+/* ===== 5 estimator ===== */
+{ name:'你的硬件', frames:[{dur:0.6,text:'估算'}], real:'', ill:'', ext:'按带宽由 H100 实测推得，已乘真模型 3 倍', idle:'拖动左侧的滑杆与选项，两条时间条随之改变。',
+  draw(f,p){ const c=C(); grid((r,cc)=>laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal),0.10); const e=estimate();
+    const x=90,w=820; T(fmt(e.n)+' 次九年模拟，所需墙钟（对数刻度）',x,72,{c:'ink b'});
+    const hi=Math.log10(14*86400); const wf=s=>w*clamp(Math.log10(Math.max(1,s))/hi,0,1);
+    T('Fortran · '+document.getElementById('cores').selectedOptions[0].text,x,150,{c:'r b'}); R(x,166,w,28,c.cell,{rx:2}); R(x,166,wf(e.fort),28,c.rust,{rx:2}); T(e.fortH,x+w,150,{a:'right',c:'ink b l'});
+    T('Agri-JAX · '+document.getElementById('gpu').selectedOptions[0].text,x,262,{c:'t b'}); R(x,278,w,28,c.cell,{rx:2}); R(x,278,wf(e.jax),28,c.teal,{rx:2}); T(e.jaxH,x+w,262,{a:'right',c:'ink b l'});
+    L(x,330,x+w,330,c.muted,{sw:1}); ['1 秒','1 分钟','1 小时','1 天','1 周'].forEach((lb,i)=>{ const s=[1,60,3600,86400,7*86400][i]; const xx=x+wf(s); L(xx,324,xx,336,c.muted,{sw:1.5}); T(lb,xx,362,{a:i===0?'start':'center',c:'xs'}); });
+    T(`约快 ${e.ratio.toLocaleString('zh-CN')} 倍`,x,444,{c:'ink b xl'}); T('批量小于一万时 GPU 吃不饱，倍数缩小；再大则受内存带宽限制',x,484,{c:'s'});
   } },
 ];
 /* ---------- estimator ---------- */
 const HW={h100:{bw:1,f64pen:1,floor:1},a100:{bw:0.46,f64pen:1,floor:1.2},'4090':{bw:0.30,f64pen:0.5,floor:1.3},'4060':{bw:0.08,f64pen:0.5,floor:1.6}};
 const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}}; const REAL=3, RUN_S=24;
 const human=s=>s<60?s.toFixed(s<10?1:0)+' 秒':s<3600?(s/60).toFixed(1)+' 分钟':s<86400?(s/3600).toFixed(1)+' 小时':s<7*86400?(s/86400).toFixed(1)+' 天':(s/86400/7).toFixed(1)+' 周';
-function estimate(){ const nEl=document.getElementById('n'); const n=Math.round(Math.pow(10,+nEl.value)); const hw=HW[document.getElementById('gpu').value],cfg=CFG[document.getElementById('cfg').value],f32=document.getElementById('prec').value==='f32',cores=+document.getElementById('cores').value;
+function estimate(){ const n=Math.round(Math.pow(10,+$('n').value)); const hw=HW[$('gpu').value],cfg=CFG[$('cfg').value],f32=$('prec').value==='f32',cores=+$('cores').value;
   let per=cfg.ms/1000*REAL/hw.bw; if(f32) per*=0.42; else per/=hw.f64pen; const jax=cfg.floor*hw.floor+n*per, fort=n*RUN_S/cores; return {n,jax,fort,jaxH:human(jax),fortH:human(fort),ratio:Math.round(fort/jax)}; }
-function estUI(){ const e=estimate(); document.getElementById('nLab').textContent=fmt(e.n); document.getElementById('ratio').textContent=`${fmt(e.n)} 次九年模拟：Fortran ${e.fortH}，Agri-JAX ${e.jaxH}，约快 ${e.ratio.toLocaleString('zh-CN')} 倍。`; if(state.act===5) render(); }
-['n','gpu','cfg','prec','cores'].forEach(id=>document.getElementById(id).addEventListener('input',estUI));
+function estUI(){ const e=estimate(); $('nLab').textContent=fmt(e.n); $('ratio').textContent=`${fmt(e.n)} 次九年模拟：Fortran ${e.fortH}，Agri-JAX ${e.jaxH}，约快 ${e.ratio.toLocaleString('zh-CN')} 倍。`; if(state.act===5) render(); }
+['n','gpu','cfg','prec','cores'].forEach(id=>$(id).addEventListener('input',estUI));
 /* ---------- engine ---------- */
 const state={act:0,frame:0,p:0,playing:false};
-let raf=null,last=0;
-function render(){ ctx.clearRect(0,0,W,H); S=[]; const a=ACTS[state.act]; a.draw(state.frame,reduce?1:state.p); ov.innerHTML=S.join(''); ui(); }
-function ui(){ const a=ACTS[state.act]; const n=a.frames.length; document.getElementById('dots').innerHTML=a.frames.map((f,i)=>`<i class="${i===state.frame?'on':''}" data-i="${i}" title="${esc(f.text)}"></i>`).join(''); document.getElementById('pos').textContent= state.act===0||state.act===5? '' : `${state.frame+1} / ${n}`; document.getElementById('legend').textContent=a.legend||'';
-  document.getElementById('stepper').style.visibility= (state.act===0||state.act===5)?'hidden':'visible';
-  document.querySelectorAll('.act .step').forEach(el=>{ const act=+el.closest('.act').dataset.act; el.classList.toggle('on',act===state.act&&+el.dataset.f===state.frame); });
-  document.querySelectorAll('nav.rail a').forEach(el=>el.classList.toggle('on',+el.dataset.nav===state.act));
-  document.querySelector('[data-act="play"]').textContent= state.playing?'⏸ 暂停':'▶ 播放'; }
+let raf=null,last=0,builtAct=-1,navAct=0;
+const stepEls=[...document.querySelectorAll('.act .step')], navEls=[...document.querySelectorAll('.acts a')];
+function sizeCanvas(){ const r=cv.getBoundingClientRect(); const k=clamp((r.width||W)*(devicePixelRatio||1)/W,1,3); cv.width=Math.round(W*k); cv.height=Math.round(H*k); ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0); }
+function build(){ const a=ACTS[state.act]; builtAct=state.act;
+  $('figNo').textContent='图 '+state.act; $('figName').textContent=a.name;
+  let t=''; if(a.real) t+=`<span class="t"><span class="tag real">实测</span>${esc(a.real)}</span>`; if(a.ill) t+=`<span class="t"><span class="tag ill">示意</span>${esc(a.ill)}</span>`; if(a.ext) t+=`<span class="t"><span class="tag ext">外推</span>${esc(a.ext)}</span>`; $('figTags').innerHTML=t;
+  const multi=a.frames.length>1&&!a.idle; $('stepper').hidden=!multi; $('idle').hidden=multi; $('idle').textContent=a.idle||'';
+  $('track').innerHTML= multi? a.frames.map((f,i)=>`<button type="button" class="seg" data-i="${i}" aria-label="第 ${i+1} 帧：${esc(f.text)}"><span class="bar"><i></i></span><span class="lab">${esc(f.text)}</span></button>`).join('') : ''; }
+function chrome(){ const a=ACTS[state.act], n=a.frames.length, p=reduce?1:state.p;
+  if(builtAct!==state.act) build();
+  $('figFrame').textContent= n>1? a.frames[state.frame].text : '';
+  $('pos').textContent= `${state.frame+1} / ${n}`;
+  document.querySelectorAll('#track .seg').forEach((s,i)=>{ s.classList.toggle('on',i===state.frame); s.querySelector('i').style.width=(i<state.frame?100:i===state.frame?p*100:0)+'%'; });
+  stepEls.forEach(el=>{ const on=+el.closest('.act').dataset.act===state.act&&+el.dataset.f===state.frame; el.classList.toggle('on',on); el.querySelector('.pg').style.width= on? (p*100)+'%' : '0'; });
+  const cur= navAct===6? 6 : state.act;
+  navEls.forEach(el=>{ const k=+el.dataset.nav; el.classList.toggle('on',k===cur); el.classList.toggle('done',k<cur); const bar=el.querySelector('i'); bar.style.width= k===cur? (k===6||k===5?100:((state.frame+p)/n*100))+'%' : ''; });
+  const pb=$('playBtn'); pb.innerHTML= state.playing? '⏸<span class="w"> 暂停</span>' : '▶<span class="w"> 播放</span>'; pb.setAttribute('aria-label',state.playing?'暂停':'播放'); }
+function render(){ COL=null; ctx.clearRect(0,0,W,H); S=[]; ACTS[state.act].draw(state.frame,reduce?1:state.p); ov.innerHTML=S.join(''); chrome(); }
 function goto(act,frame,opts={}){ act=clamp(act,0,ACTS.length-1); frame=clamp(frame,0,ACTS[act].frames.length-1); state.act=act; state.frame=frame; state.p=opts.p??0; state.playing=!!opts.play; last=0; if(reduce){ state.p=1; state.playing=false; render(); return; } if(!raf) raf=requestAnimationFrame(tick); render(); }
-function tick(ts){ raf=null; const a=ACTS[state.act], fr=a.frames[state.frame]; const dt=last?(ts-last)/1000:0; last=ts; if(state.p<1){ state.p=Math.min(1,state.p+dt/fr.dur); render(); raf=requestAnimationFrame(tick); return; }
+function tick(ts){ raf=null; const a=ACTS[state.act], fr=a.frames[state.frame]; const dt=last?Math.min(0.1,(ts-last)/1000):0; last=ts;
+  if(state.p<1){ state.p=Math.min(1,state.p+dt/fr.dur); render(); raf=requestAnimationFrame(tick); return; }
   if(state.playing && state.frame<a.frames.length-1){ state.frame++; state.p=0; render(); raf=requestAnimationFrame(tick); return; }
-  if(state.act===0){ state.p=0; render(); raf=requestAnimationFrame(tick); return; } state.playing=false; ui(); }
-document.getElementById('stepper').addEventListener('click',e=>{ const b=e.target.closest('button'); const d=e.target.closest('i[data-i]'); if(d){ goto(state.act,+d.dataset.i,{p:0}); return; } if(!b) return; const k=b.dataset.act;
+  if(state.act===0){ state.p=0; render(); raf=requestAnimationFrame(tick); return; } state.playing=false; chrome(); }
+function key(k){ const a=ACTS[state.act];
   if(k==='prev') goto(state.act,state.frame-1,{p:0}); else if(k==='next') goto(state.act,state.frame+1,{p:0}); else if(k==='replay') goto(state.act,0,{p:0,play:true});
-  else if(k==='play'){ if(state.playing){ state.playing=false; ui(); } else { if(state.p>=1&&state.frame===ACTS[state.act].frames.length-1) goto(state.act,0,{p:0,play:true}); else { state.playing=true; if(!raf) raf=requestAnimationFrame(tick); ui(); } } } });
-document.querySelectorAll('.act .step').forEach(el=>el.addEventListener('click',()=>goto(+el.closest('.act').dataset.act,+el.dataset.f,{p:0})));
-/* scroll drive: the step nearest the viewport centre wins */
-const stepEls=[...document.querySelectorAll('.act .step')]; const heroEl=document.getElementById('a0'), estEl=document.getElementById('a5');
+  else if(k==='play'){ if(state.playing){ state.playing=false; chrome(); } else if(state.p>=1&&state.frame===a.frames.length-1) goto(state.act,0,{p:0,play:true}); else { state.playing=true; last=0; if(!raf) raf=requestAnimationFrame(tick); chrome(); } } }
+$('sceneCol').addEventListener('click',e=>{ const seg=e.target.closest('.seg'); if(seg){ goto(state.act,+seg.dataset.i,{p:0}); return; } const b=e.target.closest('button[data-k]'); if(b) key(b.dataset.k); });
+addEventListener('keydown',e=>{ if(e.target.closest('input,select,textarea')||e.altKey||e.ctrlKey||e.metaKey) return; if(state.act===0||state.act===5) return;
+  if(e.key==='ArrowRight'){ key('next'); e.preventDefault(); } else if(e.key==='ArrowLeft'){ key('prev'); e.preventDefault(); } });
+stepEls.forEach(el=>el.addEventListener('click',()=>goto(+el.closest('.act').dataset.act,+el.dataset.f,{p:0})));
+/* scroll drive: the step nearest the middle of the reading area wins */
+const heroEl=$('a0'), estEl=$('a5'), tblEl=$('a6'), sceneCol=$('sceneCol'), narrow=matchMedia('(max-width:900px)');
 let scrollTimer=null;
-function onScroll(){ if(scrollTimer) return; scrollTimer=requestAnimationFrame(()=>{ scrollTimer=null; const mid=innerHeight*0.5; let best=null,bd=1e9;
+function onScroll(){ if(scrollTimer) return; scrollTimer=requestAnimationFrame(()=>{ scrollTimer=null;
+  const top= narrow.matches? sceneCol.getBoundingClientRect().bottom : 52; const mid=(top+innerHeight)/2;
+  const prevNav=navAct; navAct= tblEl.getBoundingClientRect().top<innerHeight*0.55? 6 : 0; if(navAct!==prevNav) chrome();
   const hr=heroEl.getBoundingClientRect(); if(hr.bottom>mid){ if(state.act!==0) goto(0,0,{p:0}); return; }
   const er=estEl.getBoundingClientRect(); if(er.top<mid){ if(state.act!==5) goto(5,0,{p:0}); return; }
-  stepEls.forEach(el=>{ const r=el.getBoundingClientRect(); const d=Math.abs((r.top+r.bottom)/2-mid); if(d<bd){bd=d;best=el;} });
+  let best=null,bd=1e9; stepEls.forEach(el=>{ const r=el.getBoundingClientRect(); const d=Math.abs((r.top+r.bottom)/2-mid); if(d<bd){bd=d;best=el;} });
   if(best){ const act=+best.closest('.act').dataset.act, f=+best.dataset.f; if(act!==state.act||f!==state.frame) goto(act,f,{p:0}); } }); }
-addEventListener('scroll',onScroll,{passive:true}); addEventListener('resize',onScroll);
+addEventListener('scroll',onScroll,{passive:true}); addEventListener('resize',()=>{ sizeCanvas(); render(); onScroll(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
 window.AGRI={goto:(a,f,p)=>{ state.act=a; state.frame=f; state.p=p; state.playing=false; if(raf){cancelAnimationFrame(raf);raf=null;} render(); }};
-estUI(); goto(0,0,{p:0}); if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
+sizeCanvas(); estUI(); goto(0,0,{p:0}); if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
 })();
 </script>
