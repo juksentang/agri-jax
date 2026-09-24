@@ -1,0 +1,484 @@
+<title>Agri-JAX 计算图景</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;800&family=Noto+Sans+SC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --bg:#F5F4EF; --surface:#FFFFFF; --surface2:#ECEBE4; --ink:#1A1D1C; --muted:#626A67; --line:#D9D8D0;
+  --fortran:#C2591A; --jax:#0F8A66; --grad:#6B4FBB;
+  --fortran-soft:#F6E3D6; --jax-soft:#D8EFE6; --grad-soft:#E4DEF5;
+  --shadow:0 1px 2px rgba(20,24,22,.06),0 8px 24px rgba(20,24,22,.06);
+  --serif:"Noto Serif SC","Songti SC","SimSun",serif;
+  --sans:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#141615; --surface:#1C1F1E; --surface2:#242827; --ink:#ECEDE8; --muted:#9BA39F; --line:#2E3331;
+    --fortran:#D96A28; --jax:#2FA582; --grad:#8E78D8;
+    --fortran-soft:#3A2416; --jax-soft:#15302A; --grad-soft:#262040;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#141615; --surface:#1C1F1E; --surface2:#242827; --ink:#ECEDE8; --muted:#9BA39F; --line:#2E3331;
+  --fortran:#D96A28; --jax:#2FA582; --grad:#8E78D8;
+  --fortran-soft:#3A2416; --jax-soft:#15302A; --grad-soft:#262040;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-block:0 64px;padding-inline:16px}
+.wrap{max-width:1040px;margin:0 auto}
+h1,h2,h3{font-family:var(--serif);text-wrap:balance;line-height:1.25;margin:0}
+h1{font-size:clamp(34px,6vw,58px);font-weight:800;letter-spacing:-.01em}
+h2{font-size:clamp(24px,3.4vw,34px);font-weight:800;margin-bottom:8px}
+h3{font-size:19px;font-weight:600}
+p{margin:0 0 12px;max-width:68ch}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.muted{color:var(--muted)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+section{padding-block:56px 8px}
+header.hero{padding-block:64px 24px}
+.lead{font-size:19px;color:var(--ink);max-width:40ch}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:28px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;box-shadow:var(--shadow)}
+.tile .k{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.tile .v{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1.15;margin:6px 0 2px}
+.tile .s{font-size:13px;color:var(--muted)}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);vertical-align:middle}
+.tag.real{border-color:var(--jax);color:var(--jax)}
+.tag.ill{border-color:var(--grad);color:var(--grad)}
+/* race */
+.race{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+@media (max-width:760px){.race{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.panel .head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:14px 16px 6px}
+.panel .head h3{display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.dot.f{background:var(--fortran)} .dot.j{background:var(--jax)}
+.panel canvas{display:block;width:100%;height:auto;max-width:100%}
+.panel .foot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 16px 14px;border-top:1px solid var(--line)}
+.panel .foot div{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.panel .foot b{display:block;font-size:18px;color:var(--ink);font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+button{font:inherit;font-weight:500;background:var(--ink);color:var(--bg);border:0;border-radius:8px;padding:9px 16px;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--jax);outline-offset:2px}
+.clock{font-family:var(--mono);font-size:14px;color:var(--muted)}
+.clock b{color:var(--ink);font-weight:600}
+/* shape diagram */
+.shape{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+@media (max-width:760px){.shape{grid-template-columns:1fr}}
+.shape .step{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+.shape svg{width:100%;height:auto;display:block;margin:8px 0}
+pre{font-family:var(--mono);font-size:13px;line-height:1.55;background:var(--surface2);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:12px 0}
+code{font-family:var(--mono);font-size:.92em;background:var(--surface2);padding:1px 5px;border-radius:4px}
+/* estimator */
+.est{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:18px;margin-top:18px}
+.est .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 18px}
+.est label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+.est select,.est input[type=range]{width:100%}
+.est select{font:inherit;padding:7px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.bars{margin-top:18px;display:grid;gap:10px}
+.bar{display:grid;grid-template-columns:120px 1fr 130px;gap:10px;align-items:center}
+.bar .lab{font-size:14px;display:flex;align-items:center;gap:8px}
+.bar .track{height:14px;background:var(--surface2);border-radius:4px;position:relative;overflow:hidden}
+.bar .fill{position:absolute;inset:0 auto 0 0;border-radius:4px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+.bar .val{font-family:var(--mono);font-size:14px;text-align:right}
+.axis{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;margin-top:4px}
+/* gradient strip */
+.gradbox{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px;margin-top:18px}
+.gradbox canvas{width:100%;height:auto;display:block;max-width:100%}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+/* why */
+.why{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;margin-top:14px}
+.wcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:8px}
+.wcard canvas{width:100%;height:auto;display:block;max-width:100%;border-radius:8px;background:var(--surface2)}
+.wcard p{font-size:14px;color:var(--muted);margin:0}
+button.small{padding:6px 12px;font-size:13px;align-self:flex-start}
+/* cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:18px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+.card svg{width:100%;height:auto;display:block;margin:6px 0 10px}
+.card p{font-size:14px;color:var(--muted);margin:0}
+table{border-collapse:collapse;width:100%;font-size:14px;margin-top:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:500;color:var(--muted);font-size:13px}
+td.num{text-align:right}
+.tblwrap{overflow-x:auto}
+footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+a{color:var(--jax)}
+.rule{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;margin-top:12px}
+.rule .n{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--jax);line-height:1.2}
+@media (prefers-reduced-motion: reduce){.bar .fill{transition:none}}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">Agri-JAX · 可微分、可批量的田块尺度作物–土壤模型</div>
+  <h1>以前一块田一块田地算，<br>现在十万块田一起算，还能求导。</h1>
+  <p class="lead" style="margin-top:16px">同一套 CERES-Maize 和 RZWQM 式土壤物理，写成 JAX 纯函数：时间用 <code>scan</code>，样本用 <code>vmap</code>，梯度用 <code>grad</code>。下面每个数字都标了是实测还是示意。</p>
+  <div class="tiles">
+    <div class="tile"><div class="k">10 万次 × 九年模拟 <span class="tag real">实测</span></div><div class="v"><span style="color:var(--fortran)">≈10 h</span> → <span style="color:var(--jax)">82 s</span></div><div class="s">Fortran 集群批处理墙钟 vs 一块 H100，12 子步 × 2 次迭代，float64</div></div>
+    <div class="tile"><div class="k">一次全参数梯度 <span class="tag real">实测</span></div><div class="v"><span style="color:var(--grad)">56 s</span> / 万样本</div><div class="s">反向传播一次得到全部参数的梯度；有限差分 30 个参数要 31 次运行</div></div>
+    <div class="tile"><div class="k">对参考模型的一致性 <span class="tag real">实测</span></div><div class="v">0.02 mm/d</div><div class="s">Shuttleworth–Wallace 潜在蒸发对 RZWQM2 生长季 RMSE；参考 ET 到 5×10⁻⁶</div></div>
+  </div>
+</header>
+
+<section id="race">
+  <div class="eyebrow">01 · 同一个任务，两种算法形态</div>
+  <h2>把十万组参数丢进去，看谁先算完</h2>
+  <p class="muted">动画时钟：屏幕上 1 秒 = 真实 1 分钟。左边是 32 核工作站并发跑 Fortran 二进制，每次 24 秒、落 99 个文件；右边是一块 GPU 上所有样本同步逐日推进。</p>
+  <div class="controls">
+    <button id="play">▶ 开始</button>
+    <button id="replay" class="ghost">↻ 重来</button>
+    <span class="clock">真实时间 <b id="clock">0 min</b> · 比例 1 s = 1 min</span>
+  </div>
+  <div class="race">
+    <div class="panel">
+      <div class="head"><h3><span class="dot f"></span>Fortran · 逐个运行</h3><span class="tag">32 核并发</span></div>
+      <canvas id="cvF" width="520" height="300"></canvas>
+      <div class="foot"><div>已完成<b class="num" id="fDone">0</b></div><div>写出文件<b class="num" id="fFiles">0 GB</b></div><div>预计还要<b class="num" id="fEta">21 h</b></div></div>
+    </div>
+    <div class="panel">
+      <div class="head"><h3><span class="dot j"></span>Agri-JAX · 全部同步</h3><span class="tag">1 × H100</span></div>
+      <canvas id="cvJ" width="520" height="300"></canvas>
+      <div class="foot"><div>模拟日<b class="num" id="jDay">0 / 3287</b></div><div>同步样本<b class="num" id="jN">100,000</b></div><div>状态<b id="jState">待命</b></div></div>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:12px;font-size:14px">右边格子每格代表 20 次模拟，颜色是当日的叶面积指数（示意）。真正的差别不是"快"，是形状：Fortran 的十万次是十万个独立进程，JAX 的十万次是一个数组上的一次运算，每一天所有样本一起前进。</p>
+</section>
+
+<section id="shape">
+  <div class="eyebrow">02 · 为什么能这样算</div>
+  <h2>三条规则，三个维度</h2>
+  <p class="muted">农学家只写过程函数；时间循环、样本循环、求导由运行时负责。</p>
+  <div class="shape">
+    <div class="step">
+      <h3>过程 = 纯函数</h3>
+      <svg viewBox="0 0 300 120" role="img" aria-label="一个过程函数读状态参数强迫，返回新状态">
+        <rect x="8" y="34" width="70" height="52" rx="8" fill="var(--surface2)" stroke="var(--line)"/>
+        <text x="43" y="55" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">state</text>
+        <text x="43" y="72" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">params</text>
+        <path d="M82 60 H112" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+        <rect x="116" y="26" width="86" height="68" rx="10" fill="var(--jax-soft)" stroke="var(--jax)" stroke-width="2"/>
+        <text x="159" y="55" text-anchor="middle" font-size="12" fill="var(--ink)" font-weight="700" font-family="Noto Sans SC,sans-serif">leaf_growth</text>
+        <text x="159" y="74" text-anchor="middle" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono,monospace">@process</text>
+        <path d="M206 60 H236" stroke="var(--ink)" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+        <rect x="240" y="34" width="52" height="52" rx="8" fill="var(--surface2)" stroke="var(--line)"/>
+        <text x="266" y="64" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">state′</text>
+        <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="var(--ink)"/></marker></defs>
+      </svg>
+      <p style="font-size:14px;color:var(--muted)">读的全在参数里，改的全在返回值里；分支用 <code>where</code>，不写循环。</p>
+    </div>
+    <div class="step">
+      <h3>时间 = scan</h3>
+      <svg viewBox="0 0 300 120" role="img" aria-label="同一个日步函数沿 3287 天顺序折叠">
+        <g id="scanRow"></g>
+        <text x="150" y="108" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">day 1 → 3287，编译成一张图</text>
+      </svg>
+      <p style="font-size:14px;color:var(--muted)">日步函数沿天数折叠，Python 层不参与，整个九年是一个 XLA while 算子。</p>
+    </div>
+    <div class="step">
+      <h3>样本 = vmap</h3>
+      <svg viewBox="0 0 300 120" role="img" aria-label="同一个日步在样本维上向量化">
+        <g id="vmapRows"></g>
+        <text x="150" y="108" text-anchor="middle" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">n = 10⁵，一次运算</text>
+      </svg>
+      <p style="font-size:14px;color:var(--muted)">十万组参数变成数组的第一维，GPU 每一步对整列做同一件事；梯度沿同一张图反向流回。</p>
+    </div>
+  </div>
+  <div class="rule"><div class="n">1</div><div><b>纯函数。</b>读什么改什么，签名上一目了然。</div></div>
+  <div class="rule"><div class="n">2</div><div><b>用 <code>jnp.where</code> 分支。</b>不在状态量上写 Python <code>if</code>，否则批量和求导都断。</div></div>
+  <div class="rule"><div class="n">3</div><div><b>不写循环。</b>土层、天数、样本的循环都由运行时接管。</div></div>
+</section>
+
+<section id="est">
+  <div class="eyebrow">03 · 换你的硬件试试</div>
+  <h2>这批模拟要多久</h2>
+  <p class="muted">用 H100 实测数据按内存带宽外推到其它显卡；Fortran 按每次 24 秒除以核数。<span class="tag ill">外推</span> 真模型比骨架慢 2 到 4 倍，估算已乘 3。</p>
+  <div class="est">
+    <div class="grid">
+      <div><label for="n">模拟次数：<b class="num" id="nLab">100,000</b></label><input type="range" id="n" min="3" max="6" step="0.05" value="5"></div>
+      <div><label for="gpu">GPU</label><select id="gpu"><option value="h100">H100 80 GB（3.35 TB/s）</option><option value="a100">A100 40 GB（1.55 TB/s）</option><option value="4090">RTX 4090（1.0 TB/s）</option><option value="4060">RTX 4060 笔记本（0.27 TB/s）</option></select></div>
+      <div><label for="cfg">数值方案（子步 × 迭代）</label><select id="cfg"><option value="24x3">24 × 3（保守）</option><option value="12x2" selected>12 × 2（工作点）</option><option value="6x1">6 × 1（激进）</option></select></div>
+      <div><label for="prec">精度</label><select id="prec"><option value="f64">float64</option><option value="f32">float32</option></select></div>
+      <div><label for="cores">Fortran 核数</label><select id="cores"><option value="1">1 核</option><option value="32" selected>32 核工作站</option><option value="96">96 核线程撕裂者</option><option value="192">192 核节点</option></select></div>
+    </div>
+    <div class="bars">
+      <div class="bar"><div class="lab"><span class="dot f"></span>Fortran</div><div class="track"><div class="fill" id="barF" style="background:var(--fortran);width:60%"></div></div><div class="val" id="valF">—</div></div>
+      <div class="bar"><div class="lab"><span class="dot j"></span>Agri-JAX</div><div class="track"><div class="fill" id="barJ" style="background:var(--jax);width:10%"></div></div><div class="val" id="valJ">—</div></div>
+    </div>
+    <div class="axis"><span>1 秒</span><span>1 分钟</span><span>1 小时</span><span>1 天</span><span>1 周</span><span>对数刻度</span></div>
+    <p id="ratio" class="muted" style="margin-top:10px;font-size:14px"></p>
+  </div>
+</section>
+
+<section id="grad">
+  <div class="eyebrow">04 · 顺序模型做不到的事</div>
+  <h2>一次反向传播，全部参数的梯度</h2>
+  <p class="muted">前向沿天数走一遍，反向沿同一条路走回来，每个参数对产量的影响同时算出。有限差分要对每个参数各跑一次。</p>
+  <div class="gradbox">
+    <canvas id="cvG" width="1000" height="220"></canvas>
+    <div class="legend"><span><i style="background:var(--jax)"></i>前向：状态逐日推进</span><span><i style="background:var(--grad)"></i>反向：伴随量逐日回传</span><span><i style="background:var(--surface2);border:1px solid var(--line)"></i>参数灵敏度 ∂产量/∂参数 <span class="tag ill">示意</span></span></div>
+    <div class="controls"><button id="gplay" class="ghost">▶ 播放前向与反向</button></div>
+  </div>
+  <p class="muted" style="margin-top:22px">下面每一条优势都配一个"为什么"的动画。滚动到视野内自动播放，也可以点重播。</p>
+  <div class="why">
+    <div class="wcard">
+      <h3>为什么一次反向就够，有限差分却要跑 P+1 次</h3>
+      <canvas data-anim="fd" width="480" height="230"></canvas>
+      <p>有限差分要对每个参数各扰动一次、各跑一遍前向：30 个参数就是 31 次九年模拟。反向模式把链式法则沿同一张计算图倒着走一遍，所有参数的导数在一趟里同时累积，成本约等于几次前向，且与参数个数无关。</p>
+      <button class="ghost small" data-replay="fd">↻ 重播</button>
+    </div>
+    <div class="wcard">
+      <h3>为什么高维标定不再靠撒点</h3>
+      <canvas data-anim="lhs" width="480" height="230"></canvas>
+      <p>拉丁超立方是在参数空间里撒点后挑最好的，维数一高样本就稀得像没撒。有了梯度，每一步都知道往哪走，几十步到谷底；成本几乎不随维数增长，七个站点一百多个参数联合标定就变得可行。</p>
+      <button class="ghost small" data-replay="lhs">↻ 重播</button>
+    </div>
+    <div class="wcard">
+      <h3>为什么能说清哪些参数"辨识不出来"</h3>
+      <canvas data-anim="ident" width="480" height="230"></canvas>
+      <p>损失面在有的方向陡、有的方向平。平的方向就是数据约束不住的参数组合，比如只有 ET 观测时的 K<sub>sat</sub> 与 λ。Fisher 信息矩阵是雅可比的转置乘雅可比，一次反向传播就能算，它的特征值谱直接给出可辨识方向的个数。</p>
+      <button class="ghost small" data-replay="ident">↻ 重播</button>
+    </div>
+    <div class="wcard">
+      <h3>为什么是一千条短链，不是四条长链</h3>
+      <canvas data-anim="chains" width="480" height="230"></canvas>
+      <p>NUTS 每一步都要梯度，一条链是串行的，每步有固定延迟。但 GPU 上四条链和一千条链在 vmap 里花的时间一样多。所以正确的形态是很多条短链同时采样，总样本数不变，墙钟从几十小时降到一小时。</p>
+      <button class="ghost small" data-replay="chains">↻ 重播</button>
+    </div>
+    <div class="wcard">
+      <h3>为什么能把神经网络嵌进机理模型里训练</h3>
+      <canvas data-anim="hyb" width="480" height="230"></canvas>
+      <p>只要整条链可微，损失对网络权重的梯度就能穿过后面的机理过程流回来。于是可以只把最不确定的那个过程换成小网络，用通量塔的 ET 端到端训练，其余过程照旧守恒、照旧可解释。</p>
+      <button class="ghost small" data-replay="hyb">↻ 重播</button>
+    </div>
+    <div class="wcard">
+      <h3>为什么能回答"哪场雨决定了收成"</h3>
+      <canvas data-anim="rain" width="480" height="230"></canvas>
+      <p>反向传播不只对参数求导，对每一天的降雨、初始含水量这些输入也一样。伴随量沿季节倒着流回去，每一天的降雨对最终产量的边际贡献就同时得到，一条曲线回答归因问题。</p>
+      <button class="ghost small" data-replay="rain">↻ 重播</button>
+    </div>
+  </div>
+</section>
+
+<section id="proof">
+  <div class="eyebrow">05 · 到目前为止，什么是实测的</div>
+  <h2>数字来自哪里</h2>
+  <div class="tblwrap"><table>
+    <thead><tr><th>指标</th><th class="num">数值</th><th>条件</th><th>性质</th></tr></thead>
+    <tbody>
+      <tr><td>10⁵ 次九年模拟，24 子步 × 3 迭代，float64</td><td class="num">243 s</td><td>1 × H100，计算骨架</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>同上，12 × 2</td><td class="num">82 s</td><td>同上</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td>同上</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td>5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td>每日 checkpoint</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td>集群单核；10⁵ 次约 10 h 墙钟、80 GB 输出</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>ASCE 参考 ET 对 RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td>CA-TPA 2015，逐日</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>S-W 潜在蒸发 / 蒸腾对 RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td>生长季 RMSE，未调参</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>整模型（Richards + CERES-Maize）</td><td class="num">—</td><td>开发中，先把已有模块验证到位</td><td><span class="tag">待测</span></td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted" style="margin-top:10px;font-size:14px">骨架 = 与目标模型同计算形状的基准程序（37 节点隐式 Richards、S-W 型 PET、CERES 型作物日步、3287 天），不是最终模型。</p>
+</section>
+
+<footer>
+  代码：<a href="https://github.com/juksentang/agri-jax">github.com/juksentang/agri-jax</a> · 包：<a href="https://pypi.org/project/agri-jax/">pypi.org/project/agri-jax</a> · Apache-2.0。CERES-Maize 来自 DSSAT-CSM（BSD-3）；土壤水与 PET 按 Ahuja 等 2000、Farahani & Ahuja 1996、Shuttleworth & Wallace 1985 的公式实现，对照 RZWQM2 与 DSSAT-CSM 的输出验证。标"示意"的图只表达概念，不是数据。
+</footer>
+</div>
+
+<script>
+(function(){
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fmt = n => n.toLocaleString('zh-CN');
+
+/* ---------- 02 diagrams ---------- */
+(function(){
+  const g = document.getElementById('scanRow');
+  let s='';
+  for(let i=0;i<10;i++){ const x=14+i*28; s+=`<rect x="${x}" y="40" width="22" height="34" rx="5" fill="var(--jax-soft)" stroke="var(--jax)" stroke-width="1.5"><animate attributeName="fill" values="var(--jax-soft);var(--jax);var(--jax-soft)" dur="3s" begin="${(i*0.28).toFixed(2)}s" repeatCount="indefinite"/></rect>`; if(i<9) s+=`<path d="M${x+23} 57 h4" stroke="var(--muted)" stroke-width="1.5"/>`; }
+  g.innerHTML = reduce ? s.replace(/<animate[^>]*\/>/g,'') : s;
+  const v = document.getElementById('vmapRows'); let t='';
+  for(let r=0;r<4;r++){ for(let i=0;i<10;i++){ const x=14+i*28, y=14+r*22; t+=`<rect x="${x}" y="${y}" width="22" height="16" rx="3" fill="var(--jax-soft)" stroke="var(--jax)" stroke-width="1"><animate attributeName="fill" values="var(--jax-soft);var(--jax);var(--jax-soft)" dur="3s" begin="${(i*0.28).toFixed(2)}s" repeatCount="indefinite"/></rect>`; } }
+  v.innerHTML = reduce ? t.replace(/<animate[^>]*\/>/g,'') : t;
+})();
+
+/* ---------- 01 race ---------- */
+const N=100000, RUN_S=24, DAYS=3287, JAX_S=82, CORES=32, GB=80;
+const cvF=document.getElementById('cvF'), cvJ=document.getElementById('cvJ');
+const fx=cvF.getContext('2d'), jx=cvJ.getContext('2d');
+let t=0, playing=false, last=0, raf=null;           // t = real minutes
+const scale=1;                                        // 1 s screen = 1 min real
+const cellsX=100, cellsY=50; const lai=new Float32Array(cellsX*cellsY).fill(0);
+const seeds=new Float32Array(cellsX*cellsY); for(let i=0;i<seeds.length;i++) seeds[i]=0.6+Math.random()*0.8;
+function drawF(){
+  const W=cvF.width,H=cvF.height; fx.clearRect(0,0,W,H);
+  const lanes=CORES, laneH=(H-30)/lanes; const done=Math.min(N, Math.floor(t*60/RUN_S*CORES));
+  fx.fillStyle=css('--muted'); fx.font='11px IBM Plex Mono,monospace'; fx.fillText('32 条车道，每次运行 24 s → 一个 .ana + 98 个 .OUT',10,16);
+  for(let l=0;l<lanes;l++){
+    const y=24+l*laneH; fx.fillStyle=css('--surface2'); fx.fillRect(10,y+1,W-20,laneH-2);
+    const phase=((t*60)/RUN_S + l*0.13)%1; const bw=(W-20)*0.18;
+    fx.fillStyle=css('--fortran'); fx.fillRect(10+phase*(W-20-bw), y+1, bw, laneH-2);
+  }
+  const p=done/N; fx.fillStyle=css('--ink'); fx.font='600 12px IBM Plex Mono,monospace'; fx.fillText((p*100).toFixed(2)+' %',W-64,16);
+  document.getElementById('fDone').textContent=fmt(done)+' / '+fmt(N);
+  document.getElementById('fFiles').textContent=(GB*p).toFixed(2)+' GB';
+  const remain=(N-done)*RUN_S/CORES/3600; document.getElementById('fEta').textContent= done>=N?'完成':(remain>1?remain.toFixed(1)+' h':Math.round(remain*60)+' min');
+}
+function drawJ(){
+  const W=cvJ.width,H=cvJ.height; jx.clearRect(0,0,W,H);
+  const day=Math.min(DAYS, Math.floor(t*60/JAX_S*DAYS)); const done=day>=DAYS;
+  const cw=(W-20)/cellsX, ch=(H-40)/cellsY;
+  const c0=hexToRgb(css('--jax-soft')), c1=hexToRgb(css('--jax'));
+  for(let i=0;i<cellsX*cellsY;i++){
+    const doy=(day%365); const g=Math.max(0,Math.sin(Math.PI*Math.min(1,Math.max(0,(doy-120)/150))))*seeds[i]; const v=Math.min(1,g);
+    jx.fillStyle=`rgb(${Math.round(c0[0]+(c1[0]-c0[0])*v)},${Math.round(c0[1]+(c1[1]-c0[1])*v)},${Math.round(c0[2]+(c1[2]-c0[2])*v)})`;
+    jx.fillRect(10+(i%cellsX)*cw, 30+Math.floor(i/cellsX)*ch, cw-0.6, ch-0.6);
+  }
+  jx.fillStyle=css('--muted'); jx.font='11px IBM Plex Mono,monospace'; jx.fillText('每格 20 次模拟 · 所有格子在同一天',10,16);
+  jx.fillStyle=css('--ink'); jx.font='600 12px IBM Plex Mono,monospace'; jx.fillText('day '+day,W-90,16);
+  document.getElementById('jDay').textContent=day+' / '+DAYS;
+  document.getElementById('jState').textContent= done?'完成，用时 82 s':(playing?'运行中':'待命');
+}
+function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
+function frame(ts){ if(!playing) return; const dt=last?(ts-last)/1000:0; last=ts; t+=dt*scale; document.getElementById('clock').textContent=t<60?Math.floor(t)+' min':(t/60).toFixed(1)+' h'; drawF(); drawJ(); if(t*60/RUN_S*CORES<N) raf=requestAnimationFrame(frame); else playing=false; }
+document.getElementById('play').onclick=()=>{ if(playing){playing=false;document.getElementById('play').textContent='▶ 继续';return;} playing=true; last=0; document.getElementById('play').textContent='‖ 暂停'; if(!reduce) raf=requestAnimationFrame(frame); else { t=12; drawF(); drawJ(); document.getElementById('clock').textContent='12 min'; playing=false; } };
+document.getElementById('replay').onclick=()=>{ playing=false; cancelAnimationFrame(raf); t=0; last=0; document.getElementById('play').textContent='▶ 开始'; document.getElementById('clock').textContent='0 min'; drawF(); drawJ(); };
+drawF(); drawJ();
+
+/* ---------- 03 estimator ---------- */
+const HW={h100:{bw:1,f64pen:1,floor:1},a100:{bw:0.46,f64pen:1,floor:1.2},'4090':{bw:0.30,f64pen:0.5,floor:1.3},'4060':{bw:0.08,f64pen:0.5,floor:1.6}};
+const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}};
+const REAL_MODEL=3;
+function human(s){ if(s<60) return s.toFixed(s<10?1:0)+' 秒'; if(s<3600) return (s/60).toFixed(1)+' 分钟'; if(s<86400) return (s/3600).toFixed(1)+' 小时'; if(s<7*86400) return (s/86400).toFixed(1)+' 天'; return (s/86400/7).toFixed(1)+' 周'; }
+function est(){
+  const n=Math.round(Math.pow(10,+document.getElementById('n').value)); document.getElementById('nLab').textContent=fmt(n);
+  const hw=HW[document.getElementById('gpu').value], cfg=CFG[document.getElementById('cfg').value], f32=document.getElementById('prec').value==='f32', cores=+document.getElementById('cores').value;
+  let per=cfg.ms/1000*REAL_MODEL/hw.bw; if(f32) per*=0.42; else per/=hw.f64pen;
+  const jax=cfg.floor*hw.floor+n*per; const fort=n*RUN_S/cores;
+  const lo=Math.log10(1), hi=Math.log10(14*86400); const w=s=>Math.max(1,Math.min(100,(Math.log10(Math.max(1,s))-lo)/(hi-lo)*100));
+  document.getElementById('barF').style.width=w(fort)+'%'; document.getElementById('barJ').style.width=w(jax)+'%';
+  document.getElementById('valF').textContent=human(fort); document.getElementById('valJ').textContent=human(jax);
+  document.getElementById('ratio').textContent=`同一批模拟，Agri-JAX 约快 ${Math.round(fort/jax).toLocaleString('zh-CN')} 倍。批量小于一万时 GPU 吃不饱，倍数会缩小；批量再大是内存带宽墙，靠精度、深度和算子融合再往下压。`;
+}
+['n','gpu','cfg','prec','cores'].forEach(id=>document.getElementById(id).addEventListener('input',est)); est();
+
+/* ---------- 04 gradient strip ---------- */
+const cvG=document.getElementById('cvG'), gx=cvG.getContext('2d'); let gt=0, gplaying=false, glast=0, graf=null;
+const PARAMS=['λ','h_b','K_sat','θ_r','θ_s','反照率','r_s','r_ss','P1','P5','G2','G3']; const SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
+function drawG(){
+  const W=cvG.width,H=cvG.height; gx.clearRect(0,0,W,H);
+  const cells=120, x0=20, x1=W-20, cw=(x1-x0)/cells, y=48, h=26;
+  const fwd=Math.min(1,gt/2.2), bwd=Math.max(0,Math.min(1,(gt-2.6)/2.2)), fill=Math.max(0,Math.min(1,(gt-5)/1.2));
+  gx.fillStyle=css('--muted'); gx.font='11px IBM Plex Mono,monospace'; gx.fillText('day 1',x0,y-10); gx.fillText('day 3287',x1-52,y-10);
+  for(let i=0;i<cells;i++){ const p=i/cells; gx.fillStyle= p<fwd?css('--jax'):css('--surface2'); gx.fillRect(x0+i*cw,y,cw-1,h);
+    if(bwd>0 && p>1-bwd){ gx.fillStyle=css('--grad'); gx.fillRect(x0+i*cw,y+h+6,cw-1,10);} }
+  gx.fillStyle=css('--muted'); gx.fillText('前向 scan',x0,y+h+30); gx.fillText('反向 vjp',x1-58,y+h+30);
+  const by=130, bh=70, n=PARAMS.length, bw=(x1-x0)/n;
+  for(let i=0;i<n;i++){ const v=SENS[i]*fill; gx.fillStyle=css('--surface2'); gx.fillRect(x0+i*bw+6,by,bw-12,bh); gx.fillStyle=css('--grad'); gx.fillRect(x0+i*bw+6,by+bh-v*bh,bw-12,v*bh);
+    gx.fillStyle=css('--muted'); gx.font='11px IBM Plex Mono,monospace'; gx.textAlign='center'; gx.fillText(PARAMS[i],x0+i*bw+bw/2,by+bh+16); gx.textAlign='left'; }
+  gx.fillStyle=css('--ink'); gx.font='600 12px Noto Sans SC,sans-serif'; gx.fillText(fill>=1?'全部 12 个参数的梯度，一次得到':'∂产量/∂参数',x0,by-8);
+}
+function gframe(ts){ if(!gplaying) return; const dt=glast?(ts-glast)/1000:0; glast=ts; gt+=dt; drawG(); if(gt<6.5) graf=requestAnimationFrame(gframe); else gplaying=false; }
+document.getElementById('gplay').onclick=()=>{ gt=0; glast=0; if(reduce){gt=7;drawG();return;} gplaying=true; graf=requestAnimationFrame(gframe); };
+gt= reduce?7:0; drawG();
+
+/* ---------- 04 why animations ---------- */
+const anims={};
+function reg(name, fn, dur){ anims[name]={fn,dur,t:0,playing:false,last:0}; }
+function playAnim(name){ const a=anims[name]; if(!a) return; const cv=document.querySelector(`canvas[data-anim="${name}"]`); const ctx=cv.getContext('2d');
+  a.t=0; a.last=0; if(reduce){ a.fn(ctx,cv,1); return; } a.playing=true;
+  const step=ts=>{ if(!a.playing) return; const dt=a.last?(ts-a.last)/1000:0; a.last=ts; a.t=Math.min(a.dur,a.t+dt); a.fn(ctx,cv,a.t/a.dur); if(a.t<a.dur) requestAnimationFrame(step); else a.playing=false; };
+  requestAnimationFrame(step); }
+const ease=p=>p<0?0:p>1?1:p*p*(3-2*p);
+function text(ctx,s,x,y,o={}){ ctx.fillStyle=o.c||css('--muted'); ctx.font=(o.w||'')+' '+(o.s||11)+'px IBM Plex Mono,monospace'; ctx.textAlign=o.a||'left'; ctx.fillText(s,x,y); ctx.textAlign='left'; }
+
+/* fd vs ad */
+reg('fd',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const P=30, rows=P+1, top=34, rh=(H-70)/rows;
+  text(ctx,'有限差分：31 次前向',12,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'反向模式：1 次前向 + 1 次反向',W/2+8,20,{c:css('--grad'),w:'600',s:12});
+  const lw=W/2-30; const prog=ease(p)*rows;
+  for(let i=0;i<rows;i++){ const y=top+i*rh; ctx.fillStyle=css('--surface'); ctx.fillRect(12,y,lw,rh-1); const f=Math.max(0,Math.min(1,prog-i)); ctx.fillStyle=css('--fortran'); ctx.fillRect(12,y,lw*f,rh-1); }
+  const x0=W/2+8, y0=top, bh=18; ctx.fillStyle=css('--surface'); ctx.fillRect(x0,y0,lw,bh); ctx.fillRect(x0,y0+bh+8,lw,bh);
+  const fp=Math.min(1,ease(p)*3.2), bp=Math.max(0,Math.min(1,ease(p)*3.2-1.1));
+  ctx.fillStyle=css('--jax'); ctx.fillRect(x0,y0,lw*fp,bh); ctx.fillStyle=css('--grad'); ctx.fillRect(x0+lw-lw*bp,y0+bh+8,lw*bp,bh);
+  text(ctx,'前向',x0+4,y0+13,{c:css('--bg'),s:10}); text(ctx,'反向',x0+4,y0+bh+21,{c:css('--bg'),s:10});
+  const done=Math.floor(prog); text(ctx,`已运行 ${Math.min(rows,done)} / 31 次`,12,H-12,{s:11}); text(ctx, bp>=1?'全部 30 个梯度已得到':'…',x0,H-12,{s:11,c:css('--ink')});
+  if(bp>=1){ for(let i=0;i<P;i++){ const x=x0+i*(lw/P); ctx.fillStyle=css('--grad'); ctx.fillRect(x,y0+2*bh+20,lw/P-2,H-y0-2*bh-44); } }
+},6);
+
+/* lhs vs gradient descent on a valley */
+function lossXY(x,y){ const u=(x*0.85+y*0.53), v=(-x*0.53+y*0.85); return 8*u*u+0.6*v*v; }
+reg('lhs',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const half=W/2-12;
+  const draw=(ox)=>{ const img=ctx.createImageData(half,H-40); const c0=hexToRgb(css('--surface2')), c1=hexToRgb(css('--jax-soft'));
+    for(let j=0;j<H-40;j++) for(let i=0;i<half;i++){ const x=(i/half-0.5)*2.4, y=(j/(H-40)-0.5)*2.4; const L=Math.min(1,lossXY(x,y)/6); const k=(j*half+i)*4; const band=Math.floor(L*8)%2? 0.08:0; img.data[k]=c0[0]+(c1[0]-c0[0])*(1-L)-band*40; img.data[k+1]=c0[1]+(c1[1]-c0[1])*(1-L)-band*40; img.data[k+2]=c0[2]+(c1[2]-c0[2])*(1-L)-band*40; img.data[k+3]=255; }
+    ctx.putImageData(img,ox,30); };
+  draw(8); draw(W/2+4);
+  text(ctx,'拉丁超立方撒点',8,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'梯度下降',W/2+4,20,{c:css('--jax'),w:'600',s:12});
+  const n=Math.floor(ease(p)*400); let best=1e9,bx=0,by=0; const rng=mulberry(7);
+  for(let i=0;i<n;i++){ const x=rng()*2.4-1.2,y=rng()*2.4-1.2; const L=lossXY(x,y); if(L<best){best=L;bx=x;by=y;} ctx.fillStyle=css('--fortran'); ctx.globalAlpha=.55; ctx.beginPath(); ctx.arc(8+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40),2,0,7); ctx.fill(); ctx.globalAlpha=1; }
+  if(n>0){ ctx.strokeStyle=css('--ink'); ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(8+(bx/2.4+0.5)*half,30+(by/2.4+0.5)*(H-40),6,0,7); ctx.stroke(); }
+  let x=1.0,y=-0.9; const steps=Math.floor(ease(p)*40); ctx.strokeStyle=css('--jax'); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40));
+  for(let i=0;i<steps;i++){ const e=1e-3; const gx=(lossXY(x+e,y)-lossXY(x-e,y))/(2*e), gy=(lossXY(x,y+e)-lossXY(x,y-e))/(2*e); x-=0.05*gx; y-=0.05*gy; ctx.lineTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40)); }
+  ctx.stroke(); if(steps>0){ ctx.fillStyle=css('--jax'); ctx.beginPath(); ctx.arc(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40),4,0,7); ctx.fill(); }
+  text(ctx,`${n} 次模拟，最好损失 ${n?best.toFixed(2):'—'}`,8,H-4,{s:11}); text(ctx,`${steps} 步，损失 ${lossXY(x,y).toFixed(3)}（每步 = 1 次前向 + 1 次反向）`,W/2+4,H-4,{s:11});
+},6);
+function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; } }
+
+/* identifiability valley */
+reg('ident',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const cx=W*0.36, cy=H*0.55, ang=-0.55;
+  for(let k=6;k>=1;k--){ ctx.beginPath(); ctx.ellipse(cx,cy,k*34,k*9,ang,0,7); ctx.strokeStyle=css('--line'); ctx.lineWidth=1; ctx.stroke(); }
+  const q=ease(p);
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
+  ctx.strokeStyle=css('--grad'); ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(180*q,0); ctx.stroke();
+  ctx.strokeStyle=css('--jax'); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-40*q); ctx.stroke(); ctx.restore();
+  text(ctx,'平的方向：K_sat 与 λ 一起变，损失几乎不变 → 辨识不出',cx+40,cy+70,{c:css('--grad'),s:11});
+  text(ctx,'陡的方向：数据约束住了',cx-120,cy-70,{c:css('--jax'),s:11});
+  const x0=W*0.72, base=H-30, ev=[1,.62,.4,.22,.08,.03,.012,.005,.002,.001]; text(ctx,'Fisher 信息特征值',x0-6,26,{w:'600',s:12,c:css('--ink')});
+  ev.forEach((e,i)=>{ const h=Math.max(2,(Math.log10(e)+3.2)/3.2*(H-70))*Math.min(1,q*ev.length-i); ctx.fillStyle= i<4?css('--jax'):css('--grad'); ctx.fillRect(x0+i*12,base-h,9,h); });
+  text(ctx,'可辨识 4 个方向 / 10 个参数',x0-6,H-8,{s:11});
+},4);
+
+/* chains */
+reg('chains',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
+  text(ctx,'4 条长链 × 1000 步',12,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'1000 条短链 × 4 步（同样墙钟）',W/2+8,20,{c:css('--jax'),w:'600',s:12});
+  const lw=W/2-30, y0=34, lanesH=H-90;
+  for(let k=0;k<4;k++){ const y=y0+k*(lanesH/4); ctx.fillStyle=css('--surface'); ctx.fillRect(12,y,lw,lanesH/4-4); ctx.fillStyle=css('--fortran'); ctx.fillRect(12,y,lw*q*0.004*1000/1000*1,lanesH/4-4); }
+  const rows=25, cols=40, cw=lw/cols, ch=lanesH/rows; const lit=Math.floor(q*4*cols/4);
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ ctx.fillStyle= c<lit? css('--jax'):css('--surface'); ctx.fillRect(W/2+8+c*cw,y0+r*ch,cw-1,ch-1); }
+  const stepsDone=Math.floor(q*4);
+  text(ctx,`每条链走了 ${Math.floor(q*4)} 步 / 1000 · 总样本 ${stepsDone*4}`,12,H-30,{s:11}); text(ctx,`每条链走了 ${stepsDone} 步 / 4 · 总样本 ${stepsDone*1000}`,W/2+8,H-30,{s:11});
+  text(ctx,'一步 NUTS 的延迟固定，链数在 vmap 里免费',12,H-10,{s:11,c:css('--ink')});
+},5);
+
+/* hybrid */
+reg('hyb',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
+  const boxes=[['潜在 ET',css('--jax')],['气孔阻力 · MLP',css('--grad')],['土壤水',css('--jax')],['作物',css('--jax')]]; const bw=(W-60)/4, y=70, bh=50;
+  boxes.forEach((b,i)=>{ const x=20+i*bw; ctx.fillStyle= b[1]===css('--grad')?css('--grad-soft'):css('--jax-soft'); ctx.strokeStyle=b[1]; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x,y,bw-16,bh,8); ctx.fill(); ctx.stroke(); text(ctx,b[0],x+(bw-16)/2,y+30,{a:'center',c:css('--ink'),s:12,w:'600'}); if(i<3){ ctx.strokeStyle=css('--muted'); ctx.beginPath(); ctx.moveTo(x+bw-16,y+bh/2); ctx.lineTo(x+bw,y+bh/2); ctx.stroke(); } });
+  text(ctx,'损失 = (模拟 ET − 通量塔 ET)²',W-20,y+bh+30,{a:'right',c:css('--ink'),s:12});
+  const n=18; for(let i=0;i<n;i++){ const ph=(q*2.2-i*0.05); if(ph<0||ph>1) continue; const x=W-20-ph*(W-40); const yy=y+bh+14+Math.sin(i)*3; ctx.fillStyle=css('--grad'); ctx.beginPath(); ctx.arc(x,yy,3,0,7); ctx.fill(); }
+  const hit=q>0.55; text(ctx, hit?'梯度穿过作物、土壤水，流进网络权重，也流进机理参数':'梯度从损失出发，沿计算图倒流',20,H-16,{s:11,c:hit?css('--grad'):css('--muted')});
+  if(hit){ ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; const x=20+bw; ctx.strokeRect(x-2,y-2,bw-12,bh+4); }
+},5);
+
+/* rain sensitivity */
+reg('rain',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p); const x0=20,x1=W-20,y0=40,rh=22,days=150;
+  text(ctx,'生长季逐日降雨（输入）',x0,20,{w:'600',s:12,c:css('--ink')}); const rng=mulberry(3);
+  for(let d=0;d<days;d++){ const r=rng()<0.28?rng()*18:0; const x=x0+d/days*(x1-x0); ctx.fillStyle=css('--jax'); ctx.fillRect(x,y0+rh-r,2,r); }
+  const cy=H-40; text(ctx,'∂产量/∂降雨_t（反向传播沿季节倒着算出）',x0,y0+rh+34,{w:'600',s:12,c:css('--grad')});
+  const from=1-q; ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; ctx.beginPath(); let first=true;
+  for(let d=days;d>=0;d--){ const f=d/days; if(f<from) break; const v=Math.exp(-Math.pow((f-0.55)/0.16,2))*60+Math.exp(-Math.pow((f-0.2)/0.12,2))*14; const x=x0+f*(x1-x0), y=cy-v; if(first){ctx.moveTo(x,y);first=false;} else ctx.lineTo(x,y); }
+  ctx.stroke(); ctx.strokeStyle=css('--line'); ctx.beginPath(); ctx.moveTo(x0,cy); ctx.lineTo(x1,cy); ctx.stroke();
+  const bx=x0+(1-q)*(x1-x0); ctx.fillStyle=css('--grad'); ctx.fillRect(bx-1,y0-6,2,cy-y0+10); text(ctx,'播种',x0,H-8,{s:10}); text(ctx,'吐丝期',x0+0.55*(x1-x0),H-8,{s:10,a:'center'}); text(ctx,'成熟',x1,H-8,{s:10,a:'right'});
+  if(q>=1) text(ctx,'峰值在吐丝期：那几周的雨决定产量',x0+0.55*(x1-x0),cy-70,{s:11,a:'center',c:css('--ink')});
+},5);
+
+/* auto-play on scroll, replay buttons, initial frames */
+Object.keys(anims).forEach(n=>{ const cv=document.querySelector(`canvas[data-anim="${n}"]`); anims[n].fn(cv.getContext('2d'),cv, reduce?1:0.001); });
+if(!reduce && 'IntersectionObserver' in window){ const seen=new Set(); const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ const n=e.target.dataset.anim; if(!seen.has(n)){ seen.add(n); playAnim(n);} } }); },{threshold:.5}); document.querySelectorAll('canvas[data-anim]').forEach(c=>io.observe(c)); }
+document.querySelectorAll('[data-replay]').forEach(b=>b.onclick=()=>playAnim(b.dataset.replay));
+})();
+</script>
