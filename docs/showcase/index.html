@@ -469,12 +469,12 @@ reg('loop',{dur:7,keys:[[0,'土壤剖面 37 层，Fortran 自上而下逐层计�
 /* ================= 05 day chain ================= */
 reg('chain',{dur:9,keys:[[0,'一日从天气开始：辐射、积温'],[0.14,'潜在蒸散读取天气与 LAI，写出 PET'],[0.28,'冠层截光按高度分层分配辐射'],[0.43,'作物：物候与生长，读取土壤水胁迫，写出 LAI 与根系'],[0.57,'多作物水分竞争：按根长密度与需求分配各层吸水'],[0.71,'土壤水：Richards 方程，读取吸水与入渗，写出各层含水量'],[0.86,'诊断：ET、排水等日输出；这一序列执行完毕即为一日']],
   draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);
-    const procs=[['天气','辐射 · 积温'],['潜在蒸散','S-W'],['冠层截光','Beer'],['作物','物候 · 生长'],['争水','多作物'],['土壤水','Richards'],['诊断','ET · 排水']];const n=procs.length,bw=(W-24)/n,y=40,bh=56;
+    const procs=[['天气','辐射·积温'],['潜在蒸散','S-W'],['冠层截光','Beer'],['作物','物候·生长'],['争水','多作物'],['土壤水','Richards'],['诊断','ET·排水']];const n=procs.length,bw=(W-24)/n,y=40,bh=56;
     const fields=['天气','PET','LAI','θ 各层','根系','产量'],fw=(W-24)/fields.length,fy=170,fh=28;
-    procs.forEach((pr,i)=>{const x=12+i*bw,on=q*n>i;g.box(x,y,bw-10,bh,on?c.j:c.line,on?c.js:c.surf);g.text(pr[0],x+(bw-10)/2,y+24,{a:'center',c:'ink',b:true,s:12});g.text(pr[1],x+(bw-10)/2,y+42,{a:'center',s:9});if(i<n-1)g.arrow(x+bw-10,y+bh/2,x+bw,y+bh/2,c.muted,q*n-i-0.5,1.5);});
+    procs.forEach((pr,i)=>{const x=12+i*bw,on=q*n>i;g.box(x,y,bw-7,bh,on?c.j:c.line,on?c.js:c.surf);g.text(pr[0],x+(bw-7)/2,y+24,{a:'center',c:'ink',b:true,s:11});g.text(pr[1],x+(bw-7)/2,y+42,{a:'center',s:8});if(i<n-1)g.arrow(x+bw-7,y+bh/2,x+bw,y+bh/2,c.muted,q*n-i-0.5,1.5);});
     g.text('状态字段',12,160,{s:10});fields.forEach((f,i)=>{const x=12+i*fw;g.rect(x,fy,fw-8,fh,c.surf);g.text(f,x+(fw-8)/2,fy+18,{a:'center',s:11,c:'ink'});});
     const rw=[[0,[0]],[1,[0,1]],[2,[1,2]],[3,[1,2,3,5]],[4,[3,4]],[5,[3,4]],[6,[1,3,5]]];const cur=Math.min(n-1,Math.floor(q*n));const [pi,fs]=rw[cur];
-    fs.forEach(fi=>{g.line(12+pi*bw+(bw-10)/2,y+bh,12+fi*fw+(fw-8)/2,fy,c.g,2,[4,3]);});
+    fs.forEach(fi=>{g.line(12+pi*bw+(bw-7)/2,y+bh,12+fi*fw+(fw-8)/2,fy,c.g,2,[4,3]);});
     g.text('虚线：当前过程读写的字段',12,H-10,{s:10});
   }});
 
