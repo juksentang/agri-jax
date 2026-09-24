@@ -27,116 +27,102 @@
   --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-block:0 64px;padding-inline:16px}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.75;padding-block:0 80px;padding-inline:16px}
 .wrap{max-width:1040px;margin:0 auto}
 h1,h2,h3{font-family:var(--serif);text-wrap:balance;line-height:1.25;margin:0}
-h1{font-size:clamp(34px,6vw,58px);font-weight:800;letter-spacing:-.01em}
-h2{font-size:clamp(24px,3.4vw,34px);font-weight:800;margin-bottom:8px}
-h3{font-size:19px;font-weight:600}
-p{margin:0 0 12px;max-width:68ch}
+h1{font-size:clamp(34px,6vw,56px);font-weight:800;letter-spacing:-.01em}
+h2{font-size:clamp(24px,3.4vw,32px);font-weight:800;margin-bottom:10px}
+h3{font-size:21px;font-weight:600}
+p{margin:0 0 12px;max-width:72ch}
 .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
 .muted{color:var(--muted)}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
-section{padding-block:56px 8px}
-header.hero{padding-block:64px 24px}
-.lead{font-size:19px;color:var(--ink);max-width:40ch}
+section{padding-block:64px 8px;scroll-margin-top:64px}
+header.hero{padding-block:56px 24px}
+.lead{font-size:19px;color:var(--ink);max-width:42ch}
+/* sticky nav */
+nav.toc{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);margin:0 -16px;padding:8px 16px}
+nav.toc ol{list-style:none;margin:0 auto;padding:0;max-width:1040px;display:flex;gap:4px 18px;flex-wrap:wrap;font-size:13px}
+nav.toc a{color:var(--muted);text-decoration:none;padding:4px 0;border-bottom:2px solid transparent}
+nav.toc a.on{color:var(--ink);border-bottom-color:var(--jax)}
+/* tiles */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:28px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;box-shadow:var(--shadow)}
-.tile .k{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.tile .k{font-size:12px;color:var(--muted);letter-spacing:.06em}
 .tile .v{font-family:var(--mono);font-size:30px;font-weight:600;line-height:1.15;margin:6px 0 2px}
 .tile .s{font-size:13px;color:var(--muted)}
-.tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);vertical-align:middle}
-.tag.real{border-color:var(--jax);color:var(--jax)}
-.tag.ill{border-color:var(--grad);color:var(--grad)}
-/* race */
-.race{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
-@media (max-width:760px){.race{grid-template-columns:1fr}}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
-.panel .head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:14px 16px 6px}
-.panel .head h3{display:flex;align-items:center;gap:8px}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.06em;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);vertical-align:middle}
+.tag.real{border-color:var(--jax);color:var(--jax)} .tag.ill{border-color:var(--grad);color:var(--grad)}
+/* figure panel anatomy */
+.fig{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;margin-top:20px}
+.fig h3{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.stage{position:relative;background:var(--surface2);border-radius:8px;overflow:hidden}
+.stage canvas{display:block;width:100%;height:auto;max-width:100%}
+.stage svg.ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.ov text{font-family:var(--sans);fill:var(--muted);font-size:11px}
+.ov text.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.ov text.ink{fill:var(--ink)} .ov text.f{fill:var(--fortran)} .ov text.j{fill:var(--jax)} .ov text.g{fill:var(--grad)} .ov text.b{font-weight:600} .ov text.w{fill:#fff}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.two{grid-template-columns:1fr}}
+.stepper{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.stepper button{font:inherit;font-size:13px;font-weight:500;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px 11px;cursor:pointer;line-height:1.4}
+.stepper button.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.stepper .dots{display:flex;gap:5px;margin-left:6px}
+.stepper .dots i{width:9px;height:9px;border-radius:50%;background:var(--line);display:block;cursor:pointer}
+.stepper .dots i.on{background:var(--grad)} .fig.jaxc .stepper .dots i.on{background:var(--jax)}
+.stepper .k{font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--jax);outline-offset:2px}
+.cap{font-size:15px;color:var(--ink);min-height:24px}
+.prog{height:4px;background:var(--surface2);border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--grad);transition:width .12s linear}
+.fig.jaxc .prog i{background:var(--jax)}
+.fig p{font-size:16px;color:var(--muted);margin:2px 0 0;max-width:none}
+.readout{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.readout b{display:block;font-size:15px;color:var(--ink);font-weight:600;white-space:nowrap}
+.head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 .dot.f{background:var(--fortran)} .dot.j{background:var(--jax)}
-.panel canvas{display:block;width:100%;height:auto;max-width:100%}
-.panel .foot{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:10px 16px 14px;border-top:1px solid var(--line)}
-.panel .foot div{font-family:var(--mono);font-size:12px;color:var(--muted)}
-.panel .foot b{display:block;font-size:18px;color:var(--ink);font-weight:600}
-.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
-button{font:inherit;font-weight:500;background:var(--ink);color:var(--bg);border:0;border-radius:8px;padding:9px 16px;cursor:pointer}
-button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
-button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--jax);outline-offset:2px}
-.clock{font-family:var(--mono);font-size:14px;color:var(--muted)}
-.clock b{color:var(--ink);font-weight:600}
-/* shape diagram */
-.shape{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
-@media (max-width:760px){.shape{grid-template-columns:1fr}}
-.shape .step{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
-.shape svg{width:100%;height:auto;display:block;margin:8px 0}
-pre{font-family:var(--mono);font-size:13px;line-height:1.55;background:var(--surface2);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:12px 0}
+.codes{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:760px){.codes{grid-template-columns:1fr}}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--surface2);border-radius:8px;padding:12px 14px;overflow-x:auto;margin:0}
+pre b{font-family:var(--sans);color:var(--muted);font-weight:500}
 code{font-family:var(--mono);font-size:.92em;background:var(--surface2);padding:1px 5px;border-radius:4px}
+.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:14px}
+.rule{display:grid;grid-template-columns:30px 1fr;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+.rule .n{font-family:var(--mono);font-size:20px;font-weight:600;color:var(--jax)}
+.rule p{font-size:14px;margin:0;max-width:none}
 /* estimator */
-.est{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:18px;margin-top:18px}
 .est .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px 18px}
 .est label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
 .est select,.est input[type=range]{width:100%}
 .est select{font:inherit;padding:7px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
-.bars{margin-top:18px;display:grid;gap:10px}
-.bar{display:grid;grid-template-columns:120px 1fr 130px;gap:10px;align-items:center}
+.bars{margin-top:6px;display:grid;gap:10px}
+.bar{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center}
 .bar .lab{font-size:14px;display:flex;align-items:center;gap:8px}
 .bar .track{height:14px;background:var(--surface2);border-radius:4px;position:relative;overflow:hidden}
 .bar .fill{position:absolute;inset:0 auto 0 0;border-radius:4px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
 .bar .val{font-family:var(--mono);font-size:14px;text-align:right}
-.axis{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between;margin-top:4px}
-/* gradient strip */
-.gradbox{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px;margin-top:18px}
-.gradbox canvas{width:100%;height:auto;display:block;max-width:100%}
-.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
-.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-/* why */
-.why{display:grid;grid-template-columns:1fr;gap:22px;margin-top:14px}
-.wcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
-.wcard h3{font-size:22px}
-.wcard canvas{width:100%;height:auto;display:block;max-width:100%;border-radius:8px;background:var(--surface2)}
-.wcard p{font-size:16px;color:var(--muted);margin:0;max-width:none}
-.cap{font-size:15px}
-button.small{padding:6px 12px;font-size:13px;align-self:flex-start}
-.codes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
-@media (max-width:760px){.codes{grid-template-columns:1fr}}
-.codes pre{margin:0;font-size:12.5px} .codes pre b{font-family:var(--sans);color:var(--muted);font-weight:500}
-/* svg label overlays (vector text over canvas graphics) */
-.stage{position:relative}
-.stage svg.ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
-.ov text{font-family:var(--sans);fill:var(--muted);font-size:11px}
-.ov text.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.ov text.ink{fill:var(--ink)} .ov text.f{fill:var(--fortran)} .ov text.j{fill:var(--jax)} .ov text.g{fill:var(--grad)} .ov text.b{font-weight:600}
-/* captions & progress */
-.cap{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:13px;color:var(--ink);min-height:22px}
-.cap .stage{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
-.prog{height:4px;background:var(--surface2);border-radius:2px;overflow:hidden}
-.prog i{display:block;height:100%;width:0;background:var(--jax);transition:width .15s linear}
-.prog.g i{background:var(--grad)} .prog.f i{background:var(--fortran)}
-.panel .cap,.panel .prog{margin:0 16px} .panel .prog{margin-bottom:10px}
-/* cards */
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:18px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
-.card svg{width:100%;height:auto;display:block;margin:6px 0 10px}
-.card p{font-size:14px;color:var(--muted);margin:0}
+.axis{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;justify-content:space-between}
 table{border-collapse:collapse;width:100%;font-size:14px;margin-top:14px}
 th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 th{font-weight:500;color:var(--muted);font-size:13px}
 td.num{text-align:right}
 .tblwrap{overflow-x:auto}
-footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
 a{color:var(--jax)}
-.rule{display:grid;grid-template-columns:34px 1fr;gap:12px;align-items:start;margin-top:12px}
-.rule .n{font-family:var(--mono);font-size:22px;font-weight:600;color:var(--jax);line-height:1.2}
-@media (prefers-reduced-motion: reduce){.bar .fill{transition:none}}
+@media (prefers-reduced-motion: reduce){.bar .fill,.prog i{transition:none}}
 </style>
 
+<nav class="toc" aria-label="页面导航"><ol>
+  <li><a href="#what">是什么</a></li><li><a href="#then">以前怎么算</a></li><li><a href="#swap">为什么能换个算法</a></li><li><a href="#process">过程函数</a></li><li><a href="#rules">三条规则</a></li><li><a href="#day">一天怎么拼</a></li><li><a href="#grad">可微分带来什么</a></li><li><a href="#hardware">换硬件试试</a></li><li><a href="#proof">实测</a></li>
+</ol></nav>
+
 <div class="wrap">
-<header class="hero">
+<header class="hero" id="what">
   <div class="eyebrow">Agri-JAX · 可微分、可批量的田块尺度作物–土壤模型</div>
-  <h1>以前一块田一块田地算，<br>现在十万块田一起算，还能求导。</h1>
-  <p class="lead" style="margin-top:16px">同一套 CERES-Maize 和 RZWQM 式土壤物理，写成 JAX 纯函数：时间用 <code>scan</code>，样本用 <code>vmap</code>，梯度用 <code>grad</code>。下面每个数字都标了是实测还是示意。</p>
+  <h1>过去按田块逐一计算；<br>现在十万块田同步计算，并且可以求导。</h1>
+  <p class="lead" style="margin-top:16px">同一套 CERES-Maize 作物过程与 RZWQM 式土壤物理，以 JAX 纯函数实现：时间维由 <code>scan</code> 承担，样本维由 <code>vmap</code> 承担，梯度由 <code>grad</code> 给出。每张图配有分步说明，可暂停、逐帧查看；每个数字均注明为实测或示意。</p>
   <div class="tiles">
     <div class="tile"><div class="k">10 万次 × 九年模拟 <span class="tag real">实测</span></div><div class="v"><span style="color:var(--fortran)">≈10 h</span> → <span style="color:var(--jax)">82 s</span></div><div class="s">Fortran 集群批处理墙钟 vs 一块 H100，12 子步 × 2 次迭代，float64</div></div>
     <div class="tile"><div class="k">一次全参数梯度 <span class="tag real">实测</span></div><div class="v"><span style="color:var(--grad)">56 s</span> / 万样本</div><div class="s">反向传播一次得到全部参数的梯度；有限差分 30 个参数要 31 次运行</div></div>
@@ -144,36 +130,39 @@ a{color:var(--jax)}
   </div>
 </header>
 
-<section id="race">
-  <div class="eyebrow">01 · 同一个任务，两种算法形态</div>
-  <h2>把十万组参数丢进去，看谁先算完</h2>
-  <p class="muted">左边按真实比例走：屏幕 1 秒 = 真实 1 分钟，32 核工作站并发跑 Fortran 二进制，每次 24 秒、落 99 个文件。右边为了看清过程放慢了 13 倍：一块 GPU 上十万个样本同步逐日推进，真实用时 82 秒。</p>
-  <div class="controls">
-    <button id="play">▶ 开始</button>
-    <button id="replay" class="ghost">↻ 重来</button>
-    <span class="clock">真实时间 <b id="clock">0 min</b></span>
-  </div>
-  <div class="race">
-    <div class="panel">
-      <div class="head"><h3><span class="dot f"></span>Fortran · 逐个运行</h3><span class="tag">32 核并发</span></div>
-      <div class="stage"><canvas id="cvF" width="520" height="300"></canvas><svg class="ov" viewBox="0 0 520 300" aria-hidden="true"></svg></div>
-      <div class="cap"><span id="fCap">每个核一次只能跑一个模拟，跑完写文件，再拿下一个</span><span class="stage" id="fStage">真实比例</span></div>
-      <div class="prog f"><i id="fProg"></i></div>
-      <div class="foot"><div>已完成<b class="num" id="fDone">0</b></div><div>写出文件<b class="num" id="fFiles">0 GB</b></div><div>预计还要<b class="num" id="fEta">21 h</b></div></div>
+<!-- 01 race -->
+<section id="then">
+  <div class="eyebrow">01 · 过去如何计算，现在如何计算</div>
+  <h2>同一批十万组参数，两种计算形态的对照</h2>
+  <p class="muted">两侧时间尺度不同：左侧自真实速度起步并逐步加速（右上角显示当前倍率），否则需等待 21 小时；右侧为便于观察放慢 4 倍，真实用时 82 秒。可用下方按钮暂停、逐帧查看。</p>
+  <div class="fig jaxc" data-fig="race">
+    <div class="two">
+      <div>
+        <div class="head"><h3 style="font-size:18px"><span class="dot f"></span>Fortran · 逐个运行</h3><span class="tag">32 核并发</span></div>
+        <div class="stage" style="margin-top:8px"><canvas data-stage="f" width="1040" height="600"></canvas><svg class="ov" viewBox="0 0 520 300" aria-hidden="true"></svg></div>
+        <div class="readout" style="margin-top:8px"><div>已完成<b id="fDone">0</b></div><div>写出文件<b id="fFiles">0 GB</b></div><div>真实时间<b id="fClock">0 min</b></div></div>
+      </div>
+      <div>
+        <div class="head"><h3 style="font-size:18px"><span class="dot j"></span>Agri-JAX · 全部同步</h3><span class="tag">1 × H100</span></div>
+        <div class="stage" style="margin-top:8px"><canvas data-stage="j" width="1040" height="600"></canvas><svg class="ov" viewBox="0 0 520 300" aria-hidden="true"></svg></div>
+        <div class="readout" style="margin-top:8px"><div>模拟日<b id="jDay">0 / 3287</b></div><div>同步样本<b>100,000</b></div><div>真实时间<b id="jClock">0 s</b></div></div>
+      </div>
     </div>
-    <div class="panel">
-      <div class="head"><h3><span class="dot j"></span>Agri-JAX · 全部同步</h3><span class="tag">1 × H100</span></div>
-      <div class="stage"><canvas id="cvJ" width="520" height="300"></canvas><svg class="ov" viewBox="0 0 520 300" aria-hidden="true"></svg></div>
-      <div class="cap"><span id="jCap">十万组参数装进一个数组，等待开始</span><span class="stage" id="jStage">放慢 13 倍</span></div>
-      <div class="prog"><i id="jProg"></i></div>
-      <div class="foot"><div>模拟日<b class="num" id="jDay">0 / 3287</b></div><div>同步样本<b class="num" id="jN">100,000</b></div><div>状态<b id="jState">待命</b></div></div>
-    </div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>右侧每格代表 20 次模拟，颜色表示当日叶面积（示意）。左侧每次运行写出 99 个文件，十万次累计 80 GB，其后仍需解压与抽取；右侧的状态与输出全程驻留显存，计算结束后汇总写盘一次，仅数 MB。</p>
   </div>
-  <p class="muted" style="margin-top:12px;font-size:14px">右边格子每格代表 20 次模拟，颜色是当日的叶面积指数（示意）。</p>
-  <div class="wcard" style="margin-top:22px">
-    <h3>为什么明明要顺序算的任务，能变成 GPU 上的一次数组运算</h3>
-    <div class="stage"><canvas data-anim="swap" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-    <p>作物模型里真正的"顺序"只有一个方向：一块田的今天依赖它自己的昨天。不同田块、不同参数组之间没有任何依赖。所以两层循环可以交换顺序：不再是"对每块田，跑完它的 3287 天"，而是"对每一天，让所有田块一起做同一件事"。内层那件事对十万块田是完全相同的算式，只是数字不同，这正是 GPU 擅长的形状：一条指令，十万个数。Fortran 做不到不是因为它慢，而是它把每次运行绑死在一个进程里：全局状态、按文件名读输入、每天写文件，一块田一个进程，换不了循环顺序。</p>
+</section>
+
+<!-- 02 loop swap -->
+<section id="swap">
+  <div class="eyebrow">02 · 为何可以改变计算形态</div>
+  <h2>顺序执行的任务，为何能改写为 GPU 上的一次数组运算</h2>
+  <p class="muted">计算量并未减少，改变的是两层循环的顺序。</p>
+  <div class="fig" data-fig="swap">
+    <h3>田块 × 天：依赖仅沿行方向，因此可以按列推进</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>作物模型中真正的顺序依赖只有一个方向：一块田的今天依赖它自身的昨天；不同田块、不同参数组之间不存在依赖。因此两层循环可以交换：不再是"对每块田，完整推进 3287 天"，而是"对每一天，让所有田块执行同一步计算"。内层这一步对十万块田是完全相同的算式，仅数值不同，正是 GPU 最擅长的形态：一条指令，十万个数。Fortran 无法交换顺序，原因不在速度，而在于每次运行被绑定在一个进程内：全局状态、按文件名读取输入、逐日写出文件。</p>
     <div class="codes">
       <pre><b>Fortran</b>
 for 田块 in 十万块:
@@ -181,58 +170,123 @@ for 田块 in 十万块:
         state = 日步(state)
     写 99 个文件</pre>
       <pre><b>Agri-JAX</b>
-for 天 in 3287 天:            ← scan 把这层循环编译进图
+for 天 in 3287 天:             ← scan 把这层循环编译进图
     state[所有田块] = 日步(state[所有田块])
-                              ← vmap 把"所有田块"变成数组的第一维
-                              ← 一次数组运算，没有文件</pre>
-    </div>
-    <button class="ghost small" data-replay="swap">↻ 重播</button>
-  </div>
-</section>
-
-<section id="shape">
-  <div class="eyebrow">02 · 过程函数是什么，规则为什么是这三条</div>
-  <h2>模型没变，变的是每个过程怎么写</h2>
-  <p class="muted">Agri-JAX 里的每个过程仍然是农学家熟悉的那条方程。变化只有一点：过程读什么、改什么，全部写在签名上。下面用叶面积增长做例子，再解释三条规则各自堵住了什么问题。</p>
-  <div class="why">
-    <div class="wcard">
-      <h3>一个过程长什么样：叶面积增长</h3>
-      <div class="stage"><canvas data-anim="proc" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>这就是 CERES 里的叶面积扩展：ΔLAI = 展叶速率 × 今日积温 × 水分胁迫因子，只在营养生长期发生。函数从"昨天的状态"里读 LAI、生育期和土壤水，从"品种参数"里读展叶速率，从"今日天气"里读积温，算出今天的 LAI 写回状态。没有别的输入，也没有别的输出。这不是新模型，是把原来散落在全局变量里的读写关系摆到明面上。</p>
-      <button class="ghost small" data-replay="proc">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>规则一为什么：纯函数，因为隐藏状态会撞车</h3>
-      <div class="stage"><canvas data-anim="pure" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>Fortran 模型里很多子程序通过 COMMON 块和 SAVE 变量共享状态：一个子程序悄悄改了一个数，另一个子程序在别处读到。一次只跑一块田时没问题。要十万块田同时跑，这些共享的格子就会互相覆盖，谁也说不清里面是哪块田的数。纯函数把每块田的状态放进它自己那一行，读什么改什么都在签名上，十万行互不打扰；反向求导也需要这个，因为要沿着明确的读写关系倒着走。</p>
-      <button class="ghost small" data-replay="pure">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>规则二为什么：用 where 分支，因为十万块田不在同一个生育期</h3>
-      <div class="stage"><canvas data-anim="where" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>写 <code>if 生育期 == 营养生长</code> 的时候，程序只能走一条路，但同一天十万块田里有的在出苗、有的在灌浆。<code>where</code> 把两个分支都算出来，再按每块田自己的条件挑：营养生长期的取增长值，其它的取零。每块田拿到自己那一条路，整列仍然是一次数组运算。梯度也一样沿着被选中的分支流回去。</p>
-      <button class="ghost small" data-replay="where">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>规则三为什么：不写循环，因为循环是运行时的事</h3>
-      <div class="stage"><canvas data-anim="loop" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>土壤有 37 层，Fortran 用 for 循环从上到下一层层算。同样的计算写成对整个"层"维度的一次运算，37 层一起出结果，十万块田就是 37 × 十万的一张表。时间循环由 scan 接管，样本循环由 vmap 接管，过程作者两个都不用管。这样过程代码里只剩方程本身。</p>
-      <button class="ghost small" data-replay="loop">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>一天是怎么拼起来的：过程按顺序接力</h3>
-      <div class="stage"><canvas data-anim="chain" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>模型 = 状态的定义 + 一列有顺序的过程。每天从天气开始：算潜在蒸散，分配截光，作物物候和生长，多作物争水，土壤水再分配，最后写出诊断量。每个过程只碰它声明过的字段，所以能画出这张数据流图，能替换其中任何一个（把桶模型换成 Richards，把气孔阻力换成神经网络），也能逐个对照参考模型验证。这一列跑完，就是 Fortran 里的一天。</p>
-      <button class="ghost small" data-replay="chain">↻ 重播</button>
+                               ← vmap 把"所有田块"变成数组的第一维
+                               ← 一次数组运算，没有文件</pre>
     </div>
   </div>
 </section>
 
-<section id="est">
-  <div class="eyebrow">03 · 换你的硬件试试</div>
-  <h2>这批模拟要多久</h2>
-  <p class="muted">用 H100 实测数据按内存带宽外推到其它显卡；Fortran 按每次 24 秒除以核数。<span class="tag ill">外推</span> 真模型比骨架慢 2 到 4 倍，估算已乘 3。</p>
-  <div class="est">
+<!-- 03 process -->
+<section id="process">
+  <div class="eyebrow">03 · 过程函数</div>
+  <h2>模型未变，改变的是过程的书写方式</h2>
+  <p class="muted">每个过程仍是农学家熟悉的那条方程，只是读取与写入的内容全部写在函数签名上。</p>
+  <div class="fig" data-fig="proc">
+    <h3>一个过程的形态：叶面积增长</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>此即 CERES 的叶面积扩展：ΔLAI = 展叶速率 × 今日积温 × 水分胁迫因子，仅在营养生长期发生。函数从"昨日状态"读取 LAI、生育期与土壤水，从"品种参数"读取展叶速率，从"今日天气"读取积温，计算今日 LAI 并写回状态。没有其它输入，也没有其它输出。这并非新模型，而是把原本散布于全局变量中的读写关系显式化。</p>
+  </div>
+</section>
+
+<!-- 04 rules -->
+<section id="rules">
+  <div class="eyebrow">04 · 三条规则，各自解决一个问题</div>
+  <h2>编写过程函数只需遵守三条规则</h2>
+  <div class="rules">
+    <div class="rule"><div class="n">1</div><p><b>纯函数。</b>读的全在参数里，改的全在返回值里。</p></div>
+    <div class="rule"><div class="n">2</div><p><b>用 <code>where</code> 分支。</b>不在状态量上写 Python <code>if</code>。</p></div>
+    <div class="rule"><div class="n">3</div><p><b>不写循环。</b>土层、天数、样本的循环都由运行时接管。</p></div>
+  </div>
+  <div class="fig" data-fig="pure">
+    <h3>规则一的原因：共享状态会互相覆盖</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>Fortran 模型中大量子程序通过 COMMON 块与 SAVE 变量共享状态：一个子程序修改的数值，另一个子程序在别处读取。单块田逐次运行时并无问题；十万块田同时运行，这些共享单元会互相覆盖，其中的数值归属无从判断。纯函数把每块田的状态置于其自身的一行，读取与写入均在签名上声明，十万行互不干扰。反向求导同样依赖这一点：链式法则必须沿明确的读写关系回溯。</p>
+  </div>
+  <div class="fig" data-fig="where">
+    <h3>规则二的原因：十万块田并不处于同一生育期</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>写作 <code>if 生育期 == 营养生长</code> 时，程序只能选择一条路径，而同一天的十万块田中，有的处于出苗期，有的已进入灌浆期。<code>where</code> 将两个分支同时计算，再按每块田自身的条件选取：营养生长期取增长值，其余取零。每块田获得各自的路径，整列仍是一次数组运算，梯度亦沿被选中的分支回传。</p>
+  </div>
+  <div class="fig" data-fig="loop">
+    <h3>规则三的原因：循环由运行时承担</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>土壤剖面有 37 层，Fortran 以 for 循环自上而下逐层计算。同样的计算改写为对整个"层"维度的一次运算，37 层同时得出结果；十万块田排成列，便是一张 37 × 十万的表。时间循环由 scan 承担，样本循环由 vmap 承担，过程作者无需处理其中任何一层，过程代码中只保留方程本身。</p>
+  </div>
+</section>
+
+<!-- 05 day -->
+<section id="day">
+  <div class="eyebrow">05 · 一天如何由过程组成</div>
+  <h2>模型 = 状态定义 + 一组有序的过程</h2>
+  <div class="fig" data-fig="chain">
+    <h3>七个过程依次执行，即为一日</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>每日从天气开始：计算潜在蒸散，分配截光，作物物候与生长，多作物水分竞争，土壤水再分配，最后写出诊断量。每个过程只访问其声明的字段，因此可以绘出这张数据流图，可以替换其中任一过程（以 Richards 替换桶模型，以神经网络替换气孔阻力），也可以逐个对照参考模型进行验证。</p>
+  </div>
+</section>
+
+<!-- 06 differentiability -->
+<section id="grad">
+  <div class="eyebrow">06 · 可微分带来的能力及其原因</div>
+  <h2>一次反向传播，得到全部参数的梯度</h2>
+  <p class="muted">以下每项能力均附有原理说明。进入视野后自动播放，可暂停、逐帧查看。</p>
+  <div class="fig" data-fig="strip">
+    <h3>前向沿时间推进，反向沿同一路径回传</h3>
+    <div class="stage"><canvas width="1200" height="375"></canvas><svg class="ov" viewBox="0 0 480 150" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>前向：状态从第 1 天推进至第 3287 天，逐日记录中间量（或按日设置检查点）。反向：自最后一天起，伴随量沿同一路径回传，经过每一天时累加当日对各参数的影响。回传完成后，全部参数的梯度同时得到，代价约为前向的数倍。参数灵敏度条为示意。</p>
+  </div>
+  <div class="fig" data-fig="fd">
+    <h3>为何一次反向即可，而有限差分需要 P+1 次前向</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>有限差分需对每个参数分别扰动并各运行一次前向：30 个参数即 31 次九年模拟。反向模式沿同一张计算图将链式法则回溯一遍，所有参数的导数在一次回传中同时累积，代价约相当于数次前向，且与参数个数无关。</p>
+  </div>
+  <div class="fig" data-fig="lhs">
+    <h3>为何高维标定不再依赖随机采样</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>拉丁超立方在参数空间中布点后择优，维数升高时样本迅速稀疏。有了梯度，每一步都有明确方向，数十步即可抵达谷底；代价几乎不随维数增长，七个站点、百余参数的联合标定因此成为可能。底图为损失面，颜色越绿数值越低（示意）。</p>
+  </div>
+  <div class="fig" data-fig="ident">
+    <h3>为何能够判定哪些参数不可辨识</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>损失面在某些方向陡峭，在另一些方向平坦。平坦方向即数据无法约束的参数组合，例如仅有 ET 观测时的 K<sub>sat</sub> 与 λ。Fisher 信息矩阵等于雅可比矩阵的转置与自身之积，一次反向传播即可求得，其特征值谱直接给出可辨识方向的数量（示意）。</p>
+  </div>
+  <div class="fig" data-fig="chains">
+    <h3>为何采用一千条短链而非四条长链</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>NUTS 的每一步都需要梯度，单条链是串行的，每步有固定延迟。而在 GPU 上，四条链与一千条链在 vmap 中耗时相同。因此合理的形态是大量短链同时采样：总样本数不变，墙钟时间由数十小时降至一小时量级。</p>
+  </div>
+  <div class="fig" data-fig="hyb">
+    <h3>为何能将神经网络嵌入机理模型并端到端训练</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>只要整条计算链可微，损失对网络权重的梯度便能穿过其后的机理过程回传。于是可以仅将最不确定的那个过程替换为小型网络，以通量塔 ET 端到端训练，其余过程仍保持守恒与可解释性。</p>
+  </div>
+  <div class="fig" data-fig="rain">
+    <h3>为何能够回答"哪场降雨决定了产量"</h3>
+    <div class="stage"><canvas width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
+    <div class="stepper"></div><div class="cap"></div><div class="prog"><i></i></div>
+    <p>反向传播不仅对参数求导，对每日降雨、初始含水量等输入同样适用。伴随量沿生长季回传，每一天降雨对最终产量的边际贡献同时得到，一条曲线即可回答归因问题（示意）。</p>
+  </div>
+</section>
+
+<!-- 07 estimator -->
+<section id="hardware">
+  <div class="eyebrow">07 · 在其它硬件上的预期耗时</div>
+  <h2>这批模拟需要多长时间</h2>
+  <p class="muted">以 H100 实测数据按内存带宽外推至其它显卡；Fortran 按单次 24 秒除以核数估算。<span class="tag ill">外推</span> 真模型比骨架慢 2 到 4 倍，估算已乘 3。</p>
+  <div class="fig est">
     <div class="grid">
       <div><label for="n">模拟次数：<b class="num" id="nLab">100,000</b></label><input type="range" id="n" min="3" max="6" step="0.05" value="5"></div>
       <div><label for="gpu">GPU</label><select id="gpu"><option value="h100">H100 80 GB（3.35 TB/s）</option><option value="a100">A100 40 GB（1.55 TB/s）</option><option value="4090">RTX 4090（1.0 TB/s）</option><option value="4060">RTX 4060 笔记本（0.27 TB/s）</option></select></div>
@@ -245,63 +299,14 @@ for 天 in 3287 天:            ← scan 把这层循环编译进图
       <div class="bar"><div class="lab"><span class="dot j"></span>Agri-JAX</div><div class="track"><div class="fill" id="barJ" style="background:var(--jax);width:10%"></div></div><div class="val" id="valJ">—</div></div>
     </div>
     <div class="axis"><span>1 秒</span><span>1 分钟</span><span>1 小时</span><span>1 天</span><span>1 周</span><span>对数刻度</span></div>
-    <p id="ratio" class="muted" style="margin-top:10px;font-size:14px"></p>
+    <p id="ratio" class="muted" style="font-size:14px"></p>
   </div>
 </section>
 
-<section id="grad">
-  <div class="eyebrow">04 · 顺序模型做不到的事</div>
-  <h2>一次反向传播，全部参数的梯度</h2>
-  <p class="muted">前向沿天数走一遍，反向沿同一条路走回来，每个参数对产量的影响同时算出。有限差分要对每个参数各跑一次。</p>
-  <div class="gradbox">
-    <div class="stage"><canvas id="cvG" data-anim="strip" width="1000" height="240"></canvas><svg class="ov" viewBox="0 0 1000 240" aria-hidden="true"></svg></div>
-    <div class="legend"><span><i style="background:var(--jax)"></i>前向：状态逐日推进</span><span><i style="background:var(--grad)"></i>反向：伴随量逐日回传</span><span><i style="background:var(--surface2);border:1px solid var(--line)"></i>参数灵敏度 ∂产量/∂参数 <span class="tag ill">示意</span></span></div>
-    <div class="controls"><button id="gplay" class="ghost">▶ 播放前向与反向</button></div>
-  </div>
-  <p class="muted" style="margin-top:22px">下面每一条优势都配一个"为什么"的动画。滚动到视野内自动播放，也可以点重播。</p>
-  <div class="why">
-    <div class="wcard">
-      <h3>为什么一次反向就够，有限差分却要跑 P+1 次</h3>
-      <div class="stage"><canvas data-anim="fd" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>有限差分要对每个参数各扰动一次、各跑一遍前向：30 个参数就是 31 次九年模拟。反向模式把链式法则沿同一张计算图倒着走一遍，所有参数的导数在一趟里同时累积，成本约等于几次前向，且与参数个数无关。</p>
-      <button class="ghost small" data-replay="fd">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>为什么高维标定不再靠撒点</h3>
-      <div class="stage"><canvas data-anim="lhs" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>拉丁超立方是在参数空间里撒点后挑最好的，维数一高样本就稀得像没撒。有了梯度，每一步都知道往哪走，几十步到谷底；成本几乎不随维数增长，七个站点一百多个参数联合标定就变得可行。</p>
-      <button class="ghost small" data-replay="lhs">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>为什么能说清哪些参数"辨识不出来"</h3>
-      <div class="stage"><canvas data-anim="ident" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>损失面在有的方向陡、有的方向平。平的方向就是数据约束不住的参数组合，比如只有 ET 观测时的 K<sub>sat</sub> 与 λ。Fisher 信息矩阵是雅可比的转置乘雅可比，一次反向传播就能算，它的特征值谱直接给出可辨识方向的个数。</p>
-      <button class="ghost small" data-replay="ident">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>为什么是一千条短链，不是四条长链</h3>
-      <div class="stage"><canvas data-anim="chains" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>NUTS 每一步都要梯度，一条链是串行的，每步有固定延迟。但 GPU 上四条链和一千条链在 vmap 里花的时间一样多。所以正确的形态是很多条短链同时采样，总样本数不变，墙钟从几十小时降到一小时。</p>
-      <button class="ghost small" data-replay="chains">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>为什么能把神经网络嵌进机理模型里训练</h3>
-      <div class="stage"><canvas data-anim="hyb" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>只要整条链可微，损失对网络权重的梯度就能穿过后面的机理过程流回来。于是可以只把最不确定的那个过程换成小网络，用通量塔的 ET 端到端训练，其余过程照旧守恒、照旧可解释。</p>
-      <button class="ghost small" data-replay="hyb">↻ 重播</button>
-    </div>
-    <div class="wcard">
-      <h3>为什么能回答"哪场雨决定了收成"</h3>
-      <div class="stage"><canvas data-anim="rain" width="1200" height="575"></canvas><svg class="ov" viewBox="0 0 480 230" aria-hidden="true"></svg></div>
-      <p>反向传播不只对参数求导，对每一天的降雨、初始含水量这些输入也一样。伴随量沿季节倒着流回去，每一天的降雨对最终产量的边际贡献就同时得到，一条曲线回答归因问题。</p>
-      <button class="ghost small" data-replay="rain">↻ 重播</button>
-    </div>
-  </div>
-</section>
-
+<!-- 08 proof -->
 <section id="proof">
-  <div class="eyebrow">05 · 到目前为止，什么是实测的</div>
-  <h2>数字来自哪里</h2>
+  <div class="eyebrow">08 · 已实测的数据</div>
+  <h2>数据来源</h2>
   <div class="tblwrap"><table>
     <thead><tr><th>指标</th><th class="num">数值</th><th>条件</th><th>性质</th></tr></thead>
     <tbody>
@@ -309,7 +314,7 @@ for 天 in 3287 天:            ← scan 把这层循环编译进图
       <tr><td>同上，12 × 2</td><td class="num">82 s</td><td>同上</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td>同上</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td>5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td>每日 checkpoint</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>一次全参数梯度，10⁴ 样本，12 × 2</td><td class="num">56 s</td><td>每日检查点</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>Fortran RZWQM2 单次九年模拟</td><td class="num">24 s</td><td>集群单核；10⁵ 次约 10 h 墙钟、80 GB 输出</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>ASCE 参考 ET 对 RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td>CA-TPA 2015，逐日</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>S-W 潜在蒸发 / 蒸腾对 RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td>生长季 RMSE，未调参</td><td><span class="tag real">实测</span></td></tr>
@@ -326,297 +331,237 @@ for 天 in 3287 天:            ← scan 把这层循环编译进图
 
 <script>
 (function(){
-const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const fmt = n => n.toLocaleString('zh-CN');
-
-/* ---------- 01 race ---------- */
-const N=100000, RUN_S=24, DAYS=3287, JAX_S=82, CORES=32, GB=80;
-const cvF=document.getElementById('cvF'), cvJ=document.getElementById('cvJ');
-const fx=cvF.getContext('2d'), jx=cvJ.getContext('2d');
-let t=0, playing=false, last=0, raf=null;           // t = real minutes
-const scale=1;                                        // 1 s screen = 1 min real
-const JAX_ANIM_S=18; /* screen seconds for the whole JAX run */
-const cellsX=100, cellsY=50; const lai=new Float32Array(cellsX*cellsY).fill(0);
-const seeds=new Float32Array(cellsX*cellsY); for(let i=0;i<seeds.length;i++) seeds[i]=0.6+Math.random()*0.8;
-function drawF(){
-  const W=cvF.width,H=cvF.height; fx.clearRect(0,0,W,H);
-  const lanes=CORES, laneH=(H-72)/lanes; const done=Math.min(N, Math.floor(t*60/RUN_S*CORES));
-  text(fx,'32 核 · 每次 24 秒',10,16,{s:12});
-  /* disk bar */
-  const gb=GB*(done/N); text(fx,'磁盘写入',10,H-22,{s:12});
-  fx.fillStyle=css('--surface2'); fx.fillRect(70,H-32,W-160,14); fx.fillStyle=css('--fortran'); fx.fillRect(70,H-32,(W-160)*(done/N),14);
-  text(fx,gb.toFixed(1)+' / 80 GB',W-84,H-21,{s:12,m:true,w:'600',c:css('--ink')});
-  text(fx,`${(done*99).toLocaleString('zh-CN')} 个文件`,70,H-6,{s:11,m:true});
-  for(let l=0;l<lanes;l++){
-    const y=24+l*laneH; fx.fillStyle=css('--surface2'); fx.fillRect(10,y+1,W-20,laneH-2);
-    const phase=((t*60)/RUN_S + l*0.13)%1; const bw=(W-20)*0.18;
-    fx.fillStyle=css('--fortran'); fx.fillRect(10+phase*(W-20-bw), y+1, bw, laneH-2);
-  }
-  const p=done/N; text(fx,(p*100).toFixed(2)+' %',W-10,16,{s:12,m:true,w:'600',c:css('--ink'),a:'right'});
-  flush(fx,ovOf(cvF));
-  document.getElementById('fDone').textContent=fmt(done)+' / '+fmt(N);
-  document.getElementById('fFiles').textContent=(GB*p).toFixed(2)+' GB';
-  const remain=(N-done)*RUN_S/CORES/3600; document.getElementById('fEta').textContent= done>=N?'完成':(remain>1?remain.toFixed(1)+' h':Math.round(remain*60)+' min');
-  document.getElementById('fProg').style.width=(p*100)+'%';
-  const fc=document.getElementById('fCap'); const jaxDone=t*60>=JAX_ANIM_S;
-  fc.textContent= !playing&&t===0 ? '每个核一次只能跑一个模拟，跑完写文件，再拿下一个' : (jaxDone? `右边已经算完；左边还剩 ${(remain).toFixed(1)} 小时，磁盘上会堆到 80 GB` : `${CORES} 个核各自跑一个模拟，每 24 秒换下一个`);
-}
-function drawJ(){
-  const W=cvJ.width,H=cvJ.height; jx.clearRect(0,0,W,H);
-  const day=Math.min(DAYS, Math.floor(t*60/JAX_ANIM_S*DAYS)); const done=day>=DAYS; const yr=Math.floor(day/365)+1, doy=day%365;
-  const cap=document.getElementById('jCap'), prog=document.getElementById('jProg');
-  let c='';
-  if(!playing&&day===0) c='十万组参数装进一个数组，等待开始';
-  else if(day<3) c='第 1 天：所有样本同时算今天的蒸散、土壤水和作物';
-  else if(doy<125) c=`第 ${yr} 年冬春：土壤水逐日更新，每一天是一次对整个数组的运算`;
-  else if(doy<270) c=`第 ${yr} 年生长季：叶面积上升，每格颜色是各自参数下的 LAI`;
-  else c=`第 ${yr} 年收获后：状态清零，继续下一季`;
-  if(done) c='3287 天全部完成。真实用时 82 秒，这里放慢了 13 倍';
-  cap.textContent=c; prog.style.width=(day/DAYS*100)+'%';
-  const cw=(W-20)/cellsX, ch=(H-72)/cellsY;
-  const c0=hexToRgb(css('--jax-soft')), c1=hexToRgb(css('--jax'));
-  const season=Math.max(0,Math.sin(Math.PI*Math.min(1,Math.max(0,(doy-125)/150))));
-  for(let i=0;i<cellsX*cellsY;i++){
-    const v=0.18+0.55*season*(0.7+0.3*seeds[i]);            /* low-amplitude, smooth seasonal colour */
-    jx.fillStyle=`rgb(${Math.round(c0[0]+(c1[0]-c0[0])*v)},${Math.round(c0[1]+(c1[1]-c0[1])*v)},${Math.round(c0[2]+(c1[2]-c0[2])*v)})`;
-    jx.fillRect(10+(i%cellsX)*cw, 30+Math.floor(i/cellsX)*ch, cw-0.6, ch-0.6);
-  }
-  text(jx,'每格 20 次模拟',10,16,{s:12});
-  text(jx,'day '+day,W-10,16,{s:12,m:true,w:'600',c:css('--ink'),a:'right'});
-  /* memory / disk bar */
-  text(jx,'显存',10,H-22,{s:12});
-  jx.fillStyle=css('--surface2'); jx.fillRect(70,H-32,W-160,14); jx.fillStyle=css('--jax'); jx.fillRect(70,H-32,(W-160)*(day>0?0.1:0),14);
-  text(jx,(day>0?'8':'0')+' / 80 GB',W-84,H-21,{s:12,m:true,w:'600',c:css('--ink')});
-  text(jx,done?'落盘一次，几 MB':'磁盘写入 0',70,H-6,{s:11});
-  flush(jx,ovOf(cvJ));
-  document.getElementById('jDay').textContent=day+' / '+DAYS;
-  document.getElementById('jState').textContent= done?'完成，用时 82 s':(playing?'运行中':'待命');
-}
-function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
-function frame(ts){ if(!playing) return; const dt=last?(ts-last)/1000:0; last=ts; t+=dt*scale; document.getElementById('clock').textContent=t<60?Math.floor(t)+' min':(t/60).toFixed(1)+' h'; drawF(); drawJ(); if(t*60/RUN_S*CORES<N) raf=requestAnimationFrame(frame); else playing=false; }
-document.getElementById('play').onclick=()=>{ if(playing){playing=false;document.getElementById('play').textContent='▶ 继续';return;} playing=true; last=0; document.getElementById('play').textContent='‖ 暂停'; if(!reduce) raf=requestAnimationFrame(frame); else { t=JAX_ANIM_S/60; drawF(); drawJ(); document.getElementById('clock').textContent='18 min'; playing=false; } };
-document.getElementById('replay').onclick=()=>{ playing=false; cancelAnimationFrame(raf); t=0; last=0; document.getElementById('play').textContent='▶ 开始'; document.getElementById('clock').textContent='0 min'; drawF(); drawJ(); };
-drawF(); drawJ();
-
-/* ---------- 03 estimator ---------- */
-const HW={h100:{bw:1,f64pen:1,floor:1},a100:{bw:0.46,f64pen:1,floor:1.2},'4090':{bw:0.30,f64pen:0.5,floor:1.3},'4060':{bw:0.08,f64pen:0.5,floor:1.6}};
-const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}};
-const REAL_MODEL=3;
-function human(s){ if(s<60) return s.toFixed(s<10?1:0)+' 秒'; if(s<3600) return (s/60).toFixed(1)+' 分钟'; if(s<86400) return (s/3600).toFixed(1)+' 小时'; if(s<7*86400) return (s/86400).toFixed(1)+' 天'; return (s/86400/7).toFixed(1)+' 周'; }
-function est(){
-  const n=Math.round(Math.pow(10,+document.getElementById('n').value)); document.getElementById('nLab').textContent=fmt(n);
-  const hw=HW[document.getElementById('gpu').value], cfg=CFG[document.getElementById('cfg').value], f32=document.getElementById('prec').value==='f32', cores=+document.getElementById('cores').value;
-  let per=cfg.ms/1000*REAL_MODEL/hw.bw; if(f32) per*=0.42; else per/=hw.f64pen;
-  const jax=cfg.floor*hw.floor+n*per; const fort=n*RUN_S/cores;
-  const lo=Math.log10(1), hi=Math.log10(14*86400); const w=s=>Math.max(1,Math.min(100,(Math.log10(Math.max(1,s))-lo)/(hi-lo)*100));
-  document.getElementById('barF').style.width=w(fort)+'%'; document.getElementById('barJ').style.width=w(jax)+'%';
-  document.getElementById('valF').textContent=human(fort); document.getElementById('valJ').textContent=human(jax);
-  document.getElementById('ratio').textContent=`同一批模拟，Agri-JAX 约快 ${Math.round(fort/jax).toLocaleString('zh-CN')} 倍。批量小于一万时 GPU 吃不饱，倍数会缩小；批量再大是内存带宽墙，靠精度、深度和算子融合再往下压。`;
-}
-['n','gpu','cfg','prec','cores'].forEach(id=>document.getElementById(id).addEventListener('input',est)); est();
-
-/* ---------- 04 gradient strip ---------- */
-const cvG=document.getElementById('cvG'), gx=cvG.getContext('2d'); let gt=0, gplaying=false, glast=0, graf=null;
-const PARAMS=['λ','h_b','K_sat','θ_r','θ_s','反照率','r_s','r_ss','P1','P5','G2','G3']; const SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
-function drawG(){
-  const W=cvG.width,H=cvG.height; gx.clearRect(0,0,W,H);
-  const cells=120, x0=20, x1=W-20, cw=(x1-x0)/cells, y=48, h=26;
-  const fwd=Math.min(1,gt/2.2), bwd=Math.max(0,Math.min(1,(gt-2.6)/2.2)), fill=Math.max(0,Math.min(1,(gt-5)/1.2));
-  text(gx,'day 1',x0,y-10,{s:14,m:true}); text(gx,'day 3287',x1,y-10,{s:14,m:true,a:'right'});
-  for(let i=0;i<cells;i++){ const p=i/cells; gx.fillStyle= p<fwd?css('--jax'):css('--surface2'); gx.fillRect(x0+i*cw,y,cw-1,h);
-    if(bwd>0 && p>1-bwd){ gx.fillStyle=css('--grad'); gx.fillRect(x0+i*cw,y+h+6,cw-1,10);} }
-  text(gx,'前向 scan',x0,y+h+30,{s:14}); text(gx,'反向 vjp',x1,y+h+30,{s:14,a:'right'});
-  const by=130, bh=70, n=PARAMS.length, bw=(x1-x0)/n;
-  for(let i=0;i<n;i++){ const v=SENS[i]*fill; gx.fillStyle=css('--surface2'); gx.fillRect(x0+i*bw+6,by,bw-12,bh); gx.fillStyle=css('--grad'); gx.fillRect(x0+i*bw+6,by+bh-v*bh,bw-12,v*bh);
-    text(gx,PARAMS[i],x0+i*bw+bw/2,by+bh+18,{s:14,m:true,a:'center'}); }
-  text(gx,'∂产量/∂参数',x0,by-8,{s:15,w:'600',c:css('--ink')});
-  flush(gx,ovOf(cvG));
-}
-const G_DUR=10; function gframe(ts){ if(!gplaying) return; const dt=glast?(ts-glast)/1000:0; glast=ts; gt=Math.min(G_DUR*0.72,gt+dt*0.72); drawG(); caption('strip',gt/(G_DUR*0.72)); if(gt<G_DUR*0.72) graf=requestAnimationFrame(gframe); else gplaying=false; }
-document.getElementById('gplay').onclick=()=>{ gt=0; glast=0; if(reduce){gt=7.2;drawG();caption('strip',1);return;} gplaying=true; graf=requestAnimationFrame(gframe); };
-gt= reduce?7.2:0; drawG();
-
-/* ---------- 04 why animations ---------- */
-const anims={};
-const VW=480, VH=230; const VCV={width:VW,height:VH};
-function scaled(cv){ const ctx=cv.getContext('2d'); const k=cv.width/VW; ctx.setTransform(k,0,0,k,0,0); return ctx; }
-function reg(name, fn, dur, steps){ anims[name]={fn,dur,t:0,playing:false,last:0,steps:steps||[]}; }
-function caption(name,p){ const a=anims[name]; const cv=document.querySelector(`canvas[data-anim="${name}"]`); const card=cv.closest('.wcard')||cv.closest('.gradbox'); if(!card) return;
-  let capEl=card.querySelector('.cap'), prEl=card.querySelector('.prog');
-  if(!capEl){ capEl=document.createElement('div'); capEl.className='cap'; capEl.innerHTML='<span class="txt"></span><span class="stage"></span>'; prEl=document.createElement('div'); prEl.className='prog g'; prEl.innerHTML='<i></i>'; cv.insertAdjacentElement('afterend',prEl); cv.insertAdjacentElement('afterend',capEl); }
-  let idx=0; a.steps.forEach((st,i)=>{ if(p>=st[0]) idx=i; }); const st=a.steps[idx];
-  capEl.querySelector('.txt').textContent= st? st[1] : ''; capEl.querySelector('.stage').textContent= a.steps.length? `${idx+1} / ${a.steps.length}` : ''; prEl.querySelector('i').style.width=(p*100)+'%'; }
-function playAnim(name){ const a=anims[name]; if(!a) return; const cv0=document.querySelector(`canvas[data-anim="${name}"]`); const ctx=scaled(cv0); const cv=VCV;
-  a.t=0; a.last=0; if(reduce){ a.fn(ctx,cv,1); flush(ctx,ovOf(cv0)); caption(name,1); return; } a.playing=true;
-  const step=ts=>{ if(!a.playing) return; const dt=a.last?(ts-a.last)/1000:0; a.last=ts; a.t=Math.min(a.dur,a.t+dt); a.fn(ctx,cv,a.t/a.dur); flush(ctx,ovOf(cv0)); caption(name,a.t/a.dur); if(a.t<a.dur) requestAnimationFrame(step); else a.playing=false; };
-  requestAnimationFrame(step); }
+'use strict';
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fmt=n=>n.toLocaleString('zh-CN');
 const ease=p=>p<0?0:p>1?1:p*p*(3-2*p);
-function colorClass(c){ if(!c) return ''; const m={[css('--ink')]:'ink',[css('--fortran')]:'f',[css('--jax')]:'j',[css('--grad')]:'g'}; return m[c]||''; }
-function text(ctx,s,x,y,o={}){ (ctx.__labels||(ctx.__labels=[])).push({s,x,y,cls:[colorClass(o.c),o.m?'mono':'',o.w?'b':''].filter(Boolean).join(' '),size:o.s||11,a:o.a||'left'}); }
-function flush(ctx,svg){ if(!svg) return; const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;'); const anchor={left:'start',center:'middle',right:'end'};
-  svg.innerHTML=(ctx.__labels||[]).map(l=>`<text x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" class="${l.cls}" font-size="${l.size}" text-anchor="${anchor[l.a]||'start'}">${esc(l.s)}</text>`).join(''); ctx.__labels=[]; }
-function ovOf(cv){ return cv.parentElement.querySelector('svg.ov'); }
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
+function mix(a,b,t){const A=hexToRgb(a),B=hexToRgb(b);return`rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`;}
+function mulberry(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
 
-reg('strip',()=>{},1,[[0,'前向：状态从第 1 天推进到第 3287 天，每一天的中间量被记下（或按天 checkpoint）'],[0.34,'反向：从最后一天开始，伴随量沿同一条路倒着回传'],[0.68,'回传经过每一天时，把当天对各参数的影响累加进去'],[0.9,'走完：12 个参数的梯度同时得到，成本约为前向的几倍']]);
+/* ---------- drawing surface: canvas shapes + svg labels ---------- */
+function surface(stage, vw, vh){
+  const cv=stage.querySelector('canvas'), svg=stage.querySelector('svg.ov'), ctx=cv.getContext('2d');
+  const k=cv.width/vw; ctx.setTransform(k,0,0,k,0,0);
+  const labels=[];
+  const g={ctx, W:vw, H:vh, clear(){ctx.clearRect(0,0,vw,vh);labels.length=0;},
+    rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x,y,w,h);},
+    box(x,y,w,h,c,fill,r=8){ctx.fillStyle=fill;ctx.strokeStyle=c;ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();ctx.stroke();},
+    line(x1,y1,x2,y2,c,w=2,dash){ctx.strokeStyle=c;ctx.lineWidth=w;if(dash)ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.setLineDash([]);},
+    arrow(x1,y1,x2,y2,c,prog=1,w=2){const p=clamp(prog,0,1);if(p<=0)return;const xe=x1+(x2-x1)*p,ye=y1+(y2-y1)*p;g.line(x1,y1,xe,ye,c,w);if(p>=1){const a=Math.atan2(y2-y1,x2-x1);ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-8*Math.cos(a-0.4),y2-8*Math.sin(a-0.4));ctx.lineTo(x2-8*Math.cos(a+0.4),y2-8*Math.sin(a+0.4));ctx.closePath();ctx.fill();}},
+    circle(x,y,r,c,stroke){ctx.beginPath();ctx.arc(x,y,r,0,7);if(stroke){ctx.strokeStyle=c;ctx.lineWidth=1.5;ctx.stroke();}else{ctx.fillStyle=c;ctx.fill();}},
+    text(s,x,y,o={}){labels.push({s,x,y,o});},
+    flush(){const anchor={left:'start',center:'middle',right:'end'};const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      svg.innerHTML=labels.map(l=>{const cls=[l.o.c||'',l.o.m?'mono':'',l.o.b?'b':''].filter(Boolean).join(' ');return`<text x="${l.x.toFixed(1)}" y="${l.y.toFixed(1)}" class="${cls}" font-size="${l.o.s||11}" text-anchor="${anchor[l.o.a||'left']}">${esc(l.s)}</text>`;}).join('');}
+  };
+  return g;
+}
 
-/* 02: a process (leaf growth) */
-function box(ctx,x,y,w,h,label,c,fill,sub){ ctx.fillStyle=fill; ctx.strokeStyle=c; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x,y,w,h,8); ctx.fill(); ctx.stroke(); text(ctx,label,x+w/2,y+(sub?h/2-2:h/2+4),{a:'center',c:css('--ink'),s:12,w:'600'}); if(sub) text(ctx,sub,x+w/2,y+h/2+13,{a:'center',c:css('--muted'),s:9}); }
-function arrow(ctx,x1,y1,x2,y2,c,prog){ const p=Math.max(0,Math.min(1,prog)); if(p<=0) return; const xe=x1+(x2-x1)*p, ye=y1+(y2-y1)*p; ctx.strokeStyle=c; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xe,ye); ctx.stroke(); if(p>=1){ const a=Math.atan2(y2-y1,x2-x1); ctx.fillStyle=c; ctx.beginPath(); ctx.moveTo(x2,y2); ctx.lineTo(x2-8*Math.cos(a-0.4),y2-8*Math.sin(a-0.4)); ctx.lineTo(x2-8*Math.cos(a+0.4),y2-8*Math.sin(a+0.4)); ctx.closePath(); ctx.fill(); } }
-reg('proc',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
-  box(ctx,14,30,118,70,'昨天的状态',css('--muted'),css('--surface'),'LAI · 生育期 · 土壤水'); box(ctx,14,110,118,44,'品种参数',css('--muted'),css('--surface'),'展叶速率'); box(ctx,14,164,118,44,'今日天气',css('--muted'),css('--surface'),'积温');
-  const fx=200, fy=60, fw=190, fh=110; box(ctx,fx,fy,fw,fh,'叶面积增长',css('--jax'),css('--jax-soft'));
-  text(ctx,'ΔLAI = 展叶速率 × 积温',fx+fw/2,fy+56,{a:'center',c:css('--ink'),s:11}); text(ctx,'× 水分胁迫因子',fx+fw/2,fy+72,{a:'center',c:css('--ink'),s:11}); text(ctx,'仅营养生长期',fx+fw/2,fy+92,{a:'center',c:css('--muted'),s:10});
-  arrow(ctx,132,65,fx,fy+30,css('--muted'),q*3); arrow(ctx,132,132,fx,fy+55,css('--muted'),q*3-0.6); arrow(ctx,132,186,fx,fy+80,css('--muted'),q*3-1.2);
-  box(ctx,430,80,40+0,70,'',css('--muted'),css('--surface')); /* placeholder for output box */
-  ctx.clearRect(425,75,60,80); box(ctx,414,84,54,62,'今天的',css('--jax'),css('--surface'),'LAI');
-  arrow(ctx,fx+fw,fy+fh/2,414,115,css('--jax'),q*3-2);
-  text(ctx,'读 3 处 · 写 1 处',W/2,H-14,{a:'center',c:css('--ink'),s:12});
-},7,[[0,'一个过程就是一条农学方程，这里是 CERES 的叶面积扩展'],[0.2,'它从昨天的状态里读 LAI、生育期、土壤水'],[0.4,'从品种参数里读展叶速率，从今日天气里读积温'],[0.65,'算出今天的 LAI，写回状态，只改这一个字段'],[0.9,'读什么改什么都写在签名上，这是后面一切的基础']]);
+/* ---------- animation controller with keyframes ---------- */
+const figs={};
+function reg(name,{dur,keys,draw,stages}){
+  const fig=document.querySelector(`.fig[data-fig="${name}"]`); if(!fig) return;
+  const stageEls=[...fig.querySelectorAll('.stage')];
+  const G={};
+  stageEls.forEach(st=>{const svg=st.querySelector('svg.ov');const vb=svg.getAttribute('viewBox').split(' ').map(Number);const key=st.querySelector('canvas').dataset.stage||'main';G[key]=surface(st,vb[2],vb[3]);});
+  const a={name,fig,dur,keys,draw,G,t:0,playing:false,last:0,raf:null};
+  figs[name]=a;
+  const st=fig.querySelector('.stepper');
+  st.innerHTML=`<button data-act="prev" title="上一帧">◀ 上一帧</button><button data-act="toggle" class="primary">▶ 播放</button><button data-act="next" title="下一帧">下一帧 ▶</button><button data-act="replay">↻ 重播</button><span class="dots">${keys.map((k,i)=>`<i data-k="${i}" title="${k[1]}"></i>`).join('')}</span><span class="k"></span>`;
+  st.addEventListener('click',e=>{const b=e.target.closest('[data-act],[data-k]');if(!b)return;
+    if(b.dataset.k!==undefined){seek(a,keys[+b.dataset.k][0]*dur);pause(a);return;}
+    const act=b.dataset.act; if(act==='toggle'){a.playing?pause(a):play(a);} else if(act==='replay'){seek(a,0);play(a);} else if(act==='prev'){stepKey(a,-1);} else if(act==='next'){stepKey(a,1);} });
+  render(a);
+}
+function keyIndex(a){const p=a.t/a.dur;let i=0;a.keys.forEach((k,j)=>{if(p>=k[0]-1e-9)i=j;});return i;}
+function render(a){const p=clamp(a.t/a.dur,0,1);Object.values(a.G).forEach(g=>g.clear());a.draw(p,a.G);Object.values(a.G).forEach(g=>g.flush());
+  const i=keyIndex(a);a.fig.querySelector('.cap').textContent=a.keys[i][1];a.fig.querySelector('.stepper .k').textContent=`${i+1} / ${a.keys.length}`;
+  a.fig.querySelectorAll('.dots i').forEach((d,j)=>d.classList.toggle('on',j===i));a.fig.querySelector('.prog i').style.width=(p*100)+'%';
+  a.fig.querySelector('[data-act="toggle"]').textContent=a.playing?'⏸ 暂停':'▶ 播放';}
+function frame(a,ts){if(!a.playing)return;const dt=a.last?(ts-a.last)/1000:0;a.last=ts;a.t=Math.min(a.dur,a.t+dt);render(a);if(a.t<a.dur)a.raf=requestAnimationFrame(t=>frame(a,t));else{a.playing=false;render(a);}}
+function play(a){if(reduce){seek(a,a.dur);return;}if(a.t>=a.dur)a.t=0;a.playing=true;a.last=0;render(a);a.raf=requestAnimationFrame(t=>frame(a,t));}
+function pause(a){a.playing=false;cancelAnimationFrame(a.raf);render(a);}
+function seek(a,t){a.t=clamp(t,0,a.dur);a.last=0;render(a);}
+function stepKey(a,d){const i=clamp(keyIndex(a)+d,0,a.keys.length-1);seek(a,a.keys[i][0]*a.dur+0.001);pause(a);}
+const C=()=>({ink:css('--ink'),muted:css('--muted'),line:css('--line'),surf:css('--surface'),surf2:css('--surface2'),f:css('--fortran'),j:css('--jax'),g:css('--grad'),fs:css('--fortran-soft'),js:css('--jax-soft'),gs:css('--grad-soft')});
 
-/* rule 1: hidden shared state collides */
-reg('pure',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p); const half=W/2-20;
-  text(ctx,'Fortran：共享格子',12,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'纯函数：一田一行',W/2+8,20,{c:css('--jax'),w:'600',s:12});
-  const cx=12, cy=40; box(ctx,cx,cy+60,half-20,44,'COMMON 块',css('--fortran'),css('--fortran-soft'));
-  const subs=['土壤水','蒸散','作物']; subs.forEach((n,i)=>{ box(ctx,cx+i*((half-20)/3),cy,(half-20)/3-8,36,n,css('--muted'),css('--surface')); });
-  const k=Math.min(3,Math.floor(q*6)); for(let i=0;i<3;i++){ const x=cx+i*((half-20)/3)+((half-20)/3-8)/2; arrow(ctx,x,cy+36,x,cy+60,css('--fortran'),q*6-i); }
-  const collide=q>0.5; if(collide){ text(ctx,'田块 A →',cx,cy+128,{c:css('--fortran'),s:11}); text(ctx,'← 田块 B',cx+half-80,cy+128,{c:css('--fortran'),s:11}); text(ctx,'撞车',cx+(half-20)/2,cy+150,{a:'center',c:css('--ink'),s:13,w:'600'}); ctx.strokeStyle=css('--fortran'); ctx.lineWidth=3; ctx.strokeRect(cx-2,cy+58,half-16,48); }
-  const rx=W/2+8, rows=8, rh=(H-80)/rows; const shown=Math.min(rows,Math.floor(q*2*rows));
-  for(let r=0;r<shown;r++){ ctx.fillStyle=css('--jax-soft'); ctx.fillRect(rx,40+r*rh,half-8,rh-3); text(ctx,`田块 ${r+1}`,rx+6,40+r*rh+rh/2+4,{s:10,c:css('--ink')}); text(ctx,'θ · h · LAI · 生育期',rx+70,40+r*rh+rh/2+4,{s:10}); }
-  
-},8,[[0,'Fortran 里子程序之间靠共享格子传数：谁都能读，谁都能写'],[0.25,'一次只跑一块田，这没问题'],[0.5,'两块田同时跑：两个进程往同一个格子里写，数就乱了'],[0.7,'纯函数：状态是显式的参数，每块田一行，互不打扰'],[0.92,'反向求导也靠这个：没有明确的读写关系，链式法则无路可走']]);
+/* ================= 01 race ================= */
+const N=100000,RUN_S=24,DAYS=3287,JAX_S=82,CORES=32,GB=80,RACE_S=30,JAX_ANIM=20;
+const seeds=new Float32Array(5000);{const r=mulberry(11);for(let i=0;i<seeds.length;i++)seeds[i]=r();}
+const realMin=s=>10/Math.LN10*(Math.pow(10,s/10)-1);           // real minutes elapsed after s screen seconds (accelerating)
+const mult=s=>Math.pow(10,s/10);
+reg('race',{dur:RACE_S,keys:[[0,'开始：右侧将十万组参数装入一个数组；左侧 32 个核各自领取一块田'],[0.04,'第 1 年冬春：右侧每一天是对整个数组的一次运算；左侧每 24 秒更换一块田'],[0.14,'生长季：右侧每格颜色为各自参数下的叶面积；左侧仍在处理第一批田块'],[0.34,'右侧进入第 5 年；左侧动画开始加速，见右上角倍率'],[0.66,'右侧 3287 天计算完成，真实用时 82 秒；左侧已加速至数百倍'],[0.83,'左侧计算完成：真实 21 小时，磁盘写入 80 GB'],[0.99,'两侧时间尺度不同：左侧 1 秒由 1 分钟加速至 1000 分钟，右侧放慢 4 倍']],
+  draw(p,G){const c=C();const s=p*RACE_S;
+    /* Fortran */ {const g=G.f,W=g.W,H=g.H;const rm=Math.min(realMin(s),N*RUN_S/CORES/60);const done=Math.min(N,Math.floor(rm*60/RUN_S*CORES));const fin=done>=N;const m=fin?null:mult(s);
+      const lanes=CORES,top=26,lh=(H-96)/lanes;g.text('32 核，每次 24 秒',10,17,{s:11});g.text(fin?'完成':`加速 ×${m<10?m.toFixed(1):Math.round(m)}`,W-10,17,{s:12,m:true,b:true,c:fin?'j':'f',a:'right'});
+      for(let l=0;l<lanes;l++){const y=top+l*lh;g.rect(10,y+1,W-20,lh-2,c.surf);if(!fin){const ph=((rm*60)/RUN_S+l*0.13)%1;const bw=(W-20)*0.18;g.rect(10+ph*(W-20-bw),y+1,bw,lh-2,c.f);}}
+      const gb=GB*done/N;g.text('磁盘写入',10,H-34,{s:11});g.rect(70,H-44,W-170,14,c.surf);g.rect(70,H-44,(W-170)*done/N,14,c.f);g.text(gb.toFixed(1)+' / 80 GB',W-10,H-33,{s:12,m:true,b:true,c:'ink',a:'right'});
+      g.text(`${fmt(done*99)} 个文件`,70,H-14,{s:11,m:true});g.text(`${(done/N*100).toFixed(1)} %`,W-10,H-14,{s:11,m:true,a:'right'});
+      document.getElementById('fDone').textContent=`${fmt(done)} / ${fmt(N)}`;document.getElementById('fFiles').textContent=gb.toFixed(2)+' GB';document.getElementById('fClock').textContent=rm<60?Math.floor(rm)+' min':(rm/60).toFixed(1)+' h';}
+    /* JAX */ {const g=G.j,W=g.W,H=g.H;const day=Math.min(DAYS,Math.floor(s/JAX_ANIM*DAYS));const done=day>=DAYS;const doy=day%365,yr=Math.floor(day/365)+1;
+      const cx=100,cy=50,cw=(W-20)/cx,ch=(H-96)/cy;const season=Math.max(0,Math.sin(Math.PI*clamp((doy-125)/150,0,1)));
+      for(let i=0;i<cx*cy;i++){const v=0.18+0.55*season*(0.7+0.3*seeds[i]);g.rect(10+(i%cx)*cw,26+Math.floor(i/cx)*ch,cw-0.6,ch-0.6,mix(c.js,c.j,v));}
+      g.text('每格 20 次模拟',10,17,{s:11});g.text(done?'完成 · 放慢 ×4':`第 ${yr} 年 · 放慢 ×4`,W-10,17,{s:12,m:true,b:true,c:'j',a:'right'});
+      g.text('显存',10,H-34,{s:11});g.rect(70,H-44,W-170,14,c.surf);g.rect(70,H-44,(W-170)*(day>0?0.1:0),14,c.j);g.text((day>0?'8':'0')+' / 80 GB',W-10,H-33,{s:12,m:true,b:true,c:'ink',a:'right'});
+      g.text(done?'落盘一次，几 MB':'磁盘写入 0',70,H-14,{s:11});g.text(`day ${day}`,W-10,H-14,{s:11,m:true,a:'right'});
+      document.getElementById('jDay').textContent=`${day} / ${DAYS}`;document.getElementById('jClock').textContent=Math.min(JAX_S,day/DAYS*JAX_S).toFixed(0)+' s';}
+  }});
 
-/* rule 2: where vs if */
-reg('where',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p); const rows=10, x0=12, y0=40, rh=(H-90)/rows, half=W/2-20;
-  text(ctx,'同一天，不同生育期',x0,20,{c:css('--ink'),w:'600',s:12});
-  const stages=['出苗','营养生长','营养生长','吐丝','营养生长','灌浆','出苗','营养生长','成熟','灌浆'];
-  for(let r=0;r<rows;r++){ const veg=stages[r]==='营养生长'; ctx.fillStyle=css('--surface'); ctx.fillRect(x0,y0+r*rh,half,rh-3); text(ctx,`田块 ${r+1}`,x0+6,y0+r*rh+rh/2+4,{s:10,c:css('--ink')}); text(ctx,stages[r],x0+70,y0+r*rh+rh/2+4,{s:10,c:veg?css('--jax'):css('--muted')}); 
-    if(q>0.55){ const v=veg?'ΔLAI = 速率 × 积温 × 胁迫':'ΔLAI = 0'; text(ctx,v,x0+140,y0+r*rh+rh/2+4,{s:10,c:veg?css('--jax'):css('--muted')}); } }
-  const rx=W/2+8; text(ctx,'if：只能选一条路',rx,20,{c:css('--fortran'),w:'600',s:12});
-  if(q>0.2&&q<0.55){ text(ctx,'走哪条？',rx,60,{s:12,c:css('--fortran')}); }
-  if(q>=0.55){ text(ctx,'where：两条都算，逐行挑',rx,60,{c:css('--jax'),w:'600',s:12});
-    box(ctx,rx,80,100,40,'增长值',css('--jax'),css('--jax-soft')); box(ctx,rx+120,80,100,40,'0',css('--muted'),css('--surface')); 
-    const sel=Math.min(rows,Math.floor((q-0.55)/0.4*rows)); for(let r=0;r<sel;r++){ const veg=stages[r]==='营养生长'; ctx.fillStyle=veg?css('--jax'):css('--surface2'); ctx.fillRect(rx+r*22,156,18,14); } }
-},8,[[0,'同一天，十万块田各在各的生育期：出苗、营养生长、吐丝、灌浆'],[0.2,'Python 的 if 对整列只能选一条路，追踪模式下根本无法执行'],[0.55,'where：两条分支都算出来，再按每块田自己的条件挑'],[0.8,'每块田拿到自己那条路，整列仍是一次数组运算'],[0.95,'梯度也一样：沿着被选中的分支流回，另一条分支不参与']]);
+/* ================= 02 loop swap ================= */
+reg('swap',{dur:10,keys:[[0,'每个格子是"某块田的某一天"。顺序依赖仅沿行方向：今天只依赖同一块田的昨天'],[0.12,'行与行之间没有依赖：一块田的水分不会进入另一块田的方程'],[0.3,'Fortran 沿行推进：一块田完成 3287 天并写出文件后，再处理下一块'],[0.5,'JAX 沿列推进：交换循环顺序，一天之内让所有行执行同一算式'],[0.7,'一列即十万个数上的同一条指令，正是 GPU 最擅长的形态'],[0.93,'相同的屏幕时间：左侧完成不足三成，右侧已推进完全部天数']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const rows=18,cols=44,half=W/2-24,x0=12,x1=W/2+12,y0=32,gh=H-66,cw=half/cols,ch=gh/rows;
+    g.text('Fortran：逐块田推进',x0,20,{c:'f',b:true,s:12});g.text('Agri-JAX：所有田块同步推进',x1,20,{c:'j',b:true,s:12});
+    g.text('田块 ↓',x0,H-18,{s:10});g.text('天 →',x0+half,H-18,{s:10,a:'right'});g.text('田块 ↓',x1,H-18,{s:10});g.text('天 →',x1+half,H-18,{s:10,a:'right'});
+    const fdone=Math.floor(q*rows*cols*0.28);
+    for(let r=0;r<rows;r++)for(let k=0;k<cols;k++){const i=r*cols+k;g.rect(x0+k*cw,y0+r*ch,cw-1,ch-1,i<fdone?c.f:c.surf);}
+    if(fdone<rows*cols){const r=Math.floor(fdone/cols),k=fdone%cols;g.ctx.strokeStyle=c.ink;g.ctx.lineWidth=1.5;g.ctx.strokeRect(x0+k*cw-1,y0+r*ch-1,cw+1,ch+1);}
+    const jc=Math.floor(q*cols);
+    for(let r=0;r<rows;r++)for(let k=0;k<cols;k++)g.rect(x1+k*cw,y0+r*ch,cw-1,ch-1,k<jc?c.j:c.surf);
+    if(jc<cols){g.ctx.strokeStyle=c.ink;g.ctx.lineWidth=1.5;g.ctx.strokeRect(x1+jc*cw-1,y0-1,cw+1,gh+1);}
+    if(q<0.3){const k=Math.max(1,jc);for(const rr of[1,2,3])g.arrow(x1+(k-1)*cw+cw/2,y0+rr*ch+ch/2,x1+k*cw+cw/2-2,y0+rr*ch+ch/2,c.g,1,2);}
+  }});
 
-/* rule 3: loops */
-reg('loop',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p); const L=37, x0=40, y0=36, lh=(H-70)/L, half=W/2-20;
-  text(ctx,'Fortran：逐层循环',12,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'Agri-JAX：整列一次',W/2+8,20,{c:css('--jax'),w:'600',s:12});
-  const done=Math.min(L,Math.floor(q*1.6*L)); for(let i=0;i<L;i++){ ctx.fillStyle= i<done?css('--fortran'):css('--surface'); ctx.fillRect(x0,y0+i*lh,120,lh-1); } if(done<L){ ctx.strokeStyle=css('--ink'); ctx.strokeRect(x0-1,y0+done*lh-1,122,lh+1); text(ctx,`第 ${done+1} 层`,x0+130,y0+done*lh+lh,{s:10}); }
-  const rx=W/2+8, cols=Math.min(20,Math.floor(q*3*20)), cw=(half-60)/20; for(let c=0;c<cols;c++) for(let i=0;i<L;i++){ ctx.fillStyle=css('--jax'); ctx.fillRect(rx+40+c*cw,y0+i*lh,cw-1,lh-1); }
-  text(ctx,'37 层',rx,y0+L*lh/2,{s:10}); if(cols>=20) text(ctx,'37 × 十万',rx,H-10,{s:11,c:css('--jax')});
-},7,[[0,'土壤有 37 层，Fortran 从上到下一层一层算'],[0.3,'同样的计算写成对整个"层"维度的运算，37 层一起出'],[0.6,'再把十万块田排成列，就是一张 37 × 十万的表，一次运算'],[0.9,'时间和样本两层循环都由运行时接管，过程里只剩方程']]);
+/* ================= 03 process ================= */
+reg('proc',{dur:7,keys:[[0,'一个过程即一条农学方程，此处为 CERES 的叶面积扩展'],[0.2,'从昨日状态读取 LAI、生育期、土壤水'],[0.4,'从品种参数读取展叶速率，从今日天气读取积温'],[0.65,'计算今日 LAI 并写回状态，仅修改这一个字段'],[0.9,'读取与写入均在签名上声明，这是后续一切的基础']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);
+    const inputs=[[30,54,'昨天的状态','LAI · 生育期 · 土壤水'],[98,48,'品种参数','展叶速率'],[160,48,'今日天气','积温']];
+    inputs.forEach(([y,h,t,sub],i)=>{const on=q*3>i;g.box(14,y,124,h,on?c.ink:c.line,c.surf);g.text(t,76,y+h/2-3,{a:'center',c:'ink',b:true,s:12});g.text(sub,76,y+h/2+13,{a:'center',s:9});});
+    const fx=182,fy=58,fw=170,fh=114;g.box(fx,fy,fw,fh,c.j,c.js);
+    g.text('叶面积增长',fx+fw/2,fy+24,{a:'center',c:'ink',b:true,s:13});g.text('ΔLAI = 展叶速率 × 积温',fx+fw/2,fy+56,{a:'center',c:'ink',s:11});g.text('× 水分胁迫因子',fx+fw/2,fy+74,{a:'center',c:'ink',s:11});g.text('仅营养生长期',fx+fw/2,fy+98,{a:'center',s:10});
+    g.arrow(138,57,fx,fy+28,c.ink,q*3);g.arrow(138,122,fx,fy+57,c.ink,q*3-0.6);g.arrow(138,184,fx,fy+86,c.ink,q*3-1.2);
+    const ox=386,oy=84;g.box(ox,oy,82,62,c.j,c.surf);g.text('今天的',ox+41,oy+26,{a:'center',c:'ink',b:true,s:12});g.text('LAI',ox+41,oy+46,{a:'center',c:'j',b:true,s:13});
+    g.arrow(fx+fw,fy+fh/2,ox,oy+31,c.j,q*3-2);
+    g.text('读 3 处 · 写 1 处',W/2,H-10,{a:'center',c:'ink',s:12});
+  }});
 
-/* the daily chain of processes */
-reg('chain',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
-  const procs=[['天气','辐射 · 积温'],['潜在蒸散','S-W'],['冠层截光','Beer'],['作物','物候 · 生长'],['争水','多作物'],['土壤水','Richards'],['诊断','ET · 排水']]; const n=procs.length, bw=(W-24)/n, y=90, bh=54;
-  const fields=['天气','PET','LAI','θ 各层','根系','产量']; const fy=[190,190,190,190,190,190];
-  procs.forEach((pr,i)=>{ const x=12+i*bw; const on=q*n>i; box(ctx,x,y,bw-10,bh,pr[0],on?css('--jax'):css('--line'),on?css('--jax-soft'):css('--surface'),pr[1]); if(i<n-1) arrow(ctx,x+bw-10,y+bh/2,x+bw,y+bh/2,css('--muted'),q*n-i-0.5); });
-  text(ctx,'状态字段',12,175,{s:10}); fields.forEach((f,i)=>{ const x=12+i*((W-24)/fields.length); ctx.fillStyle=css('--surface'); ctx.fillRect(x,180,(W-24)/fields.length-8,26); text(ctx,f,x+((W-24)/fields.length-8)/2,197,{a:'center',s:10,c:css('--ink')}); });
-  const rw=[[0,[0]],[1,[0,1]],[2,[1,2]],[3,[1,2,3,5]],[4,[3,4]],[5,[3,4]],[6,[1,3,5]]]; const cur=Math.min(n-1,Math.floor(q*n)); const [pi,fs]=rw[cur];
-  fs.forEach(fi=>{ const x1=12+pi*bw+(bw-10)/2, x2=12+fi*((W-24)/fields.length)+((W-24)/fields.length-8)/2; ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; ctx.setLineDash([4,3]); ctx.beginPath(); ctx.moveTo(x1,y+bh); ctx.lineTo(x2,180); ctx.stroke(); ctx.setLineDash([]); });
-  text(ctx,'虚线：读写的字段',12,H-10,{s:11});
-},9,[[0,'一天从天气开始：辐射、积温'],[0.14,'潜在蒸散读天气和 LAI，写 PET'],[0.28,'冠层截光按高度分层分配光'],[0.43,'作物：物候、生长，读土壤水的胁迫，写 LAI 和根系'],[0.57,'多作物争水：按根长密度和需求分配各层的吸水'],[0.71,'土壤水：Richards 方程，读吸水和入渗，写各层含水量'],[0.86,'诊断：ET、排水等日输出；这一列跑完就是一天']]);
+/* ================= 04 rules ================= */
+reg('pure',{dur:8,keys:[[0,'Fortran 中子程序之间依靠共享单元传递数值：任何子程序均可读写'],[0.25,'单块田逐次运行时并无问题'],[0.5,'两块田同时运行：两个进程写入同一单元，数值互相覆盖'],[0.7,'纯函数：状态是显式参数，每块田一行，互不干扰'],[0.92,'反向求导同样依赖于此：没有明确的读写关系，链式法则无从回溯']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const half=W/2-24,x0=12;
+    g.text('Fortran：共享格子',x0,20,{c:'f',b:true,s:12});g.text('纯函数：一田一行',W/2+12,20,{c:'j',b:true,s:12});
+    const subs=['土壤水','蒸散','作物'],bw=(half-16)/3;subs.forEach((n,i)=>{const x=x0+i*(bw+8);g.box(x,36,bw,32,c.muted,c.surf);g.text(n,x+bw/2,57,{a:'center',c:'ink',b:true,s:12});g.arrow(x+bw/2,68,x+bw/2,100,c.f,q*6-i);});
+    g.box(x0,102,half,40,c.f,c.fs);g.text('COMMON 块',x0+half/2,127,{a:'center',c:'ink',b:true,s:12});
+    if(q>0.5){g.arrow(x0,160,x0+half*0.28,142,c.f,1);g.arrow(x0+half,160,x0+half*0.72,142,c.f,1);g.text('田块 A',x0,178,{c:'f',s:11});g.text('田块 B',x0+half,178,{c:'f',s:11,a:'right'});g.text('互相覆盖',x0+half/2,200,{a:'center',c:'ink',b:true,s:13});g.ctx.strokeStyle=c.f;g.ctx.lineWidth=3;g.ctx.strokeRect(x0-3,99,half+6,46);}
+    const rx=W/2+12,rows=8,rh=(H-58)/rows,shown=Math.min(rows,Math.floor(q*2*rows));
+    for(let r=0;r<shown;r++){g.rect(rx,32+r*rh,half,rh-3,c.js);g.text(`田块 ${r+1}`,rx+8,32+r*rh+rh/2+4,{s:11,c:'ink'});g.text('θ · h · LAI · 生育期',rx+78,32+r*rh+rh/2+4,{s:11});}
+  }});
+reg('where',{dur:8,keys:[[0,'同一天，十万块田各处于不同生育期：出苗、营养生长、吐丝、灌浆'],[0.22,'if 对整列只能选择一条路径：整列今天究竟生长与否'],[0.5,'where：两条分支同时计算，再按每块田自身条件选取'],[0.78,'每块田获得各自的路径，整列仍是一次数组运算'],[0.95,'梯度沿被选中的分支回传，另一分支不参与']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const rows=10,y0=36,rh=(H-56)/rows;const stages=['出苗','营养生长','营养生长','吐丝','营养生长','灌浆','出苗','营养生长','成熟','灌浆'];
+    g.text('田块',18,24,{s:10});g.text('生育期',72,24,{s:10});g.text('今日 ΔLAI',140,24,{s:10});
+    for(let r=0;r<rows;r++){const veg=stages[r]==='营养生长',y=y0+r*rh;g.rect(12,y,196,rh-2,c.surf);g.text(`${r+1}`,18,y+rh/2+4,{s:11,m:true,c:'ink'});g.text(stages[r],72,y+rh/2+4,{s:11,c:veg?'j':'muted'});
+      if(q>=0.5){const w=veg?52:0;g.rect(140,y+4,w,rh-10,c.j);if(!veg)g.text('0',140,y+rh/2+4,{s:10,m:true});}}
+    const mx=228;
+    if(q>=0.22&&q<0.5){g.text('if：只能选一条',mx,24,{c:'f',b:true,s:12});g.box(mx,60,110,36,c.f,c.fs);g.text('生长',mx+55,83,{a:'center',c:'ink',b:true,s:12});g.box(mx,110,110,36,c.line,c.surf);g.text('不长',mx+55,133,{a:'center',c:'ink',b:true,s:12});g.text('整列只能选一条',mx,170,{c:'f',s:11});}
+    if(q>=0.5){g.text('where：两条都算，逐行挑',mx,24,{c:'j',b:true,s:12});g.box(mx,36,110,32,c.j,c.js);g.text('增长值',mx+55,57,{a:'center',c:'ink',b:true,s:12});g.box(mx,76,110,32,c.line,c.surf);g.text('0',mx+55,97,{a:'center',c:'ink',b:true,s:12});
+      const ox=380;g.text('选择',ox,24,{s:10});const sel=Math.min(rows,Math.floor((q-0.5)/0.4*rows));for(let r=0;r<sel;r++){const veg=stages[r]==='营养生长',y=y0+r*rh;g.rect(ox,y+2,rh-6,rh-6,veg?c.j:c.surf);g.text(veg?'增长值':'0',ox+rh+2,y+rh/2+4,{s:10,c:veg?'j':'muted'});}
+      if(sel>0){g.arrow(mx+110,52,ox-8,y0+8,c.j,1,1.5);g.arrow(mx+110,92,ox-8,y0+8+rh,c.line,1,1.5);}}
+  }});
+reg('loop',{dur:7,keys:[[0,'土壤剖面 37 层，Fortran 自上而下逐层计算'],[0.3,'同样的计算改写为对整个"层"维度的运算，37 层同时得出'],[0.6,'再将十万块田排成列，即一张 37 × 十万的表，一次运算'],[0.9,'时间与样本两层循环均由运行时承担，过程中只保留方程']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const L=37,x0=40,y0=32,lh=(H-60)/L,half=W/2-24;
+    g.text('Fortran：逐层循环',12,20,{c:'f',b:true,s:12});g.text('Agri-JAX：整列一次',W/2+12,20,{c:'j',b:true,s:12});
+    const done=Math.min(L,Math.floor(q*1.6*L));for(let i=0;i<L;i++)g.rect(x0,y0+i*lh,120,lh-1,i<done?c.f:c.surf);
+    if(done<L){g.ctx.strokeStyle=c.ink;g.ctx.lineWidth=1.5;g.ctx.strokeRect(x0-1,y0+done*lh-1,122,lh+1);g.text(`第 ${done+1} 层`,x0+130,y0+done*lh+lh,{s:10});}
+    const rx=W/2+12,cols=Math.min(20,Math.floor(q*3*20)),cw=(half-40)/20;for(let k=0;k<cols;k++)for(let i=0;i<L;i++)g.rect(rx+36,y0+i*lh+k*0,cw-1,lh-1,c.j),g.rect(rx+36+k*cw,y0+i*lh,cw-1,lh-1,c.j);
+    g.text('37 层',rx,y0+L*lh/2+4,{s:10});if(cols>=20)g.text('37 × 十万',rx+36,H-12,{s:11,c:'j'});
+  }});
 
-/* loop swap: fields x days matrix */
-reg('swap',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
-  const rows=18, cols=44, half=W/2-24, x0=12, x1=W/2+12, y0=34, gh=H-70, cw=half/cols, ch=gh/rows;
-  text(ctx,'Fortran：一块田跑完再换下一块',x0,20,{c:css('--fortran'),w:'600',s:12});
-  text(ctx,'Agri-JAX：所有田块一起走一天',x1,20,{c:css('--jax'),w:'600',s:12});
-  text(ctx,'↓ 田块 / 参数组',x0,H-22,{s:10}); text(ctx,'天 →',x0+half-40,H-22,{s:10}); text(ctx,'↓ 田块 / 参数组',x1,H-22,{s:10}); text(ctx,'天 →',x1+half-40,H-22,{s:10});
-  const total=rows*cols; const fdone=Math.floor(q*total*0.28);          /* Fortran gets through 28% of the matrix in the same screen time */
-  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const k=r*cols+c; ctx.fillStyle= k<fdone? css('--fortran') : css('--surface'); ctx.fillRect(x0+c*cw,y0+r*ch,cw-1,ch-1); }
-  if(fdone<total){ const r=Math.floor(fdone/cols), c=fdone%cols; ctx.strokeStyle=css('--ink'); ctx.lineWidth=1.5; ctx.strokeRect(x0+c*cw-1,y0+r*ch-1,cw+1,ch+1); }
-  const jcols=Math.floor(q*cols);
-  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ ctx.fillStyle= c<jcols? css('--jax') : css('--surface'); ctx.fillRect(x1+c*cw,y0+r*ch,cw-1,ch-1); }
-  if(jcols<cols){ ctx.strokeStyle=css('--ink'); ctx.lineWidth=1.5; ctx.strokeRect(x1+jcols*cw-1,y0-1,cw+1,gh+1); }
-  /* dependency arrows on the first rows to show "today depends on own yesterday only" */
-  if(q<0.35){ const r=2, c=Math.max(1,jcols); ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; for(const rr of [1,2,3]){ ctx.beginPath(); ctx.moveTo(x1+(c-1)*cw+cw/2,y0+rr*ch+ch/2); ctx.lineTo(x1+c*cw+cw/2-2,y0+rr*ch+ch/2); ctx.stroke(); } }
-},10,[[0,'每个格子是"某块田的某一天"。顺序依赖只沿着行：今天只依赖同一块田的昨天'],[0.12,'行与行之间没有依赖：这块田的水分不会流进另一块田的方程'],[0.3,'Fortran 沿行走：一块田算完 3287 天、写完文件，再拿下一块，一个进程只能干这个'],[0.5,'JAX 沿列走：交换循环顺序，一天之内让所有行做同一个算式'],[0.7,'一列 = 十万个数上的同一条指令 = GPU 最擅长的形状，所以列一列地"刷"过去'],[0.93,'同样的屏幕时间：左边刷了不到三成，右边已经走完全部天数']]);
+/* ================= 05 day chain ================= */
+reg('chain',{dur:9,keys:[[0,'一日从天气开始：辐射、积温'],[0.14,'潜在蒸散读取天气与 LAI，写出 PET'],[0.28,'冠层截光按高度分层分配辐射'],[0.43,'作物：物候与生长，读取土壤水胁迫，写出 LAI 与根系'],[0.57,'多作物水分竞争：按根长密度与需求分配各层吸水'],[0.71,'土壤水：Richards 方程，读取吸水与入渗，写出各层含水量'],[0.86,'诊断：ET、排水等日输出；这一序列执行完毕即为一日']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);
+    const procs=[['天气','辐射 · 积温'],['潜在蒸散','S-W'],['冠层截光','Beer'],['作物','物候 · 生长'],['争水','多作物'],['土壤水','Richards'],['诊断','ET · 排水']];const n=procs.length,bw=(W-24)/n,y=40,bh=56;
+    const fields=['天气','PET','LAI','θ 各层','根系','产量'],fw=(W-24)/fields.length,fy=170,fh=28;
+    procs.forEach((pr,i)=>{const x=12+i*bw,on=q*n>i;g.box(x,y,bw-10,bh,on?c.j:c.line,on?c.js:c.surf);g.text(pr[0],x+(bw-10)/2,y+24,{a:'center',c:'ink',b:true,s:12});g.text(pr[1],x+(bw-10)/2,y+42,{a:'center',s:9});if(i<n-1)g.arrow(x+bw-10,y+bh/2,x+bw,y+bh/2,c.muted,q*n-i-0.5,1.5);});
+    g.text('状态字段',12,160,{s:10});fields.forEach((f,i)=>{const x=12+i*fw;g.rect(x,fy,fw-8,fh,c.surf);g.text(f,x+(fw-8)/2,fy+18,{a:'center',s:11,c:'ink'});});
+    const rw=[[0,[0]],[1,[0,1]],[2,[1,2]],[3,[1,2,3,5]],[4,[3,4]],[5,[3,4]],[6,[1,3,5]]];const cur=Math.min(n-1,Math.floor(q*n));const [pi,fs]=rw[cur];
+    fs.forEach(fi=>{g.line(12+pi*bw+(bw-10)/2,y+bh,12+fi*fw+(fw-8)/2,fy,c.g,2,[4,3]);});
+    g.text('虚线：当前过程读写的字段',12,H-10,{s:10});
+  }});
 
-/* fd vs ad */
-reg('fd',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const P=30, rows=P+1, top=34, rh=(H-70)/rows;
-  text(ctx,'有限差分：31 次',12,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'反向：1 + 1 次',W/2+8,20,{c:css('--grad'),w:'600',s:12});
-  const lw=W/2-30; const prog=ease(p)*rows;
-  for(let i=0;i<rows;i++){ const y=top+i*rh; ctx.fillStyle=css('--surface'); ctx.fillRect(12,y,lw,rh-1); const f=Math.max(0,Math.min(1,prog-i)); ctx.fillStyle=css('--fortran'); ctx.fillRect(12,y,lw*f,rh-1); }
-  const x0=W/2+8, y0=top, bh=18; ctx.fillStyle=css('--surface'); ctx.fillRect(x0,y0,lw,bh); ctx.fillRect(x0,y0+bh+8,lw,bh);
-  const fp=Math.min(1,ease(p)*3.2), bp=Math.max(0,Math.min(1,ease(p)*3.2-1.1));
-  ctx.fillStyle=css('--jax'); ctx.fillRect(x0,y0,lw*fp,bh); ctx.fillStyle=css('--grad'); ctx.fillRect(x0+lw-lw*bp,y0+bh+8,lw*bp,bh);
-  text(ctx,'前向',x0+4,y0+13,{c:css('--bg'),s:10}); text(ctx,'反向',x0+4,y0+bh+21,{c:css('--bg'),s:10});
-  const done=Math.floor(prog); text(ctx,`${Math.min(rows,done)} / 31`,12,H-12,{s:11,m:true}); text(ctx, bp>=1?'30 个梯度':'',x0,H-12,{s:11,c:css('--ink')});
-  if(bp>=1){ for(let i=0;i<P;i++){ const x=x0+i*(lw/P); ctx.fillStyle=css('--grad'); ctx.fillRect(x,y0+2*bh+20,lw/P-2,H-y0-2*bh-44); } }
-},9,[[0,'有限差分：对第 1 个参数扰动一点，跑一次完整的九年前向'],[0.15,'再对第 2、3、4…个参数各跑一次：31 次前向才凑齐 30 个导数'],[0.32,'反向模式：先正常跑一次前向，把每一天的状态记下来'],[0.42,'再从最后一天倒着走回来，链式法则一路累积'],[0.7,'走回第 1 天时，全部 30 个参数的导数同时到手'],[0.95,'成本约等于几次前向，与参数个数无关']]);
+/* ================= 06 gradient ================= */
+const PARAMS=['λ','h_b','K_sat','θ_r','θ_s','反照率','r_s','r_ss','P1','P5','G2','G3'],SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
+reg('strip',{dur:10,keys:[[0,'前向：状态从第 1 天推进至第 3287 天，逐日记录中间量'],[0.34,'反向：自最后一天起，伴随量沿同一路径回传'],[0.68,'回传经过每一天时，累加当日对各参数的影响'],[0.9,'回传完成：12 个参数的梯度同时得到']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H;const cells=120,x0=12,x1=W-12,cw=(x1-x0)/cells,y=24,h=14;const fwd=Math.min(1,p/0.33),bwd=clamp((p-0.36)/0.32,0,1),fill=clamp((p-0.7)/0.25,0,1);
+    g.text('day 1',x0,16,{s:10,m:true});g.text('day 3287',x1,16,{s:10,m:true,a:'right'});
+    for(let i=0;i<cells;i++){const f=i/cells;g.rect(x0+i*cw,y,cw-1,h,f<fwd?c.j:c.surf);if(bwd>0&&f>1-bwd)g.rect(x0+i*cw,y+h+4,cw-1,7,c.g);}
+    g.text('前向 scan',x0,y+h+24,{s:10});g.text('反向 vjp',x1,y+h+24,{s:10,a:'right'});
+    const by=92,bh=36,n=PARAMS.length,bw=(x1-x0)/n;g.text('∂产量/∂参数',x0,by-6,{s:10,c:'ink'});
+    for(let i=0;i<n;i++){const v=SENS[i]*fill;g.rect(x0+i*bw+6,by,bw-12,bh,c.surf);g.rect(x0+i*bw+6,by+bh-v*bh,bw-12,v*bh,c.g);g.text(PARAMS[i],x0+i*bw+bw/2,by+bh+11,{s:9,m:true,a:'center'});}
+  }});
+reg('fd',{dur:9,keys:[[0,'有限差分：对第 1 个参数施加微小扰动，运行一次完整的九年前向'],[0.15,'再对第 2、3、4…个参数各运行一次：31 次前向才得到 30 个导数'],[0.32,'反向模式：先运行一次前向，记录每一天的状态'],[0.42,'再自最后一天回溯，链式法则沿途累积'],[0.7,'回溯至第 1 天时，全部 30 个参数的导数同时得到'],[0.95,'代价约相当于数次前向，与参数个数无关']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H;const P=30,rows=P+1,top=30,rh=(H-58)/rows,lw=W/2-30;
+    g.text('有限差分：31 次前向',12,20,{c:'f',b:true,s:12});g.text('反向：1 次前向 + 1 次反向',W/2+8,20,{c:'g',b:true,s:12});
+    const prog=ease(p)*rows;for(let i=0;i<rows;i++){const y=top+i*rh;g.rect(12,y,lw,rh-1,c.surf);g.rect(12,y,lw*clamp(prog-i,0,1),rh-1,c.f);}
+    const x0=W/2+8,y0=44,bh=14;const fp=Math.min(1,ease(p)*3.2),bp=clamp(ease(p)*3.2-1.1,0,1);
+    g.text('前向',x0,y0-4,{s:10});g.rect(x0,y0,lw,bh,c.surf);g.rect(x0,y0,lw*fp,bh,c.j);
+    g.text('反向',x0,y0+bh+20,{s:10});g.rect(x0,y0+bh+24,lw,bh,c.surf);g.rect(x0+lw-lw*bp,y0+bh+24,lw*bp,bh,c.g);
+    if(bp>=1){for(let i=0;i<P;i++)g.rect(x0+i*(lw/P),y0+2*bh+50,lw/P-2,H-y0-2*bh-72,c.g);g.text('30 个梯度，同时得到',x0,H-12,{s:11,c:'g'});}
+    g.text(`${Math.min(rows,Math.floor(prog))} / 31`,12,H-12,{s:11,m:true});
+  }});
+function lossXY(x,y){const u=x*0.85+y*0.53,v=-x*0.53+y*0.85;return 8*u*u+0.6*v*v;}
+reg('lhs',{dur:9,keys:[[0,'底图为损失面：越绿数值越低，谷底位于中间偏左'],[0.12,'左：拉丁超立方在整个空间布点，每个点需运行一次九年模拟'],[0.4,'布下数百个点后，最优点（圈出）仍距谷底有一段距离；维数升高时更为稀疏'],[0.55,'右：梯度给出每一步的方向，沿坡面下降'],[0.8,'数十步抵达谷底，每步仅为一次前向加一次反向'],[0.97,'维数由 2 升至 100 时，左侧所需点数呈指数增长，右侧几乎不变']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H;const half=W/2-16,gh=H-48;
+    const draw=(ox)=>{const nx=64,ny=48,cw=half/nx,chh=gh/ny;for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const x=((i+0.5)/nx-0.5)*2.4,y=((j+0.5)/ny-0.5)*2.4;const L=Math.min(1,lossXY(x,y)/6);const band=Math.floor(L*8)%2?0.08:0;g.rect(ox+i*cw,30+j*chh,cw+0.5,chh+0.5,mix(c.surf,c.js,(1-L)*(1-band)));}};
+    draw(12);draw(W/2+4);g.text('拉丁超立方撒点',12,20,{c:'f',b:true,s:12});g.text('沿梯度下降',W/2+4,20,{c:'j',b:true,s:12});
+    const n=Math.floor(ease(p)*400);let best=1e9,bx=0,by=0;const rng=mulberry(7);
+    for(let i=0;i<n;i++){const x=rng()*2.4-1.2,y=rng()*2.4-1.2;const L=lossXY(x,y);if(L<best){best=L;bx=x;by=y;}g.ctx.globalAlpha=.6;g.circle(12+(x/2.4+0.5)*half,30+(y/2.4+0.5)*gh,2,c.f);g.ctx.globalAlpha=1;}
+    if(n>0)g.circle(12+(bx/2.4+0.5)*half,30+(by/2.4+0.5)*gh,6,c.ink,true);
+    let x=1.0,y=-0.9;const steps=Math.floor(ease(p)*40);g.ctx.strokeStyle=c.j;g.ctx.lineWidth=2;g.ctx.beginPath();g.ctx.moveTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*gh);
+    for(let i=0;i<steps;i++){const e=1e-3,gx=(lossXY(x+e,y)-lossXY(x-e,y))/(2*e),gy=(lossXY(x,y+e)-lossXY(x,y-e))/(2*e);x-=0.05*gx;y-=0.05*gy;g.ctx.lineTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*gh);}
+    g.ctx.stroke();if(steps>0)g.circle(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*gh,4,c.j);
+    g.text(`${n} 次模拟 · 最好 ${n?best.toFixed(2):'—'}`,12,H-6,{s:10,m:true});g.text(`${steps} 步 · 损失 ${lossXY(x,y).toFixed(3)}`,W/2+4,H-6,{s:10,m:true});
+  }});
+reg('ident',{dur:7,keys:[[0,'损失面在谷底附近呈长椭圆：一个方向陡峭，一个方向平坦'],[0.25,'平坦方向：K_sat 增大、λ 随之变化，损失几乎不变，数据无法区分二者'],[0.5,'陡峭方向：稍有变动损失即上升，这是数据真正约束的组合'],[0.7,'Fisher 信息矩阵 = 雅可比转置 × 雅可比，一次反向传播即可求得'],[0.9,'特征值逐级下降：4 个方向可辨识，其余 6 个为噪声']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const cx=W*0.33,cy=H*0.52,ang=-0.55;
+    for(let k=6;k>=1;k--){g.ctx.beginPath();g.ctx.ellipse(cx,cy,k*30,k*8,ang,0,7);g.ctx.strokeStyle=c.line;g.ctx.lineWidth=1;g.ctx.stroke();}
+    g.ctx.save();g.ctx.translate(cx,cy);g.ctx.rotate(ang);g.line(0,0,170*q,0,c.g,3);g.line(0,0,0,-36*q,c.j,3);g.ctx.restore();
+    g.text('平：辨识不出',cx+60,cy+62,{c:'g',b:true,s:12});g.text('陡：约束住了',cx-30,cy-64,{c:'j',b:true,s:12});
+    const x0=W*0.68,base=H-34,ev=[1,.62,.4,.22,.08,.03,.012,.005,.002,.001];g.text('Fisher 信息特征值',x0,24,{b:true,s:12,c:'ink'});
+    ev.forEach((e,i)=>{const h=Math.max(2,(Math.log10(e)+3.2)/3.2*(H-80))*clamp(q*ev.length-i,0,1);g.rect(x0+i*13,base-h,10,h,i<4?c.j:c.g);});
+    g.text('可辨识 4 / 10',x0,H-12,{s:11});
+  }});
+reg('chains',{dur:8,keys:[[0,'一条 NUTS 链每一步都需要一次梯度，且必须逐步串行'],[0.2,'左：4 条链运行中，每步有固定延迟，1000 步耗时漫长'],[0.45,'右：1000 条链置于 vmap 中，一步耗时与 4 条链相同'],[0.7,'相同的墙钟时间，右侧已累积数千样本，左侧仅十余个'],[0.95,'因此合理形态是多链短程采样，后验分布由累积样本直接给出']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const lw=W/2-30,y0=32,lanesH=H-84;
+    g.text('4 条长链 × 1000 步',12,20,{c:'f',b:true,s:12});g.text('1000 条短链 × 4 步',W/2+8,20,{c:'j',b:true,s:12});
+    for(let k=0;k<4;k++){const y=y0+k*(lanesH/4);g.rect(12,y,lw,lanesH/4-6,c.surf);g.rect(12,y,Math.max(2,lw*q*0.004),lanesH/4-6,c.f);}
+    const rows=25,cols=40,cw=lw/cols,ch=lanesH/rows,lit=Math.floor(q*cols/4)*4/4;const litc=Math.floor(q*cols);
+    for(let r=0;r<rows;r++)for(let k=0;k<cols;k++)g.rect(W/2+8+k*cw,y0+r*ch,cw-1,ch-1,k<litc?c.j:c.surf);
+    const sd=Math.floor(q*4);g.text(`每链 ${sd} / 1000 步 · 样本 ${sd*4}`,12,H-22,{s:11,m:true});g.text(`每链 ${sd} / 4 步 · 样本 ${sd*1000}`,W/2+8,H-22,{s:11,m:true});
+  }});
+reg('hyb',{dur:8,keys:[[0,'四个过程串成一条链，其中气孔阻力替换为一个小型网络'],[0.2,'损失为模拟 ET 与通量塔 ET 之差'],[0.4,'梯度自损失出发，先穿过作物与土壤水两个机理过程'],[0.6,'到达网络时，链式法则已将机理过程的影响乘入'],[0.85,'网络权重与机理参数同时更新，其余过程仍保持守恒与可解释']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const boxes=[['潜在 ET',false],['气孔阻力',true],['土壤水',false],['作物',false]];const bw=(W-40)/4,y=44,bh=52;
+    boxes.forEach(([t,nn],i)=>{const x=20+i*bw;g.box(x,y,bw-16,bh,nn?c.g:c.j,nn?c.gs:c.js);g.text(t,x+(bw-16)/2,y+(nn?24:31),{a:'center',c:'ink',b:true,s:12});if(nn)g.text('小网络 MLP',x+(bw-16)/2,y+41,{a:'center',c:'g',s:9});if(i<3)g.line(x+bw-16,y+bh/2,x+bw,y+bh/2,c.muted,1.5);});
+    const lx=W-160,ly=150;g.box(lx,ly,140,40,c.ink,c.surf);g.text('损失',lx+70,ly+17,{a:'center',c:'ink',b:true,s:12});g.text('模拟 ET − 通量塔 ET',lx+70,ly+32,{a:'center',s:9});
+    const tx=20+bw+(bw-16)/2,ty=y+bh;const sx=lx+70,sy=ly;
+    for(let i=0;i<18;i++){const ph=q*2.2-i*0.06;if(ph<0||ph>1)continue;const e=ph*ph;g.circle(sx+(tx-sx)*e,sy+(ty-sy)*e,3,c.g);}
+    g.line(sx,sy,tx,ty,c.line,1,[3,4]);
+    const hit=q>0.55;if(hit){g.ctx.strokeStyle=c.g;g.ctx.lineWidth=2.5;g.ctx.strokeRect(20+bw-2,y-2,bw-12,bh+4);}g.text(hit?'梯度到达网络与机理参数':'梯度沿计算图回传',20,H-14,{s:12,c:hit?'g':'muted'});
+  }});
+reg('rain',{dur:8,keys:[[0,'上方为生长季逐日降雨，是模型的输入而非参数'],[0.15,'反向传播对输入同样求导：自成熟之日起，伴随量向前回溯'],[0.45,'经过吐丝期：这几周的降雨对产量的边际贡献最大'],[0.75,'回溯至播种期：早期降雨影响较小，因作物尚未大量耗水'],[0.97,'一条曲线回答归因问题：哪场降雨决定了产量']],
+  draw(p,G){const g=G.main,c=C(),W=g.W,H=g.H,q=ease(p);const x0=20,x1=W-20,y0=36,rh=26,days=150,rng=mulberry(3);
+    g.text('逐日降雨（输入）',x0,20,{b:true,s:12,c:'ink'});for(let d=0;d<days;d++){const r=rng()<0.28?rng()*22:0;const x=x0+d/days*(x1-x0);g.rect(x,y0+rh-r,2,r,c.j);}
+    const cy=H-44;g.text('∂产量/∂降雨（反向传播算出）',x0,y0+rh+34,{b:true,s:12,c:'g'});
+    const from=1-q;g.ctx.strokeStyle=c.g;g.ctx.lineWidth=2;g.ctx.beginPath();let first=true;
+    for(let d=days;d>=0;d--){const f=d/days;if(f<from)break;const v=Math.exp(-Math.pow((f-0.55)/0.16,2))*64+Math.exp(-Math.pow((f-0.2)/0.12,2))*14;const x=x0+f*(x1-x0),y=cy-v;if(first){g.ctx.moveTo(x,y);first=false;}else g.ctx.lineTo(x,y);}
+    g.ctx.stroke();g.line(x0,cy,x1,cy,c.line,1);g.rect(x0+(1-q)*(x1-x0)-1,y0-6,2,cy-y0+10,c.g);
+    g.text('播种',x0,H-10,{s:10});g.text('吐丝期',x0+0.55*(x1-x0),H-10,{s:10,a:'center'});g.text('成熟',x1,H-10,{s:10,a:'right'});
+  }});
 
-/* lhs vs gradient descent on a valley */
-function lossXY(x,y){ const u=(x*0.85+y*0.53), v=(-x*0.53+y*0.85); return 8*u*u+0.6*v*v; }
-reg('lhs',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const half=W/2-12;
-  const draw=(ox)=>{ const c0=hexToRgb(css('--surface2')), c1=hexToRgb(css('--jax-soft')); const nx=64, ny=48, cw=half/nx, chh=(H-40)/ny;
-    for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){ const x=((i+0.5)/nx-0.5)*2.4, y=((j+0.5)/ny-0.5)*2.4; const L=Math.min(1,lossXY(x,y)/6); const band=Math.floor(L*8)%2?28:0;
-      ctx.fillStyle=`rgb(${Math.round(c0[0]+(c1[0]-c0[0])*(1-L)-band)},${Math.round(c0[1]+(c1[1]-c0[1])*(1-L)-band)},${Math.round(c0[2]+(c1[2]-c0[2])*(1-L)-band)})`; ctx.fillRect(ox+i*cw,30+j*chh,cw+0.5,chh+0.5); } };
-  draw(8); draw(W/2+4);
-  text(ctx,'撒点',8,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'沿梯度',W/2+4,20,{c:css('--jax'),w:'600',s:12});
-  const n=Math.floor(ease(p)*400); let best=1e9,bx=0,by=0; const rng=mulberry(7);
-  for(let i=0;i<n;i++){ const x=rng()*2.4-1.2,y=rng()*2.4-1.2; const L=lossXY(x,y); if(L<best){best=L;bx=x;by=y;} ctx.fillStyle=css('--fortran'); ctx.globalAlpha=.55; ctx.beginPath(); ctx.arc(8+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40),2,0,7); ctx.fill(); ctx.globalAlpha=1; }
-  if(n>0){ ctx.strokeStyle=css('--ink'); ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(8+(bx/2.4+0.5)*half,30+(by/2.4+0.5)*(H-40),6,0,7); ctx.stroke(); }
-  let x=1.0,y=-0.9; const steps=Math.floor(ease(p)*40); ctx.strokeStyle=css('--jax'); ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40));
-  for(let i=0;i<steps;i++){ const e=1e-3; const gx=(lossXY(x+e,y)-lossXY(x-e,y))/(2*e), gy=(lossXY(x,y+e)-lossXY(x,y-e))/(2*e); x-=0.05*gx; y-=0.05*gy; ctx.lineTo(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40)); }
-  ctx.stroke(); if(steps>0){ ctx.fillStyle=css('--jax'); ctx.beginPath(); ctx.arc(W/2+4+(x/2.4+0.5)*half,30+(y/2.4+0.5)*(H-40),4,0,7); ctx.fill(); }
-  text(ctx,`${n} 次 · 最好 ${n?best.toFixed(2):'—'}`,8,H-4,{s:11,m:true}); text(ctx,`${steps} 步 · ${lossXY(x,y).toFixed(3)}`,W/2+4,H-4,{s:11,m:true});
-},9,[[0,'底图是损失面：越绿越低，谷底在中间偏左'],[0.12,'左：拉丁超立方在整个空间撒点，每个点都要跑一次九年模拟'],[0.4,'撒了几百个点，最好的那个（圈出）离谷底还有距离，维数一高更稀'],[0.55,'右：梯度告诉每一步该往哪走，沿着坡下去'],[0.8,'几十步到谷底，每步只是一次前向加一次反向'],[0.97,'维数从 2 变 100，左边的点数要指数增长，右边几乎不变']]);
-function mulberry(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; } }
+/* ---------- autoplay on scroll, nav highlight ---------- */
+if(!reduce&&'IntersectionObserver' in window){const seen=new Set();const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){const n=e.target.dataset.fig;if(n&&figs[n]&&!seen.has(n)){seen.add(n);play(figs[n]);}}});},{threshold:.45});document.querySelectorAll('.fig[data-fig]').forEach(f=>io.observe(f));}
+{const links=[...document.querySelectorAll('nav.toc a')];const secs=links.map(a=>document.querySelector(a.getAttribute('href')));if('IntersectionObserver' in window){const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting){links.forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+e.target.id));}});},{rootMargin:'-40% 0px -55% 0px'});secs.forEach(s=>s&&io.observe(s));}}
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>Object.values(figs).forEach(a=>{if(!a.playing)render(a);}));
 
-/* identifiability valley */
-reg('ident',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const cx=W*0.36, cy=H*0.55, ang=-0.55;
-  for(let k=6;k>=1;k--){ ctx.beginPath(); ctx.ellipse(cx,cy,k*34,k*9,ang,0,7); ctx.strokeStyle=css('--line'); ctx.lineWidth=1; ctx.stroke(); }
-  const q=ease(p);
-  ctx.save(); ctx.translate(cx,cy); ctx.rotate(ang);
-  ctx.strokeStyle=css('--grad'); ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(180*q,0); ctx.stroke();
-  ctx.strokeStyle=css('--jax'); ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,-40*q); ctx.stroke(); ctx.restore();
-  text(ctx,'平：辨识不出',cx-120,cy+78,{c:css('--grad'),s:12});
-  text(ctx,'陡：约束住了',cx-120,cy-76,{c:css('--jax'),s:12});
-  const x0=W*0.72, base=H-30, ev=[1,.62,.4,.22,.08,.03,.012,.005,.002,.001]; text(ctx,'Fisher 特征值',x0-6,26,{w:'600',s:12,c:css('--ink')});
-  ev.forEach((e,i)=>{ const h=Math.max(2,(Math.log10(e)+3.2)/3.2*(H-70))*Math.min(1,q*ev.length-i); ctx.fillStyle= i<4?css('--jax'):css('--grad'); ctx.fillRect(x0+i*12,base-h,9,h); });
-  text(ctx,'4 / 10 可辨识',x0-6,H-8,{s:11});
-},7,[[0,'损失面在谷底附近是个长椭圆：一个方向陡，一个方向平'],[0.25,'平的方向：K_sat 变大、λ 跟着变，损失几乎不动，数据分不出它们'],[0.5,'陡的方向：稍微一动损失就涨，这是数据真正约束住的组合'],[0.7,'Fisher 信息矩阵 = 雅可比转置乘雅可比，一次反向传播算出'],[0.9,'特征值一路掉下去：4 个方向可辨识，其余 6 个是噪声']]);
-
-/* chains */
-reg('chains',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
-  text(ctx,'4 链 × 1000 步',12,20,{c:css('--fortran'),w:'600',s:12}); text(ctx,'1000 链 × 4 步',W/2+8,20,{c:css('--jax'),w:'600',s:12});
-  const lw=W/2-30, y0=34, lanesH=H-90;
-  for(let k=0;k<4;k++){ const y=y0+k*(lanesH/4); ctx.fillStyle=css('--surface'); ctx.fillRect(12,y,lw,lanesH/4-4); ctx.fillStyle=css('--fortran'); ctx.fillRect(12,y,lw*q*0.004*1000/1000*1,lanesH/4-4); }
-  const rows=25, cols=40, cw=lw/cols, ch=lanesH/rows; const lit=Math.floor(q*4*cols/4);
-  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ ctx.fillStyle= c<lit? css('--jax'):css('--surface'); ctx.fillRect(W/2+8+c*cw,y0+r*ch,cw-1,ch-1); }
-  const stepsDone=Math.floor(q*4);
-  text(ctx,`样本 ${stepsDone*4}`,12,H-30,{s:11,m:true}); text(ctx,`样本 ${stepsDone*1000}`,W/2+8,H-30,{s:11,m:true});
-  
-},8,[[0,'一条 NUTS 链每一步都要一次梯度，而且必须一步接一步'],[0.2,'左：4 条链在跑，每步有固定延迟，1000 步要等很久'],[0.45,'右：1000 条链放进 vmap，一步的时间和 4 条链一样'],[0.7,'同样的墙钟，右边已经攒了几千个样本，左边只有十几个'],[0.95,'所以形态是多链短跑，后验从算出来变成数出来']]);
-
-/* hybrid */
-reg('hyb',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
-  const boxes=[['潜在 ET',css('--jax')],['气孔阻力',css('--grad')],['土壤水',css('--jax')],['作物',css('--jax')]]; const bw=(W-40)/4, y=64, bh=50;
-  boxes.forEach((b,i)=>{ const x=20+i*bw; ctx.fillStyle= b[1]===css('--grad')?css('--grad-soft'):css('--jax-soft'); ctx.strokeStyle=b[1]; ctx.lineWidth=2; ctx.beginPath(); ctx.roundRect(x,y,bw-16,bh,8); ctx.fill(); ctx.stroke(); text(ctx,b[0],x+(bw-16)/2,y+ (i===1?24:30),{a:'center',c:css('--ink'),s:12,w:'600'}); if(i===1) text(ctx,'小网络 MLP',x+(bw-16)/2,y+41,{a:'center',c:css('--grad'),s:9}); if(i<3){ ctx.strokeStyle=css('--muted'); ctx.beginPath(); ctx.moveTo(x+bw-16,y+bh/2); ctx.lineTo(x+bw,y+bh/2); ctx.stroke(); } });
-  text(ctx,'损失：模拟 ET vs 通量塔 ET',W/2,y+bh+34,{a:'center',c:css('--ink'),s:12});
-  const n=18; for(let i=0;i<n;i++){ const ph=(q*2.2-i*0.05); if(ph<0||ph>1) continue; const x=W-20-ph*(W-40); const yy=y+bh+12+Math.sin(i)*3; ctx.fillStyle=css('--grad'); ctx.beginPath(); ctx.arc(x,yy,3,0,7); ctx.fill(); }
-  const hit=q>0.55; text(ctx, hit?'梯度到达网络':'梯度倒流',20,H-14,{s:12,c:hit?css('--grad'):css('--muted')});
-  if(hit){ ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; const x=20+bw; ctx.strokeRect(x-2,y-2,bw-12,bh+4); }
-},8,[[0,'四个过程串成一条链，其中气孔阻力换成一个小网络'],[0.2,'损失是模拟 ET 和通量塔 ET 的差'],[0.4,'梯度从损失出发，先穿过作物和土壤水两个机理过程'],[0.6,'到达网络时，链式法则已经把机理过程的影响乘进去了'],[0.85,'网络权重和机理参数同时更新，其余过程照旧守恒、可解释']]);
-
-/* rain sensitivity */
-reg('rain',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p); const x0=20,x1=W-20,y0=40,rh=22,days=150;
-  text(ctx,'逐日降雨',x0,20,{w:'600',s:12,c:css('--ink')}); const rng=mulberry(3);
-  for(let d=0;d<days;d++){ const r=rng()<0.28?rng()*18:0; const x=x0+d/days*(x1-x0); ctx.fillStyle=css('--jax'); ctx.fillRect(x,y0+rh-r,2,r); }
-  const cy=H-40; text(ctx,'∂产量/∂降雨',x0,y0+rh+34,{w:'600',s:12,c:css('--grad')});
-  const from=1-q; ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; ctx.beginPath(); let first=true;
-  for(let d=days;d>=0;d--){ const f=d/days; if(f<from) break; const v=Math.exp(-Math.pow((f-0.55)/0.16,2))*60+Math.exp(-Math.pow((f-0.2)/0.12,2))*14; const x=x0+f*(x1-x0), y=cy-v; if(first){ctx.moveTo(x,y);first=false;} else ctx.lineTo(x,y); }
-  ctx.stroke(); ctx.strokeStyle=css('--line'); ctx.beginPath(); ctx.moveTo(x0,cy); ctx.lineTo(x1,cy); ctx.stroke();
-  const bx=x0+(1-q)*(x1-x0); ctx.fillStyle=css('--grad'); ctx.fillRect(bx-1,y0-6,2,cy-y0+10); text(ctx,'播种',x0,H-8,{s:10}); text(ctx,'吐丝期',x0+0.55*(x1-x0),H-8,{s:10,a:'center'}); text(ctx,'成熟',x1,H-8,{s:10,a:'right'});
-  if(q>=1) text(ctx,'吐丝期',x0+0.55*(x1-x0),cy-70,{s:11,a:'center',c:css('--ink')});
-},8,[[0,'上面是生长季逐日降雨，是模型的输入而不是参数'],[0.15,'反向传播对输入也求导：从成熟那天开始，伴随量倒着往回走'],[0.45,'走过吐丝期，那几周的雨对产量的边际贡献最大'],[0.75,'走到播种期，早期的雨影响小，因为土壤还没被作物用水'],[0.97,'一条曲线回答归因问题：哪场雨决定了收成']]);
-
-/* auto-play on scroll, replay buttons, initial frames */
-Object.keys(anims).forEach(n=>{ const cv=document.querySelector(`canvas[data-anim="${n}"]`); if(n!=='strip'){ const c=scaled(cv); anims[n].fn(c,VCV, reduce?1:0.001); flush(c,ovOf(cv)); } caption(n, reduce?1:0); });
-if(!reduce && 'IntersectionObserver' in window){ const seen=new Set(); const io=new IntersectionObserver(es=>{ es.forEach(e=>{ if(e.isIntersecting){ const n=e.target.dataset.anim; if(!seen.has(n)){ seen.add(n); if(n==='strip') document.getElementById('gplay').click(); else playAnim(n);} } }); },{threshold:.5}); document.querySelectorAll('canvas[data-anim]').forEach(c=>io.observe(c)); }
-document.querySelectorAll('[data-replay]').forEach(b=>b.onclick=()=>playAnim(b.dataset.replay));
-if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(()=>{ drawF(); drawJ(); drawG(); Object.keys(anims).forEach(n=>{ if(n==='strip') return; const a=anims[n]; if(a.playing) return; const cv=document.querySelector(`canvas[data-anim="${n}"]`); const c=scaled(cv); a.fn(c,VCV, reduce?1:(a.t? a.t/a.dur : 0.001)); flush(c,ovOf(cv)); }); }); }
+/* ---------- estimator ---------- */
+const HW={h100:{bw:1,f64pen:1,floor:1},a100:{bw:0.46,f64pen:1,floor:1.2},'4090':{bw:0.30,f64pen:0.5,floor:1.3},'4060':{bw:0.08,f64pen:0.5,floor:1.6}};
+const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}};const REAL_MODEL=3;
+function human(s){if(s<60)return s.toFixed(s<10?1:0)+' 秒';if(s<3600)return(s/60).toFixed(1)+' 分钟';if(s<86400)return(s/3600).toFixed(1)+' 小时';if(s<7*86400)return(s/86400).toFixed(1)+' 天';return(s/86400/7).toFixed(1)+' 周';}
+function est(){const n=Math.round(Math.pow(10,+document.getElementById('n').value));document.getElementById('nLab').textContent=fmt(n);
+  const hw=HW[document.getElementById('gpu').value],cfg=CFG[document.getElementById('cfg').value],f32=document.getElementById('prec').value==='f32',cores=+document.getElementById('cores').value;
+  let per=cfg.ms/1000*REAL_MODEL/hw.bw;if(f32)per*=0.42;else per/=hw.f64pen;const jax=cfg.floor*hw.floor+n*per,fort=n*RUN_S/cores;
+  const lo=0,hi=Math.log10(14*86400),w=s=>clamp((Math.log10(Math.max(1,s))-lo)/(hi-lo)*100,1,100);
+  document.getElementById('barF').style.width=w(fort)+'%';document.getElementById('barJ').style.width=w(jax)+'%';document.getElementById('valF').textContent=human(fort);document.getElementById('valJ').textContent=human(jax);
+  document.getElementById('ratio').textContent=`同一批模拟，Agri-JAX 约快 ${Math.round(fort/jax).toLocaleString('zh-CN')} 倍。批量小于一万时 GPU 未饱和，倍数会缩小；批量更大时受内存带宽限制，需依靠精度、数值深度与算子融合进一步降低耗时。`;}
+['n','gpu','cfg','prec','cores'].forEach(id=>document.getElementById(id).addEventListener('input',est));est();
 })();
 </script>
