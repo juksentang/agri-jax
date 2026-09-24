@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Agri-JAX at a Glance</title>
+<style>body{margin:0;font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#faf9f5}img{max-width:100%;height:auto}[hidden]{display:none!important}.langsw{max-width:1680px;margin:0 auto;padding:6px clamp(0px,2.2vw,32px) 0;display:flex;justify-content:flex-end;gap:8px;font-size:12px;line-height:18px;color:var(--muted,#56625D)}.langsw a{color:inherit}.langsw b{color:var(--ink,#16201C);font-weight:600}</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Design plan
+   Identity: a field instrument read as a ledger. The page is one 2-column grid (text | figure); the act strip at the top is a
+   1×6 row of cells laid exactly over the figure column, so navigation, keyframe progress and the matrix share one set of edges.
+   Colour: paper #F1F2EE · panel #E6E9E3 · ink #16201C · muted #56625D · rule #C8CEC7 · cell #D8DCD5;
+           accents only rust #C2591A (Fortran) · teal #0F8A66 (JAX) · violet #6B4FBB (gradients). Dark: re-stepped, same roles.
+   Type: Noto Sans 400/500/700 for all words; IBM Plex Mono only for numbers and indices.
+         Scale 12 · 14 · 16 · 18 · 22 · 30 · 56 (px). Figure text in viewBox units 15 · 17 · 20 · 26 · 32.
+   Space: 4 · 8 · 12 · 16 · 24 · 32 · 48 · 72. Radii 2 px. No cards, no shadows. Motion: sweep and reveal only. */
+:root{
+  --bg:#F1F2EE; --panel:#E6E9E3; --ink:#16201C; --muted:#56625D; --rule:#C8CEC7; --neutral:#B9C0B7; --cell:#D8DCD5;
+  --rust:#C2591A; --teal:#0F8A66; --violet:#6B4FBB; --rust-soft:#F1D9C9; --teal-soft:#CFE9DF; --violet-soft:#DDD6F2;
+  --sans:"Noto Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",Menlo,Consolas,monospace;
+  --barh:52px; --gap:48px; --cols:minmax(0,5fr) minmax(0,9fr);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ color-scheme:dark;
+  --bg:#121614; --panel:#1A201D; --ink:#E8EBE5; --muted:#97A29C; --rule:#2E3632; --neutral:#48504C; --cell:#252C29;
+  --rust:#D96A28; --teal:#2FA582; --violet:#8E78D8; --rust-soft:#3C2416; --teal-soft:#153229; --violet-soft:#282142; } }
+:root[data-theme="dark"]{ color-scheme:dark;
+  --bg:#121614; --panel:#1A201D; --ink:#E8EBE5; --muted:#97A29C; --rule:#2E3632; --neutral:#48504C; --cell:#252C29;
+  --rust:#D96A28; --teal:#2FA582; --violet:#8E78D8; --rust-soft:#3C2416; --teal-soft:#153229; --violet-soft:#282142; }
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.7;padding-block:0 48px;padding-inline:16px}
+h1,h2{font-family:var(--sans);font-weight:700;margin:0;text-wrap:balance}
+p,ol,ul{margin:0}
+a{color:var(--teal)}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1680px;margin:0 auto;padding-inline:clamp(0px,2.2vw,32px)}
+.tag{display:inline-block;font-size:12px;line-height:18px;padding:0 6px;border:1px solid var(--rule);color:var(--muted);border-radius:2px;white-space:nowrap;font-weight:500}
+.tag.real{border-color:var(--teal);color:var(--teal)} .tag.ill{border-color:var(--violet);color:var(--violet)} .tag.ext{border-color:var(--rust);color:var(--rust)}
+
+/* ---------- act strip: a 1×6 row of cells over the figure column ---------- */
+nav.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--bg);margin-inline:-16px;padding-inline:16px;border-bottom:1px solid var(--rule)}
+.barin{max-width:1680px;margin:0 auto;padding-inline:clamp(0px,2.2vw,32px);display:grid;grid-template-columns:var(--cols);column-gap:var(--gap);height:var(--barh)}
+.mark{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font-size:14px;font-weight:700;letter-spacing:.02em;white-space:nowrap}
+.mark span{font-weight:400;color:var(--muted)}
+.acts{list-style:none;padding:0;display:grid;grid-template-columns:repeat(6,1fr);border-left:1px solid var(--rule)}
+.acts a{position:relative;display:flex;align-items:center;gap:8px;height:100%;padding:0 12px;border-right:1px solid var(--rule);text-decoration:none;color:var(--muted);font-size:14px;white-space:nowrap;overflow:hidden}
+.acts a b{font-family:var(--mono);font-weight:600;font-size:12px}
+.acts a i{position:absolute;left:0;bottom:-1px;height:3px;width:0;background:var(--teal)}
+.acts a.on{color:var(--ink);background:var(--panel)} .acts a.on b{color:var(--teal)}
+.acts a.done i{width:100%;background:var(--rule)}
+.acts a:hover{color:var(--ink)}
+.acts a:focus-visible,.mark:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+
+/* ---------- title ---------- */
+.title{padding-block:40px 28px;border-bottom:1px solid var(--rule)}
+.title .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--muted);margin-bottom:16px}
+.title h1{font-size:clamp(30px,3.4vw,52px);line-height:1.2;letter-spacing:-.02em}
+.title h1 span{display:inline-block}
+
+/* ---------- story grid ---------- */
+.story{display:grid;grid-template-columns:var(--cols);column-gap:var(--gap);align-items:start}
+.text{grid-column:1;grid-row:1;min-width:0}
+.sceneCol{grid-column:2;grid-row:1;position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--barh));height:calc(100vh - var(--barh));display:flex;flex-direction:column;justify-content:flex-start;gap:12px;padding-block:28px 16px;min-width:0}
+.figcap{display:flex;justify-content:space-between;align-items:baseline;gap:8px 16px;flex-wrap:wrap;font-size:14px;line-height:1.5;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+.figcap .fn{display:flex;gap:12px;align-items:baseline;min-width:0}
+.figcap .fn b{font-family:var(--mono);font-weight:600;color:var(--teal);font-size:14px}
+.figcap .fn span{color:var(--ink);font-weight:500}
+.figcap .fn em{font-style:normal;color:var(--muted)}
+.figcap .tags{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:13px}
+.figcap .tags span.t{display:inline-flex;gap:6px;align-items:center}
+.scene{position:relative;background:var(--panel);border-radius:2px;overflow:hidden;aspect-ratio:1000/640;width:100%;max-width:100%}
+@media (min-width:901px){ .scene{width:min(100%,calc((100vh - var(--barh) - 190px) * 1.5625));align-self:center} .figcap,.ctl{width:min(100%,calc((100vh - var(--barh) - 190px) * 1.5625));align-self:center} }
+.scene canvas,.scene svg{position:absolute;inset:0;width:100%;height:100%}
+.scene svg{pointer-events:none}
+.scene svg text{font-family:var(--sans);fill:var(--muted);font-size:20px;white-space:pre}
+.scene svg text.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.scene svg text.ink{fill:var(--ink)} .scene svg text.r{fill:var(--rust)} .scene svg text.t{fill:var(--teal)} .scene svg text.v{fill:var(--violet)}
+.scene svg text.b{font-weight:700} .scene svg text.m{font-weight:500}
+.scene svg text.s{font-size:17px} .scene svg text.xs{font-size:15px} .scene svg text.l{font-size:26px} .scene svg text.xl{font-size:32px}
+
+/* ---------- keyframe control: segmented buttons + frame track ---------- */
+.ctl{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:16px;min-height:52px}
+.btns{display:flex;border:1px solid var(--rule);border-radius:2px}
+.btns button{font:inherit;font-size:14px;line-height:20px;background:transparent;color:var(--ink);border:0;border-left:1px solid var(--rule);padding:6px 12px;cursor:pointer;white-space:nowrap}
+.btns button:first-child{border-left:0}
+.btns button.primary{background:var(--ink);color:var(--bg);min-width:88px}
+.btns button:hover{background:var(--panel)} .btns button.primary:hover{background:var(--ink)}
+.btns button:focus-visible,.seg:focus-visible{outline:2px solid var(--teal);outline-offset:2px}
+.track{display:flex;gap:4px;min-width:0;padding-top:4px}
+.seg{flex:1 1 0;min-width:0;font:inherit;background:none;border:0;padding:0;cursor:pointer;text-align:left;color:var(--muted)}
+.seg .bar{display:block;height:4px;background:var(--rule);position:relative;overflow:hidden}
+.seg .bar i{position:absolute;inset:0 auto 0 0;width:0;background:var(--teal)}
+.seg .lab{display:block;font-size:12px;line-height:1.4;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg.on .lab{color:var(--ink);font-weight:500}
+.pos{font-family:var(--mono);font-size:14px;color:var(--muted);padding-top:6px;white-space:nowrap}
+.idle{font-size:14px;color:var(--muted);padding-top:6px}
+
+/* ---------- text column ---------- */
+.intro{min-height:calc(100vh - 240px);display:flex;flex-direction:column;justify-content:flex-start;gap:24px;padding-block:28px 32px}
+.lead{font-size:18px;color:var(--muted);max-width:32ch}
+.spec{width:100%;border-collapse:collapse;font-size:14px}
+.spec td{padding:10px 0;border-top:1px solid var(--rule);vertical-align:baseline}
+.spec tr:last-child td{border-bottom:1px solid var(--rule)}
+.spec td.v{font-family:var(--mono);font-size:22px;font-weight:600;text-align:right;white-space:nowrap;padding-inline:12px}
+.spec td.k{color:var(--muted)} .spec td.g{text-align:right;width:1%}
+.spec .r{color:var(--rust)} .spec .t{color:var(--teal)} .spec .v2{color:var(--violet)} .spec small{font-size:14px;color:var(--muted);font-weight:400}
+.hint{font-size:14px;color:var(--muted)}
+.act#a5{min-height:100vh}
+.act{min-height:92vh;padding-block:12vh 8vh;display:flex;flex-direction:column;justify-content:center;gap:16px}
+.meta{display:flex;gap:12px;align-items:baseline;font-size:14px;color:var(--muted);padding-top:8px;border-top:2px solid var(--ink)}
+.meta b{font-family:var(--mono);font-weight:600;color:var(--teal)}
+.meta .n{margin-left:auto;font-family:var(--mono);font-size:12px}
+.act h2,.measured h2{font-size:clamp(22px,2.1vw,30px);line-height:1.35;letter-spacing:-.01em}
+.steps{list-style:none;padding:0;border-top:1px solid var(--rule)}
+.step{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px;padding:12px 0;border-bottom:1px solid var(--rule);color:var(--muted);cursor:pointer;font-size:16px;line-height:1.6}
+.step .i{font-family:var(--mono);font-size:13px;padding-top:2px}
+.step .pg{position:absolute;left:0;bottom:-1px;height:2px;width:0;background:var(--teal)}
+.step.on{color:var(--ink)} .step.on .i{color:var(--teal);font-weight:600}
+.step:hover{color:var(--ink)}
+.note{font-size:14px;color:var(--muted);max-width:46ch;display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px}
+.note::before{content:"Note";font-weight:700;color:var(--ink)}
+/* estimator */
+.est{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:14px;color:var(--muted)}
+.est label{display:flex;justify-content:space-between;margin-bottom:4px}
+.est select{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:2px;padding:6px 8px}
+.est input[type=range]{width:100%;accent-color:var(--teal)}
+.est .full{grid-column:1/-1}
+.est output{font-family:var(--mono);color:var(--ink);font-weight:600}
+.result{font-size:16px;color:var(--ink);padding:12px 0;border-block:1px solid var(--rule)}
+/* measured */
+.measured{padding-block:12vh 16px;display:grid;grid-template-columns:var(--cols);column-gap:var(--gap);row-gap:16px}
+.measured .head{grid-column:1;display:flex;flex-direction:column;gap:16px}
+.measured .body{grid-column:2;min-width:0}
+.tblwrap{overflow-x:auto}
+table.ledger{border-collapse:collapse;width:100%;min-width:620px;font-size:14px}
+.ledger th,.ledger td{text-align:left;padding:10px 12px 10px 0;border-bottom:1px solid var(--rule);vertical-align:baseline}
+.ledger thead th{font-weight:500;color:var(--muted);font-size:12px;border-bottom:2px solid var(--ink)}
+.ledger td.num,.ledger th.num{text-align:right;white-space:nowrap}
+.ledger td.num{font-size:16px;font-weight:600}
+.ledger td.c{color:var(--muted)}
+footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
+
+@media (max-width:1180px){ :root{--gap:32px;--cols:minmax(0,4fr) minmax(0,7fr)} .acts a span{display:none} .acts a{justify-content:center} }
+@media (max-width:900px){
+  :root{--barh:44px}
+  .barin{grid-template-columns:auto minmax(0,1fr);column-gap:16px}
+  .story{display:block}
+  .sceneCol{position:sticky;top:calc(env(safe-area-inset-top,0px) + var(--barh));height:auto;padding-block:8px;background:var(--bg);z-index:4;border-bottom:1px solid var(--rule);gap:8px}
+  .figcap{font-size:12px;padding-bottom:4px} .figcap .fn b{font-size:12px} .figcap .tags{font-size:12px}
+  .ctl{min-height:0;gap:10px;grid-template-columns:auto minmax(0,1fr) auto}
+  .btns button{padding:4px 10px} .btns button .w{display:none} .btns button.primary{min-width:0}
+  .seg .lab{display:none} .track{padding-top:12px}
+  .pos{padding-top:4px;font-size:12px} .idle{padding-top:4px;font-size:12px}
+  .title{padding-block:32px 20px}
+  .intro{min-height:auto;padding-block:24px 8px}
+  .act,.act#a5{min-height:auto;padding-block:48px 16px}
+  .est{grid-template-columns:1fr}
+  .measured{display:block;padding-block:56px 16px} .measured .body{margin-top:16px}
+}
+@media (max-width:480px){ .mark span{display:none} .acts a{padding:0 4px} .title h1{font-size:26px} }
+@media (prefers-reduced-motion: reduce){ *{scroll-behavior:auto!important} }
+</style>
+</head>
+<body>
+<div class="langsw" role="navigation" aria-label="Language"><a href="../" hreflang="zh-CN" lang="zh-CN">中文</a><span aria-hidden="true">/</span><b>English</b></div>
+<nav class="bar" aria-label="Six acts">
+  <div class="barin">
+    <a class="mark" href="#top">AGRI-JAX <span>At a glance</span></a>
+    <ol class="acts">
+      <li><a href="#a1" data-nav="1"><b>1</b><span>Two modes</span><i></i></a></li>
+      <li><a href="#a2" data-nav="2"><b>2</b><span>Why it works</span><i></i></a></li>
+      <li><a href="#a3" data-nav="3"><b>3</b><span>One column</span><i></i></a></li>
+      <li><a href="#a4" data-nav="4"><b>4</b><span>Gradients</span><i></i></a></li>
+      <li><a href="#a5" data-nav="5"><b>5</b><span>Hardware</span><i></i></a></li>
+      <li><a href="#a6" data-nav="6"><b>6</b><span>Measured</span><i></i></a></li>
+    </ol>
+  </div>
+</nav>
+
+<div class="wrap" id="top">
+<header class="title">
+  <div class="kicker">AGRI-JAX · FIELD-SCALE CROP–SOIL MODELS</div>
+  <h1><span>A hundred thousand fields, advanced together, one day at a time;</span> <span>and then differentiated.</span></h1>
+</header>
+
+<div class="story">
+<div class="sceneCol" id="sceneCol">
+  <div class="figcap"><div class="fn"><b id="figNo">Fig. 0</b><span id="figName"></span><em id="figFrame"></em></div><div class="tags" id="figTags"></div></div>
+  <div class="scene" id="scene"><canvas id="cv" width="1000" height="640"></canvas><svg id="ov" viewBox="0 0 1000 640" aria-hidden="true"></svg></div>
+  <div class="ctl" id="stepper">
+    <div class="btns">
+      <button type="button" data-k="prev" aria-label="Previous frame">◀<span class="w"> Previous</span></button><button type="button" data-k="play" class="primary" id="playBtn">▶<span class="w"> Play</span></button><button type="button" data-k="next" aria-label="Next frame"><span class="w">Next </span>▶</button><button type="button" data-k="replay" aria-label="Replay">↻<span class="w"> Replay</span></button>
+    </div>
+    <div class="track" id="track"></div>
+    <div class="pos" id="pos"></div>
+  </div>
+  <div class="idle" id="idle" hidden></div>
+</div>
+
+<div class="text">
+  <section class="intro" id="a0">
+    <p class="lead">Field-scale crop–soil models, written in a differentiable, batchable form. The page has a single figure: a matrix whose rows are fields and whose columns are days.</p>
+    <table class="spec">
+      <tr><td class="k">10⁵ nine-year simulations</td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">82 s</span></td><td class="g"><span class="tag real">measured</span></td></tr>
+      <tr><td class="k">Full-parameter gradient, per 10⁴ samples</td><td class="v"><span class="v2">56 s</span></td><td class="g"><span class="tag real">measured</span></td></tr>
+      <tr><td class="k">Potential evaporation vs. reference model</td><td class="v">0.02 <small>mm/d</small></td><td class="g"><span class="tag real">measured</span></td></tr>
+    </table>
+    <p class="hint">Scroll down and the matrix changes as you read; or step through the frames with the buttons below the figure.</p>
+  </section>
+
+  <section class="act" id="a1" data-act="1">
+    <div class="meta"><b>01</b><span>Two modes</span><span class="n">4 frames</span></div>
+    <h2>A hundred thousand fields: Fortran runs them one by one, JAX moves them all forward one day at a time</h2>
+    <ol class="steps">
+      <li class="step" data-f="0"><span class="i">1.1</span><span>Row by row: each core runs one field at a time, 32 cores work in parallel, and screen time equals real time</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">1.2</span><span>Fast-forward to completion: 20.8 hours of real time, with 80 GB and 9.9 million files piled up on disk</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">1.3</span><span>Change the order: a whole column lights up at once and every field advances one day per step; 8 GB of GPU memory, zero bytes written to disk</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">1.4</span><span>The column sweeps to the end: 3287 days in 82 seconds of real time</span><i class="pg"></i></li>
+    </ol>
+    <p class="note">The same matrix at the same scale; only the traversal order differs. Clock, disk and GPU memory are measured; cell colors are illustrative.</p>
+  </section>
+
+  <section class="act" id="a2" data-act="2">
+    <div class="meta"><b>02</b><span>Why it works</span><span class="n">4 frames</span></div>
+    <h2>Sequential order runs only along the rows, so the computation can advance column by column</h2>
+    <ol class="steps">
+      <li class="step" data-f="0"><span class="i">2.1</span><span>Each cell depends only on the cell to its left in the same row: today depends only on its own yesterday</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">2.2</span><span>There are no arrows between rows: the water of one field never enters the equations of another</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">2.3</span><span>So the two loops can be swapped: the outer loop runs over days, the inner applies the same operation to every row</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">2.4</span><span>One column = one instruction over a hundred thousand numbers, exactly the shape a GPU is built for</span><i class="pg"></i></li>
+    </ol>
+    <p class="note">Fortran cannot do this not because it is slow, but because global state and file-by-file I/O bind each run to a single process, so the loop order cannot be changed.</p>
+  </section>
+
+  <section class="act" id="a3" data-act="3">
+    <div class="meta"><b>03</b><span>What happens in one column</span><span class="n">5 frames</span></div>
+    <h2>One day = a relay of seven processes; a process is only equations, and what it reads and writes is stated in its signature</h2>
+    <ol class="steps">
+      <li class="step" data-f="0"><span class="i">3.1</span><span>Extract one column: weather, potential evapotranspiration, light interception, crop, water competition, soil water and diagnostics run in sequence; the right side shows the fields each one reads and writes</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">3.2</span><span>Zoom in on “Crop”: leaf-area growth = leaf appearance rate × thermal time × water stress, occurring only during vegetative growth</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">3.3</span><span>Rule one, pure functions: a shared cell written by two fields at once is a collision, so the state holds one row per field</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">3.4</span><span>Rule two, branch with where: on the same day the fields are at different growth stages, so both branches are computed and each row picks its own</span><i class="pg"></i></li>
+      <li class="step" data-f="4"><span class="i">3.5</span><span>Rule three, no loops: all 37 soil layers are computed in one pass; the loops over time and samples are left to the runtime</span><i class="pg"></i></li>
+    </ol>
+  </section>
+
+  <section class="act" id="a4" data-act="4">
+    <div class="meta"><b>04</b><span>Gradients</span><span class="n">7 frames</span></div>
+    <h2>Walk the same path once in reverse, and obtain the derivatives with respect to every parameter and every input in a single pass</h2>
+    <ol class="steps">
+      <li class="step" data-f="0"><span class="i">4.1</span><span>Forward: the column sweeps from left to right, and the state of every day is kept</span><i class="pg"></i></li>
+      <li class="step" data-f="1"><span class="i">4.2</span><span>Reverse: sweep back from the last day; at every column, each parameter’s derivative accumulates a little</span><i class="pg"></i></li>
+      <li class="step" data-f="2"><span class="i">4.3</span><span>Cost: finite differences need 31 forward runs; reverse mode needs only 1 forward plus 1 reverse pass</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">4.4</span><span>Identifiability: the flat directions of the loss valley are parameter combinations the data cannot separate, visible at a glance</span><i class="pg"></i></li>
+      <li class="step" data-f="4"><span class="i">4.5</span><span>Attribution: differentiate with respect to each day’s rainfall to see which rain decides the yield; the peak falls at silking</span><i class="pg"></i></li>
+      <li class="step" data-f="5"><span class="i">4.6</span><span>Many chains: the rows change from “fields” to “chains”; a thousand short chains take the same time as four long ones</span><i class="pg"></i></li>
+      <li class="step" data-f="6"><span class="i">4.7</span><span>Embedded network: replace stomatal resistance with a small network; the gradient passes through the process model into its weights</span><i class="pg"></i></li>
+    </ol>
+    <p class="note">The number of samples required by sampling-based calibration grows exponentially with dimension; for gradient methods it hardly grows at all. Parameter bars, loss valley and attribution curve are illustrative.</p>
+  </section>
+
+  <section class="act" id="a5" data-act="5">
+    <div class="meta"><b>05</b><span>Your hardware</span><span class="n">estimator</span></div>
+    <h2>One GPU in your lab is enough</h2>
+    <div class="est">
+      <div class="full"><label for="n"><span>Number of simulations</span><output id="nLab">100,000</output></label><input type="range" id="n" min="3" max="6" step="0.05" value="5"></div>
+      <div><label for="gpu">GPU</label><select id="gpu"><option value="h100">H100 80 GB</option><option value="a100">A100 40 GB</option><option value="4090">RTX 4090</option><option value="4060">RTX 4060 Laptop</option></select></div>
+      <div><label for="cores">Fortran cores</label><select id="cores"><option value="1">1 core</option><option value="32" selected>32-core workstation</option><option value="96">96 cores</option><option value="192">192-core node</option></select></div>
+      <div><label for="cfg">Numerical scheme</label><select id="cfg"><option value="24x3">24 sub-steps × 3 iterations</option><option value="12x2" selected>12 × 2</option><option value="6x1">6 × 1</option></select></div>
+      <div><label for="prec">Precision</label><select id="prec"><option value="f64">float64</option><option value="f32">float32</option></select></div>
+    </div>
+    <p class="result" id="ratio"></p>
+    <p class="note">Other GPUs are extrapolated from the H100 measurements by memory bandwidth; Fortran is 24 s per run divided by the number of cores; the full model is already discounted by a factor of 3.</p>
+  </section>
+</div>
+</div>
+
+<section class="measured" id="a6">
+  <div class="head">
+    <div class="meta"><b>06</b><span>Measurements and sources</span><span class="n">9 rows</span></div>
+    <h2>Every number marked measured can be rerun</h2>
+    <p class="note">Computational skeleton = a benchmark program with the same computational shape as the target model; it is not the final model.</p>
+  </div>
+  <div class="body">
+  <div class="tblwrap"><table class="ledger">
+    <thead><tr><th>Metric</th><th class="num">Value</th><th>Conditions</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>10⁵ nine-year simulations, 24 sub-steps × 3 iterations, float64</td><td class="num">243 s</td><td class="c">1 × H100, computational skeleton</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>Same, 12 × 2</td><td class="num">82 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>Same, float32, 24 × 3</td><td class="num">101 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>10⁶ simulations, 12 × 2</td><td class="num">14 min</td><td class="c">5 batches × 2×10⁵, single GPU</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>One full-parameter gradient, 10⁴ samples, 12 × 2</td><td class="num">56 s</td><td class="c">Daily checkpoints</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>Fortran RZWQM2, one nine-year simulation</td><td class="num">24 s</td><td class="c">One cluster core; 10⁵ runs take about 10 h wall clock and 80 GB of output</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>ASCE reference ET vs. RZWQM2</td><td class="num">5×10⁻⁶ mm/d</td><td class="c">CA-TPA 2015, daily</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>S-W potential evaporation / transpiration vs. RZWQM2</td><td class="num">0.02 / 0.17 mm/d</td><td class="c">Growing-season RMSE, uncalibrated</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>Full model (Richards + CERES-Maize)</td><td class="num">—</td><td class="c">In development; the existing modules are validated first</td><td><span class="tag">pending</span></td></tr>
+    </tbody>
+  </table></div>
+  <footer>Computational skeleton: 37-node implicit Richards, S-W-type PET, CERES-type daily crop step, 3287 days. Code <a href="https://github.com/juksentang/agri-jax">github.com/juksentang/agri-jax</a> · <a href="https://pypi.org/project/agri-jax/">pypi.org/project/agri-jax</a> · Apache-2.0. CERES-Maize is taken from DSSAT-CSM (BSD-3); soil water and potential evapotranspiration are implemented from the equations of Ahuja et al. 2000, Farahani &amp; Ahuja 1996 and Shuttleworth &amp; Wallace 1985, and validated against the outputs of RZWQM2 and DSSAT-CSM.</footer>
+  </div>
+</section>
+</div>
+
+<script>
+(function(){
+'use strict';
+/* ---------- user-visible strings: every label drawn by this script lives here ---------- */
+const LOCALE='en-US';
+const TX={
+  ui:{ fig:'Fig. ', real:'measured', ill:'illustrative', ext:'extrapolated', frameAria:(i,t)=>`Frame ${i}: ${t}`,
+       play:'Play', pause:'Pause', axisRight:'rows = fields · columns = days', colsDays:'columns = days' },
+  time:{ s:x=>x+' s', min:x=>x+' min', h:x=>x+' h', d:x=>x+' days', wk:x=>x+' weeks',
+         ticks:['1 s','1 min','1 h','1 day','1 week'] },
+  a0:{ name:'Start', frames:['Fortran fills by row'], ill:'cells', idle:'Scroll down to enter Act 1; this view loops.',
+       head:'Fortran · one core runs one field at a time', done:n=>n+' fields completed', scale:'one row ≈ 2,500 fields, one cell ≈ 55 days' },
+  a1:{ name:'Two modes', frames:['Row by row','Fast-forward','Whole column','Done'], real:'clock, disk, GPU memory', ill:'cell colors',
+       fHead:'Fortran · row-wise: 32 cores, one field each', fClock:'Wall time (of 20.8 h)', speed:x=>'screen speed-up ×'+x,
+       fDone:'Completed (of 100,000)', cpu:'CPU', cores:'32 cores', perCore:'one field per core',
+       fDisk:'Disk written (of 80 GB)', files:n=>n+' files',
+       jHead:'Agri-JAX · column-wise: all fields, same day', jClock:'Wall time (of 82 s)', jDay:'Simulated day (of 3287)',
+       perStep:n=>'screen: +'+n+' days per step', allDone:'all complete', mem:'GPU memory', memSub:'of 80 GB; constant',
+       jDisk:'Disk written', fewMB:'a few MB', endOnce:'written once at the end', noDisk:'nothing written to disk' },
+  a2:{ name:'Why it works', frames:['Row dependence','Independent rows','Loop swap','One instruction'], ill:'cells, arrows',
+       head:'Close-up: 8 fields × 12 days', f0:'Arrows stay in the row: today needs only yesterday', f1:'No such arrow runs between rows',
+       fTitle:'Fortran: outer loop over fields', fCode:['for field in 100,000 fields:','    for day in 3287 days:','        state = daily_step(state)'],
+       swap:'swap', jTitle:'Agri-JAX: outer loop over days', jCode:['for day in 3287 days:','    state = daily_step(all_states)'],
+       jNote:'Inner loop becomes one array operation', dayT:'Day t', f3:'One column = one instruction over 100,000 numbers' },
+  a3:{ name:'Inside one column', frames:['Seven processes','Leaf area','Rule 1','Rule 2','Rule 3'], ill:'read/write relations, equations, layer count',
+       procs:[['Weather','radiation · GDD'],['Potential ET','S-W'],['Interception','Beer'],['Crop','phenology · growth'],['Competition','water, multi-crop'],['Soil water','Richards'],['Diagnostics','ET · drainage']],
+       oneDay:'One day', f0Title:'One day = seven processes in sequence', fields:['Weather','PET','Int. light','LAI','θ by layer','Roots','Yield'],
+       read:'read', write:'write',
+       f1Title:'Zoom on “Crop”: leaf-area growth', ins:[['Yesterday’s state','LAI · stage · θ'],['Cultivar parameters','leaf appearance rate'],['Today’s weather','thermal time (GDD)']],
+       growth:'Leaf-area growth', eq1:'ΔLAI = appearance rate', eq2:'× GDD × water stress', vegOnly:'vegetative stage only',
+       todays:'Today’s', rw:'Reads 3 · writes 1', sig:'Signature: daily_step(yesterday, params, weather) → today',
+       f2Title:'Rule 1: pure functions, state passed in and out explicitly', shared:'Shared cells (COMMON block)', clash:'Collision: who wrote this?',
+       vars:'θ · h · LAI · …', fieldWrites:x=>'Field '+x+' writes', ownRow:'→ one row per field, fully independent', field:n=>'Field '+n, rowVars:'θ · h · LAI · stage',
+       f3Title:'Rule 2: branch with where, not if', stages:['Emergence','Vegetative','Silking','Vegetative','Grain fill','Vegetative'], veg:'Vegetative',
+       sameDay:'Same day, six fields', ifCode:'if stage == vegetative:', onePath:'Only one path for all rows', differ:'100,000 fields differ in stage',
+       whereCode:'where(vegetative, growth, 0)', grow:'growth', both:'Compute both, pick per row', stillOne:'Still one array operation',
+       f4Title:'Rule 3: no loops; the runtime owns the loops', fLoop:'Fortran: loop over layers', jCol:'Agri-JAX: whole column at once', layer:n=>'Layer '+n,
+       fLayers:'37 layers, one after another', jLayers:'37 layers × all fields, one operation', eachCol:'Each thin column = one field' },
+  a4:{ name:'Gradients', frames:['Forward','Reverse','Cost','Identifiability','Attribution','Chains','Network'], real:'reverse/forward time ratio, 56 s', ill:'parameter bars, loss valley, attribution curve',
+       albedo:'α',
+       netTitle:'Embedded network: stomatal resistance replaced by a small network', procs:['Weather','PET','Stomata','Light','Crop','Uptake','Soil water','Output'], smallNet:'small net',
+       fwdArrow:'forward →', loss:'loss = (ET_sim − ET_tower)²', backflow:'← gradient flows back along the chain',
+       through:'Flows through the processes into network weights and process parameters', rest:'The network replaces one process; the rest remain equations',
+       headRain:'Daily rainfall (input)', headChains:'rows = Markov chains', headFields:'rows = fields / parameter sets',
+       fwdStore:'Forward → daily states stored', reverse:'← reverse',
+       dRain:'∂yield / ∂rain (day t)', sowing:'Sowing', silking:'Silking', maturity:'Maturity', peak:'Peak: rain at silking sets yield',
+       fd:'Finite diff.', fdNote:'30 parameters perturbed once each + 1 baseline = 31 forward runs', rev:'Reverse mode',
+       revPair:'1 forward + 1 reverse', revNote:'Reverse costs about 6.5 forward runs (measured); total ≈ 7.5 vs 31', grad56:'One full-parameter gradient, 10⁴ samples: 56 s (measured)',
+       perCell:'Each cell = one forward run',
+       ch4:'4 chains', ch1000:'1000 chains', wall:'Wall time / step', same:'identical',
+       chRows:'Chains are matrix rows; from 4 to 1000 rows, each step is still one column operation', shortLong:'So many short chains can replace a few long ones',
+       notYet:'Parameter derivatives: not started yet', dPar:'∂yield / ∂parameter',
+       valley:'Loss valley (λ, K_sat plane)', grey:'Grey: flat, λ and K_sat co-vary:', green:'unidentifiable. Green: steep, constrained' },
+  a5:{ name:'Your hardware', frames:['Estimate'], ext:'from H100 measurements via memory bandwidth; 3× full-model factor applied',
+       idle:'Drag the slider and change the options on the left; both time bars update.',
+       title:n=>n+' nine-year simulations, wall time required (log scale)', faster:r=>`about ${r}× faster`,
+       under:'Below 10⁴ runs the GPU is under-utilized and the ratio drops; above, memory bandwidth limits',
+       result:(n,f,j,r)=>`${n} nine-year simulations: Fortran ${f}, Agri-JAX ${j}, about ${r}× faster.` },
+};
+const frames=(names,durs)=>names.map((text,i)=>({dur:durs[i],text}));
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d'),ov=$('ov');
+const W=1000,H=640;
+const ease=x=>x<=0?0:x>=1?1:1-Math.pow(1-x,3);
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const fmt=n=>Math.round(n).toLocaleString(LOCALE);
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+/* ---------- SVG buffer ---------- */
+let S=[];
+const SIZE={xs:15,s:17,l:26,xl:32};
+const sizeOf=c=>{ for(const k of ['xs','s','l','xl']) if((' '+c+' ').includes(' '+k+' ')) return SIZE[k]; return 20; };
+const textW=(s,c='')=>{ const z=sizeOf(c),mono=/\bmono\b/.test(c); let w=0; for(const ch of String(s)) w+= /[　-鿿＀-￯]/.test(ch)? z : z*(mono?0.6:0.56); return w; };
+const T=(s,x,y,o={})=>S.push(`<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="${o.c||''}" text-anchor="${o.a==='center'?'middle':o.a==='right'?'end':'start'}">${esc(s)}</text>`);
+const R=(x,y,w,h,fill,o={})=>S.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(0,w).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="${o.rx||0}" fill="${fill}" stroke="${o.stroke||'none'}" stroke-width="${o.sw||1}" opacity="${o.op??1}" ${o.dash?`stroke-dasharray="${o.dash}"`:''}/>`);
+const L=(x1,y1,x2,y2,stroke,o={})=>S.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${stroke}" stroke-width="${o.sw||1.5}" ${o.dash?`stroke-dasharray="${o.dash}"`:''} opacity="${o.op??1}" stroke-linecap="round"/>`);
+const P=(d,stroke,o={})=>S.push(`<path d="${d}" fill="${o.fill||'none'}" stroke="${stroke}" stroke-width="${o.sw||2}" opacity="${o.op??1}" ${o.dash?`stroke-dasharray="${o.dash}"`:''} stroke-linecap="round" stroke-linejoin="round"/>`);
+const ARROW=(x1,y1,x2,y2,stroke,p,o={})=>{ p=clamp(p,0,1); if(p<=0) return; const xe=x1+(x2-x1)*p,ye=y1+(y2-y1)*p; L(x1,y1,xe,ye,stroke,{sw:o.sw||2}); if(p>=1){ const a=Math.atan2(y2-y1,x2-x1),k=o.head||8; P(`M${x2} ${y2} L${x2-k*Math.cos(a-.45)} ${y2-k*Math.sin(a-.45)} L${x2-k*Math.cos(a+.45)} ${y2-k*Math.sin(a+.45)} Z`,stroke,{fill:stroke,sw:1}); } };
+/* label on a panel-coloured plate, so it never sits on top of a line */
+const TP=(s,x,y,o={})=>{ const w=textW(s,o.c||''),z=sizeOf(o.c||''); const x0=o.a==='center'?x-w/2:o.a==='right'?x-w:x; R(x0-6,y-z*0.95,w+12,z*1.3,C().scene); T(s,x,y,o); };
+const BOX=(x,y,w,h,label,stroke,fill,o={})=>{ R(x,y,w,h,fill,{rx:2,stroke,sw:o.sw||2}); if(o.sub){ T(label,x+w/2,y+h/2-3,{a:'center',c:'ink b s'}); T(o.sub,x+w/2,y+h/2+17,{a:'center',c:'xs'}); } else T(label,x+w/2,y+h/2+6,{a:'center',c:'ink b s'}); };
+let COL=null; const C=()=>COL||(COL={rust:css('--rust'),teal:css('--teal'),vio:css('--violet'),ink:css('--ink'),muted:css('--muted'),line:css('--rule'),neu:css('--neutral'),cell:css('--cell'),rs:css('--rust-soft'),ts:css('--teal-soft'),vs:css('--violet-soft'),scene:css('--panel')});
+/* ---------- matrix (canvas) ---------- */
+const ROWS=40,COLS=60; const M={x:60,y:64,w:880,h:410}; const cw=M.w/COLS,ch=M.h/ROWS;
+function grid(fillFn,alpha=1,G=M){ const w=G.w/COLS,h=G.h/ROWS; ctx.globalAlpha=alpha; for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){ const f=fillFn(r,c); if(!f) continue; ctx.fillStyle=f; ctx.fillRect(G.x+c*w+0.7,G.y+r*h+0.7,w-1.4,h-1.4);} ctx.globalAlpha=1; }
+function head(left,cls,right){ T(left,M.x,40,{c:cls||'ink b'}); T(right||TX.ui.axisRight,M.x+M.w,40,{a:'right',c:'s'}); }
+function readouts(items){ const y0=M.y+M.h+46; items.forEach((it,i)=>{ const x=M.x+i*225; T(it[0],x,y0,{c:'s'}); T(it[1],x,y0+38,{c:'ink b xl mono'}); if(it[2]) T(it[2],x,y0+64,{c:'xs'}); }); }
+/* ---------- constants (measured, see docs/en/08) ---------- */
+const FORT_H=20.8, JAX_S=82, DAYS=3287, N=100000, FILES=99*N, GB=80;
+const seeds=new Float32Array(ROWS*COLS); { let a=7; for(let i=0;i<seeds.length;i++){ a=(a*1103515245+12345)&0x7fffffff; seeds[i]=0.6+0.4*(a/0x7fffffff);} }
+function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
+function mix(a,b,t){ const A=hexToRgb(a),B=hexToRgb(b); return `rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`; }
+const laiColor=(c,q,base,strong)=>{ const doy=(c/COLS*DAYS)%365, s=Math.max(0,Math.sin(Math.PI*clamp((doy-125)/150,0,1))); return mix(base,strong,0.25+0.5*s*q); };
+
+const X0=TX.a0, X1=TX.a1, X2=TX.a2, X3=TX.a3, X4=TX.a4, X5=TX.a5;
+const ACTS=[
+/* ===== 0 opening: Fortran fills row by row, looping ===== */
+{ name:X0.name, frames:frames(X0.frames,[60]), real:'', ill:X0.ill, idle:X0.idle,
+  draw(f,p){ const c=C(); const filled=p*0.35*ROWS*COLS; head(X0.head,'r b');
+    grid((r,cc)=>{ const k=r*COLS+cc; return k<filled? c.rust : c.cell; });
+    T(X0.done(fmt(Math.floor(filled/COLS*N/ROWS/100)*100)),M.x,M.y+M.h+46,{c:'ink m mono'});
+    T(X0.scale,M.x+M.w,M.y+M.h+46,{a:'right',c:'s'}); } },
+/* ===== 1 two ways through the same matrix ===== */
+{ name:X1.name, frames:frames(X1.frames,[6,6,7,1]), real:X1.real, ill:X1.ill,
+  draw(f,p){ const c=C(); const cores=32;
+    if(f<=1){
+      head(X1.fHead,'r b');
+      const q=f===0? ease(p)*0.12 : 0.12+ease(p)*0.88; const filledCells=q*ROWS*COLS;
+      grid((r,cc)=>{ const block=Math.floor(r/cores); const rowsIn=Math.min(cores,ROWS-block*cores); const blockStart=block*cores*COLS; const k=clamp((filledCells-blockStart)/rowsIn,0,COLS); const cursor=cc===Math.floor(k)&&k<COLS&&k>0; return cursor? c.ink : cc<k? c.rust : c.cell; });
+      const hours=q*FORT_H; const speed=f===0? 1+ease(p)*29 : 30+ease(p)*260;
+      readouts([[X1.fClock,hours<1?Math.round(hours*60)+' min':hours.toFixed(1)+' h',X1.speed(Math.round(f===0&&p<0.05?1:speed))],[X1.fDone,fmt(q*N)],[X1.cpu,X1.cores,X1.perCore],[X1.fDisk,(q*GB).toFixed(1)+' GB',X1.files(fmt(q*FILES))]]);
+    } else {
+      head(X1.jHead,'t b');
+      const BLOCK=3; const cols=f===2? Math.floor(ease(p)*COLS/BLOCK)*BLOCK : COLS; const day=Math.round(cols/COLS*DAYS); const q=cols/COLS;
+      grid((r,cc)=> cc<cols? laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal) : c.cell);
+      if(cols<COLS){ R(M.x+cols*cw,M.y-4,BLOCK*cw,M.h+8,'none',{stroke:c.ink,sw:2}); }
+      readouts([[X1.jClock,(q*JAX_S).toFixed(0)+' s',X1.speed(12)],[X1.jDay,String(day),f===2?X1.perStep(BLOCK/COLS*DAYS|0):X1.allDone],[X1.mem,'8 GB',X1.memSub],[X1.jDisk,f===3?X1.fewMB:'0 GB',f===3?X1.endOnce:X1.noDisk]]);
+    } } },
+/* ===== 2 why the loop order can be swapped ===== */
+{ name:X2.name, frames:frames(X2.frames,[3,3,3,1.5]), real:'', ill:X2.ill,
+  draw(f,p){ const c=C(); const r=8,n=12; const gx=60,gy=64,gw=880,gh=f===2?280:380; const w=gw/n,h=gh/r; const q=ease(p);
+    head(X2.head,'ink b');
+    for(let i=0;i<r;i++) for(let j=0;j<n;j++){ const hot=f===3&&j===5; R(gx+j*w+4,gy+i*h+4,w-8,h-8,hot?c.teal:c.cell,{rx:2}); }
+    const show=f===0? q*n : n; for(let i=0;i<r;i++) for(let j=1;j<Math.min(n,show+1);j++){ const pp= f===0? clamp(show-(j-1),0,1):1; ARROW(gx+(j-1)*w+w/2+12,gy+i*h+h/2,gx+j*w+w/2-12,gy+i*h+h/2,f===3&&(j===5||j===6)?c.ink:c.teal,pp,{sw:2,head:7}); }
+    const yb=gy+gh+52;
+    if(f===0) T(X2.f0,gx,yb,{c:'t b l'});
+    if(f===1){ const x1=gx+3*w+w/2,y1=gy+2*h+h/2,x2=gx+6*w+w/2,y2=gy+5*h+h/2; ARROW(x1,y1,x2,y2,c.rust,clamp(q*2,0,1),{sw:3,head:10});
+      if(q>0.5){ const mx=(x1+x2)/2,my=(y1+y2)/2; L(mx-14,my-14,mx+14,my+14,c.rust,{sw:4}); L(mx-14,my+14,mx+14,my-14,c.rust,{sw:4}); }
+      T(X2.f1,gx,yb,{c:'r b l'}); }
+    if(f===2){ const y0=gy+gh+40; const lx=gx, rx=gx+470;
+      T(X2.fTitle,lx,y0,{c:'r b s'}); X2.fCode.forEach((s,i)=>T(s,lx,y0+36+i*32,{c:'mono ink'}));
+      const k=clamp(q*2-0.6,0,1); if(k>0){ ARROW(rx-86,y0+68,rx-22,y0+68,c.ink,k,{sw:2.5,head:9}); if(k>=1) T(X2.swap,rx-54,y0+54,{a:'center',c:'s ink m'}); }
+      if(q>0.55){ T(X2.jTitle,rx,y0,{c:'t b s'}); T(X2.jCode[0],rx,y0+36,{c:'mono ink'}); T(X2.jCode[1],rx,y0+68,{c:'mono ink'}); T(X2.jNote,rx,y0+108,{c:'t s b'}); } }
+    if(f===3){ T(X2.dayT,gx+5*w+w/2,gy+gh+26,{a:'center',c:'t s b'}); T(X2.f3,gx,yb+22,{c:'t b l'}); }
+  } },
+/* ===== 3 inside one column ===== */
+{ name:X3.name, frames:frames(X3.frames,[5,3,3,3.5,3]), real:'', ill:X3.ill,
+  draw(f,p){ const c=C(); const q=ease(p);
+    const procs=X3.procs;
+    const cx=30,cwid=170,bh=50,ry=i=>86+i*76;
+    const chain=(hi)=>{ procs.forEach((pr,i)=>{ const y=ry(i); const on= hi===undefined? q*7>i : i===hi; BOX(cx,y,cwid,bh,pr[0],on?c.teal:c.line,on?c.ts:'none',{sub:pr[1]}); if(i<6) ARROW(cx+cwid/2,y+bh+2,cx+cwid/2,ry(i+1)-2,c.muted,hi===undefined?clamp(q*7-i-0.5,0,1):1,{sw:1.5,head:6}); }); };
+    const zoom=(hi,title)=>{ chain(hi); const y=ry(hi)+bh/2; L(cx+cwid,y,250,y,c.teal,{sw:2}); R(250,64,730,560,'none',{rx:2,stroke:c.teal,sw:1.5,op:0.7}); T(X3.oneDay,cx+cwid/2,40,{a:'center',c:'s'}); T(title,270,40,{c:'ink b'}); };
+    if(f===0){ chain(); T(X3.f0Title,cx,40,{c:'ink b'});
+      const fields=X3.fields; const x0=250,x1=990,colw=(x1-x0)/fields.length;
+      /* legend */ S.push(`<circle cx="${x1-150}" cy="34" r="8" fill="none" stroke="${c.ink}" stroke-width="2"/>`); T(X3.read,x1-134,40,{c:'s ink'}); R(x1-90,26,16,16,c.teal); T(X3.write,x1-66,40,{c:'s ink'});
+      fields.forEach((fl,j)=>T(fl,x0+colw*j+colw/2,74,{a:'center',c:'s ink m'}));
+      L(x0,82,x1,82,c.ink,{sw:1.5});
+      const RW=[{w:[0]},{r:[0,3],w:[1]},{r:[0,3],w:[2]},{r:[0,2,4],w:[3,5,6]},{r:[1,4,5],w:[4]},{r:[0,1],w:[4]},{r:[1,4,6]}];
+      procs.forEach((pr,i)=>{ const yc=ry(i)+bh/2; L(x0,ry(i)+bh+13,x1,ry(i)+bh+13,c.line,{sw:1}); const on=q*7>i+0.3; if(!on) return;
+        (RW[i].r||[]).forEach(j=>S.push(`<circle cx="${x0+colw*j+colw/2}" cy="${yc}" r="9" fill="none" stroke="${c.ink}" stroke-width="2"/>`));
+        (RW[i].w||[]).forEach(j=>R(x0+colw*j+colw/2-10,yc-10,20,20,c.teal)); });
+      return; }
+    if(f===1){ zoom(3,X3.f1Title);
+      const ins=X3.ins;
+      ins.forEach((it,i)=>{ const y=108+i*140; BOX(280,y,210,76,it[0],c.line,c.scene,{sub:it[1]}); ARROW(490,y+38,556,338,c.muted,clamp(q*3-i*0.6,0,1),{sw:2}); });
+      R(560,250,250,176,c.ts,{rx:2,stroke:c.teal,sw:2}); T(X3.growth,685,284,{a:'center',c:'ink b'}); T(X3.eq1,685,326,{a:'center',c:'ink s'}); T(X3.eq2,685,352,{a:'center',c:'ink s'}); T(X3.vegOnly,685,400,{a:'center',c:'xs'});
+      ARROW(810,338,850,338,c.teal,clamp(q*3-2,0,1),{sw:2}); BOX(850,300,112,76,X3.todays,c.teal,c.scene,{sub:'LAI'});
+      T(X3.rw,615,520,{a:'center',c:'ink b l'}); T(X3.sig,615,560,{a:'center',c:'s'}); return; }
+    if(f===2){ zoom(3,X3.f2Title); const hit=p>0.35, split=p>0.7;
+      if(!split){ T(X3.shared,300,112,{c:'r b s'}); R(300,130,560,72,hit?c.rust:c.cell,{rx:2}); T(hit?X3.clash:X3.vars,580,176,{a:'center',c:hit?'b':'ink'}); if(hit) S.push(`<text x="580" y="176" class="b" text-anchor="middle" style="fill:${c.scene}">${esc(X3.clash)}</text>`);
+        ARROW(380,290,470,208,c.rust,clamp(q*3,0,1),{sw:2.5}); T(X3.fieldWrites('A'),300,320,{c:'r m'}); ARROW(780,290,690,208,c.rust,clamp(q*3-0.4,0,1),{sw:2.5}); T(X3.fieldWrites('B'),860,320,{a:'right',c:'r m'}); }
+      else { T(X3.ownRow,300,112,{c:'t b s'}); for(let i=0;i<6;i++){ R(300,130+i*52,560,40,c.ts,{rx:2}); T(X3.field(i+1),318,157+i*52,{c:'ink s m'}); T(X3.rowVars,620,157+i*52,{a:'center',c:'s'}); } }
+      return; }
+    if(f===3){ zoom(3,X3.f3Title); const st=X3.stages; T(X3.sameDay,280,112,{c:'s'});
+      st.forEach((s,i)=>{ const y=128+i*56; R(280,y,280,42,c.cell,{rx:2}); T(X3.field(i+1),296,y+28,{c:'ink s m'}); T(s,400,y+28,{c:s===X3.veg?'t s b':'s'}); });
+      if(q<0.45){ T(X3.ifCode,600,112,{c:'r mono s'}); T(X3.onePath,600,160,{c:'r b'}); T(X3.differ,600,194,{c:'r s'}); }
+      else { T(X3.whereCode,600,112,{c:'t mono s'}); const sel=Math.floor((q-0.45)/0.5*6); st.forEach((s,i)=>{ if(i<sel){ const y=128+i*56; const g=s===X3.veg; R(600,y+6,150,30,g?c.teal:c.cell,{rx:2}); if(g) S.push(`<text x="675" y="${y+27}" class="s b" text-anchor="middle" style="fill:${c.scene}">${esc(X3.grow)}</text>`); else T('0',675,y+27,{a:'center',c:'s ink mono'}); } });
+        if(sel>=6){ T(X3.both,600,500,{c:'t b'}); T(X3.stillOne,600,532,{c:'t s'}); } }
+      return; }
+    if(f===4){ zoom(5,X3.f4Title); const Ls=37, y0=130, lh=400/Ls;
+      T(X3.fLoop,280,108,{c:'r b s'}); T(X3.jCol,600,108,{c:'t b s'});
+      const done=Math.min(Ls,Math.floor(q*1.7*Ls)); for(let i=0;i<Ls;i++) R(280,y0+i*lh,200,lh-1.5,i<done?c.rust:c.cell);
+      if(done<Ls) T(X3.layer(done+1),492,y0+done*lh+lh,{c:'xs r mono'});
+      const cols=Math.min(24,Math.floor(q*3*24)); for(let j=0;j<24;j++) for(let i=0;i<Ls;i++) R(600+j*15,y0+i*lh,12,lh-1.5,j<cols?c.teal:c.cell);
+      T(X3.fLayers,280,y0+400+34,{c:'r s'}); T(X3.jLayers,600,y0+400+34,{c:cols>=24?'t s b':'s'}); T(X3.eachCol,600,y0+400+60,{c:'xs'});
+      return; }
+  } },
+/* ===== 4 the gradient ===== */
+{ name:X4.name, frames:frames(X4.frames,[3,5,2.5,2.5,4,4,3]), real:X4.real, ill:X4.ill,
+  draw(f,p){ const c=C(); const q=ease(p);
+    const Mg= f===4? {x:60,y:150,w:880,h:200} : {x:60,y:64,w:880,h:280}; const cw2=Mg.w/COLS,ch2=Mg.h/ROWS;
+    const PAR=['λ','h_b','K_sat','θ_r','θ_s',X4.albedo,'r_s','r_ss','P1','P5','G2','G3'], SENS=[0.9,0.35,0.7,0.15,0.5,0.25,0.6,0.2,0.8,0.55,0.95,0.45];
+    if(f===6){ T(X4.netTitle,60,40,{c:'ink b'});
+      const procs=X4.procs; const x0=36,w=104,gap=116,y=330;
+      procs.forEach((pr,i)=>{ const x=x0+i*gap; const net=i===2; BOX(x,y,w,60,pr,net?c.vio:c.line,net?c.vs:c.scene,{sub:net?X4.smallNet:undefined}); if(i<7) ARROW(x+w+1,y+30,x+gap-1,y+30,c.muted,1,{sw:1.5,head:6}); });
+      T(X4.fwdArrow,x0,y+96,{c:'s'});
+      const lx=x0+7*gap+w/2, bx=820; R(bx-170,110,340,60,c.vs,{rx:2,stroke:c.vio,sw:2}); T(X4.loss,bx,148,{a:'center',c:'ink s b'});
+      const reach=q*7; const toX=x0+2*gap+w/2; const xEnd=Math.max(toX,lx-reach*gap);
+      let d=`M${bx} 170 L${bx} 230 L${lx} 230 L${lx} 290 L${xEnd} 290`; if(reach>=5) d+=` L${toX} ${y}`; P(d,c.vio,{sw:3,dash:'8 6'});
+      for(let i=7;i>7-Math.min(Math.round(reach),5);i--){ const x=x0+i*gap; R(x,y,w,60,'none',{rx:2,stroke:c.vio,sw:2.5}); }
+      T(X4.backflow,lx-20,276,{a:'right',c:'v s b'});
+      if(reach>=5){ T(X4.through,x0,470,{c:'v b'}); T(X4.rest,x0,506,{c:'s'}); }
+      return; }
+    head(f===4?X4.headRain:f===5?X4.headChains:X4.headFields,f===4?'t b s':'ink b s',TX.ui.colsDays);
+    const fwd = f===0? q : 1; const bwd = f===1? q : (f>=2&&f!==5? 1 : 0); const bwd2 = f===5? q : 0; const back=Math.max(bwd,bwd2);
+    for(let r=0;r<ROWS;r++) for(let cc=0;cc<COLS;cc++){ const fx=cc/COLS; let col=c.cell; if(fx<fwd) col=laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal); if(back>0 && fx>=1-back) col=mix(c.vs,c.vio,0.35+0.5*seeds[r*COLS+cc]); ctx.fillStyle=col; ctx.fillRect(Mg.x+cc*cw2+0.7,Mg.y+r*ch2+0.7,cw2-1.4,ch2-1.4); }
+    const ys=Mg.y+Mg.h+28;
+    if(f===0&&fwd<1){ const xf=Mg.x+fwd*Mg.w; L(xf,Mg.y-6,xf,Mg.y+Mg.h+6,c.teal,{sw:3}); } if(f===0) T(X4.fwdStore,clamp(Mg.x+fwd*Mg.w,Mg.x+textW(X4.fwdStore,'s'),Mg.x+Mg.w),ys,{a:'right',c:'t s b'});
+    if((f===1||f===5)&&back<1){ const xb=Mg.x+(1-back)*Mg.w; L(xb,Mg.y-6,xb,Mg.y+Mg.h+6,c.vio,{sw:3}); }
+    if(f===1||f===5) T(X4.reverse,clamp(Mg.x+(1-back)*Mg.w,Mg.x,Mg.x+Mg.w-80),ys,{c:'v s b'});
+    if(f===4){ let a=3; const y0=Mg.y-14; for(let cc=0;cc<COLS;cc++){ a=(a*1103515245+12345)&0x7fffffff; const rr=(a/0x7fffffff); const hgt=rr<0.3? 8+rr*48:0; if(hgt) R(Mg.x+cc*cw2+2,y0-hgt,cw2-4,hgt,c.teal); } L(Mg.x,y0,Mg.x+Mg.w,y0,c.line);
+      const yc=Mg.y+Mg.h+210; let d=''; const from=1-q; for(let cc=COLS;cc>=0;cc--){ const fx=cc/COLS; if(fx<from) break; const v=Math.exp(-Math.pow((fx-0.58)/0.14,2))*140+Math.exp(-Math.pow((fx-0.25)/0.1,2))*30; const x=Mg.x+fx*Mg.w,y=yc-v; d+= d?` L${x} ${y}`:`M${x} ${y}`; }
+      L(Mg.x,yc,Mg.x+Mg.w,yc,c.line); if(d) P(d,c.vio,{sw:3}); const xb=Mg.x+(1-q)*Mg.w; if(q<1) L(xb,Mg.y-6,xb,yc,c.vio,{sw:2,dash:'5 5'});
+      T(X4.dRain,Mg.x,Mg.y+Mg.h+40,{c:'v b s'}); T(X4.sowing,Mg.x,yc+26,{c:'xs'}); T(X4.silking,Mg.x+0.58*Mg.w,yc+26,{a:'center',c:'xs ink'}); T(X4.maturity,Mg.x+Mg.w,yc+26,{a:'right',c:'xs'});
+      if(q>0.9) TP(X4.peak,Mg.x+0.58*Mg.w+90,yc-120,{c:'v s b'}); return; }
+    if(f===2){ /* cost in forward-run units */ const x0=210,u=22;
+      T(X4.fd,60,432,{c:'ink b'}); const k=Math.round(clamp(q*1.4,0,1)*31); for(let i=0;i<31;i++) R(x0+i*u,410,u-4,28,i<k?c.teal:c.cell,{rx:2});
+      T(X4.fdNote,x0,468,{c:'s'});
+      T(X4.rev,60,528,{c:'ink b'}); const k2=clamp(q*2-0.4,0,1); R(x0,506,u-4,28,c.teal,{rx:2}); R(x0+u,506,(6.5*u-4)*k2,28,c.vio,{rx:2});
+      if(k2>=1){ T(X4.revPair,x0+7.5*u+14,528,{c:'ink m s'}); T(X4.revNote,x0,566,{c:'s'}); T(X4.grad56,x0,598,{c:'v s b'}); }
+      T(X4.perCell,Mg.x+Mg.w,ys,{a:'right',c:'xs'}); return; }
+    if(f===5){ const x0=230,bw=520,k=clamp(q*1.3,0,1);
+      T(X4.ch4,60,432,{c:'ink b'}); R(x0,412,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,412,bw*(1-k),26,c.cell,{rx:2});
+      T(X4.ch1000,60,492,{c:'ink b'}); R(x0,472,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,472,bw*(1-k),26,c.cell,{rx:2});
+      T(X4.wall,x0+bw+16,450,{c:'s'}); T(X4.same,x0+bw+16,478,{c:'v s b'});
+      T(X4.chRows,60,560,{c:'s'}); T(X4.shortLong,60,592,{c:'s ink'}); return; }
+    /* parameter bars */
+    const by=432, bh=96, n=PAR.length, bw=(Mg.w-(f===3?340:0))/n; const grow= f===0?0 : f===1? q : 1;
+    PAR.forEach((nm,i)=>{ const v=SENS[i]*grow; const x=Mg.x+i*bw+4, ww=bw-8; R(x,by,ww,bh,c.cell,{rx:2}); R(x,by+bh-v*bh,ww,v*bh,f===3&&(i===0||i===2)?c.neu:c.vio,{rx:2}); T(nm,x+ww/2,by+bh+24,{a:'center',c:'mono xs'+(f===3&&(i===0||i===2)?' ink':'')}); });
+    T(f===0?X4.notYet:X4.dPar,Mg.x,by-16,{c:f===0?'s':'v s b'});
+    if(f===3){ const ex=820, ey=500; for(let k=4;k>=1;k--) S.push(`<ellipse cx="${ex}" cy="${ey}" rx="${k*32}" ry="${k*9}" transform="rotate(-25 ${ex} ${ey})" fill="none" stroke="${c.muted}" stroke-width="1.2" opacity="${0.35+0.12*k}"/>`);
+      const a=25*Math.PI/180; L(ex-140*Math.cos(a),ey+140*Math.sin(a),ex+140*Math.cos(a),ey-140*Math.sin(a),c.neu,{sw:4,op:q});
+      L(ex-44*Math.sin(a),ey-44*Math.cos(a),ex+44*Math.sin(a),ey+44*Math.cos(a),c.teal,{sw:4,op:q});
+      T(X4.valley,ex,398,{a:'center',c:'s ink m'}); T(X4.grey,ex,598,{a:'center',c:'xs'}); T(X4.green,ex,620,{a:'center',c:'xs'}); }
+  } },
+/* ===== 5 estimator ===== */
+{ name:X5.name, frames:frames(X5.frames,[0.6]), real:'', ill:'', ext:X5.ext, idle:X5.idle,
+  draw(f,p){ const c=C(); grid((r,cc)=>laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal),0.10); const e=estimate();
+    const x=90,w=820; T(X5.title(fmt(e.n)),x,72,{c:'ink b'});
+    const hi=Math.log10(14*86400); const wf=s=>w*clamp(Math.log10(Math.max(1,s))/hi,0,1);
+    T('Fortran · '+document.getElementById('cores').selectedOptions[0].text,x,150,{c:'r b'}); R(x,166,w,28,c.cell,{rx:2}); R(x,166,wf(e.fort),28,c.rust,{rx:2}); T(e.fortH,x+w,150,{a:'right',c:'ink b l'});
+    T('Agri-JAX · '+document.getElementById('gpu').selectedOptions[0].text,x,262,{c:'t b'}); R(x,278,w,28,c.cell,{rx:2}); R(x,278,wf(e.jax),28,c.teal,{rx:2}); T(e.jaxH,x+w,262,{a:'right',c:'ink b l'});
+    L(x,330,x+w,330,c.muted,{sw:1}); TX.time.ticks.forEach((lb,i)=>{ const s=[1,60,3600,86400,7*86400][i]; const xx=x+wf(s); L(xx,324,xx,336,c.muted,{sw:1.5}); T(lb,xx,362,{a:i===0?'start':'center',c:'xs'}); });
+    T(X5.faster(e.ratio.toLocaleString(LOCALE)),x,444,{c:'ink b xl'}); T(X5.under,x,484,{c:'s'});
+  } },
+];
+/* ---------- estimator ---------- */
+const HW={h100:{bw:1,f64pen:1,floor:1},a100:{bw:0.46,f64pen:1,floor:1.2},'4090':{bw:0.30,f64pen:0.5,floor:1.3},'4060':{bw:0.08,f64pen:0.5,floor:1.6}};
+const CFG={'24x3':{ms:2.43,floor:5.4},'12x2':{ms:0.82,floor:1.9},'6x1':{ms:0.18,floor:0.6}}; const REAL=3, RUN_S=24;
+const TU=TX.time;
+const human=s=>s<60?TU.s(s.toFixed(s<10?1:0)):s<3600?TU.min((s/60).toFixed(1)):s<86400?TU.h((s/3600).toFixed(1)):s<7*86400?TU.d((s/86400).toFixed(1)):TU.wk((s/86400/7).toFixed(1));
+function estimate(){ const n=Math.round(Math.pow(10,+$('n').value)); const hw=HW[$('gpu').value],cfg=CFG[$('cfg').value],f32=$('prec').value==='f32',cores=+$('cores').value;
+  let per=cfg.ms/1000*REAL/hw.bw; if(f32) per*=0.42; else per/=hw.f64pen; const jax=cfg.floor*hw.floor+n*per, fort=n*RUN_S/cores; return {n,jax,fort,jaxH:human(jax),fortH:human(fort),ratio:Math.round(fort/jax)}; }
+function estUI(){ const e=estimate(); $('nLab').textContent=fmt(e.n); $('ratio').textContent=X5.result(fmt(e.n),e.fortH,e.jaxH,e.ratio.toLocaleString(LOCALE)); if(state.act===5) render(); }
+['n','gpu','cfg','prec','cores'].forEach(id=>$(id).addEventListener('input',estUI));
+/* ---------- engine ---------- */
+const state={act:0,frame:0,p:0,playing:false};
+let raf=null,last=0,builtAct=-1,navAct=0;
+const stepEls=[...document.querySelectorAll('.act .step')], navEls=[...document.querySelectorAll('.acts a')];
+function sizeCanvas(){ const r=cv.getBoundingClientRect(); const k=clamp((r.width||W)*(devicePixelRatio||1)/W,1,3); cv.width=Math.round(W*k); cv.height=Math.round(H*k); ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0); }
+function build(){ const a=ACTS[state.act]; builtAct=state.act;
+  $('figNo').textContent=TX.ui.fig+state.act; $('figName').textContent=a.name;
+  let t=''; if(a.real) t+=`<span class="t"><span class="tag real">${TX.ui.real}</span>${esc(a.real)}</span>`; if(a.ill) t+=`<span class="t"><span class="tag ill">${TX.ui.ill}</span>${esc(a.ill)}</span>`; if(a.ext) t+=`<span class="t"><span class="tag ext">${TX.ui.ext}</span>${esc(a.ext)}</span>`; $('figTags').innerHTML=t;
+  const multi=a.frames.length>1&&!a.idle; $('stepper').hidden=!multi; $('idle').hidden=multi; $('idle').textContent=a.idle||'';
+  $('track').innerHTML= multi? a.frames.map((f,i)=>`<button type="button" class="seg" data-i="${i}" aria-label="${esc(TX.ui.frameAria(i+1,f.text))}"><span class="bar"><i></i></span><span class="lab">${esc(f.text)}</span></button>`).join('') : ''; }
+function chrome(){ const a=ACTS[state.act], n=a.frames.length, p=reduce?1:state.p;
+  if(builtAct!==state.act) build();
+  $('figFrame').textContent= n>1? a.frames[state.frame].text : '';
+  $('pos').textContent= `${state.frame+1} / ${n}`;
+  document.querySelectorAll('#track .seg').forEach((s,i)=>{ s.classList.toggle('on',i===state.frame); s.querySelector('i').style.width=(i<state.frame?100:i===state.frame?p*100:0)+'%'; });
+  stepEls.forEach(el=>{ const on=+el.closest('.act').dataset.act===state.act&&+el.dataset.f===state.frame; el.classList.toggle('on',on); el.querySelector('.pg').style.width= on? (p*100)+'%' : '0'; });
+  const cur= navAct===6? 6 : state.act;
+  navEls.forEach(el=>{ const k=+el.dataset.nav; el.classList.toggle('on',k===cur); el.classList.toggle('done',k<cur); const bar=el.querySelector('i'); bar.style.width= k===cur? (k===6||k===5?100:((state.frame+p)/n*100))+'%' : ''; });
+  const pb=$('playBtn'); pb.innerHTML= state.playing? `⏸<span class="w"> ${TX.ui.pause}</span>` : `▶<span class="w"> ${TX.ui.play}</span>`; pb.setAttribute('aria-label',state.playing?TX.ui.pause:TX.ui.play); }
+function render(){ COL=null; ctx.clearRect(0,0,W,H); S=[]; ACTS[state.act].draw(state.frame,reduce?1:state.p); ov.innerHTML=S.join(''); chrome(); }
+function goto(act,frame,opts={}){ act=clamp(act,0,ACTS.length-1); frame=clamp(frame,0,ACTS[act].frames.length-1); state.act=act; state.frame=frame; state.p=opts.p??0; state.playing=!!opts.play; last=0; if(reduce){ state.p=1; state.playing=false; render(); return; } if(!raf) raf=requestAnimationFrame(tick); render(); }
+function tick(ts){ raf=null; const a=ACTS[state.act], fr=a.frames[state.frame]; const dt=last?Math.min(0.1,(ts-last)/1000):0; last=ts;
+  if(state.p<1){ state.p=Math.min(1,state.p+dt/fr.dur); render(); raf=requestAnimationFrame(tick); return; }
+  if(state.playing && state.frame<a.frames.length-1){ state.frame++; state.p=0; render(); raf=requestAnimationFrame(tick); return; }
+  if(state.act===0){ state.p=0; render(); raf=requestAnimationFrame(tick); return; } state.playing=false; chrome(); }
+function key(k){ const a=ACTS[state.act];
+  if(k==='prev') goto(state.act,state.frame-1,{p:0}); else if(k==='next') goto(state.act,state.frame+1,{p:0}); else if(k==='replay') goto(state.act,0,{p:0,play:true});
+  else if(k==='play'){ if(state.playing){ state.playing=false; chrome(); } else if(state.p>=1&&state.frame===a.frames.length-1) goto(state.act,0,{p:0,play:true}); else { state.playing=true; last=0; if(!raf) raf=requestAnimationFrame(tick); chrome(); } } }
+$('sceneCol').addEventListener('click',e=>{ const seg=e.target.closest('.seg'); if(seg){ goto(state.act,+seg.dataset.i,{p:0}); return; } const b=e.target.closest('button[data-k]'); if(b) key(b.dataset.k); });
+addEventListener('keydown',e=>{ if(e.target.closest('input,select,textarea')||e.altKey||e.ctrlKey||e.metaKey) return; if(state.act===0||state.act===5) return;
+  if(e.key==='ArrowRight'){ key('next'); e.preventDefault(); } else if(e.key==='ArrowLeft'){ key('prev'); e.preventDefault(); } });
+stepEls.forEach(el=>el.addEventListener('click',()=>goto(+el.closest('.act').dataset.act,+el.dataset.f,{p:0})));
+/* scroll drive: the step nearest the middle of the reading area wins */
+const heroEl=$('a0'), estEl=$('a5'), tblEl=$('a6'), sceneCol=$('sceneCol'), narrow=matchMedia('(max-width:900px)');
+let scrollTimer=null;
+function onScroll(){ if(scrollTimer) return; scrollTimer=requestAnimationFrame(()=>{ scrollTimer=null;
+  const top= narrow.matches? sceneCol.getBoundingClientRect().bottom : 52; const mid=(top+innerHeight)/2;
+  const prevNav=navAct; navAct= tblEl.getBoundingClientRect().top<innerHeight*0.55? 6 : 0; if(navAct!==prevNav) chrome();
+  const hr=heroEl.getBoundingClientRect(); if(hr.bottom>mid){ if(state.act!==0) goto(0,0,{p:0}); return; }
+  const er=estEl.getBoundingClientRect(); if(er.top<mid){ if(state.act!==5) goto(5,0,{p:0}); return; }
+  let best=null,bd=1e9; stepEls.forEach(el=>{ const r=el.getBoundingClientRect(); const d=Math.abs((r.top+r.bottom)/2-mid); if(d<bd){bd=d;best=el;} });
+  if(best){ const act=+best.closest('.act').dataset.act, f=+best.dataset.f; if(act!==state.act||f!==state.frame) goto(act,f,{p:0}); } }); }
+addEventListener('scroll',onScroll,{passive:true}); addEventListener('resize',()=>{ sizeCanvas(); render(); onScroll(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',render);
+new MutationObserver(render).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+window.AGRI={goto:(a,f,p)=>{ state.act=a; state.frame=f; state.p=p; state.playing=false; if(raf){cancelAnimationFrame(raf);raf=null;} render(); }};
+sizeCanvas(); estUI(); goto(0,0,{p:0}); if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
+})();
+</script>
+</body>
+</html>

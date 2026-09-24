@@ -8,6 +8,10 @@ The goal is not speed for its own sake. It is to make a *field-scale* model, wit
 
 > **Status: design stage (September 2026).** The package on PyPI is a placeholder that reserves the name and installs an empty module. The design documents below are complete; the proof of concept starts now. Nothing here has been validated against the reference models yet. Do not use it for science until the validation report exists.
 
+## Showcase
+
+An interactive walkthrough of the design is live at <https://juksentang.github.io/agri-jax/en/> (English) and <https://juksentang.github.io/agri-jax/> (Chinese).
+
 ## Why
 
 | Task | Runs needed | Needs gradients |
