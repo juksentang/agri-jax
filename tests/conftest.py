@@ -107,7 +107,13 @@ _unexpected_skips: list[str] = []
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):  # type: ignore[no-untyped-def]
     outcome = yield
     report = outcome.get_result()
-    if report.skipped and _no_skip() and item.get_closest_marker("allow_skip") is None:
+    # xfail outcomes are reported as "skipped" by pytest (with ``wasxfail``); they are not skips
+    if (
+        report.skipped
+        and not hasattr(report, "wasxfail")
+        and _no_skip()
+        and item.get_closest_marker("allow_skip") is None
+    ):
         reason = report.longrepr[-1] if isinstance(report.longrepr, tuple) else str(report.longrepr)
         _unexpected_skips.append(f"{item.nodeid}: {reason}")
 
