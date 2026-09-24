@@ -256,11 +256,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="3"><span class="i">4.4</span><span>可辨识性：损失谷平的方向是数据分不开的参数组合，一眼看出</span><i class="pg"></i></li>
       <li class="step" data-f="4"><span class="i">4.5</span><span>归因：对每一天的降雨求导，哪场雨决定收成，峰在吐丝期</span><i class="pg"></i></li>
       <li class="step" data-f="5"><span class="i">4.6</span><span>撒点与下降：拉丁超立方每个点一次前向，看不出方向；梯度每一步都指向坡下。Agri-JAX 两样都成批：先撒 10⁵ 个点，再从最好的几个点并行下降</span><i class="pg"></i></li>
-      <li class="step" data-f="6"><span class="i">4.7</span><span>多链 <span class="tag">待验证</span>：行从“田块”换成“链”，一千条链与四条链每步花一样的时间；能否以多条短链代替几条长链，须在相同有效样本量（ESS）下比较</span><i class="pg"></i></li>
-      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag">待验证</span>：用一个分布 q 去贴后验，每步抽一大批参数，一次批量前向加反向，更新 q 的均值和协方差；最后得到整个后验的近似，而不只是一个最优点</span><i class="pg"></i></li>
+      <li class="step" data-f="6"><span class="i">4.7</span><span>多链 <span class="tag real">实测·骨架</span>：行从“田块”换成“链”，一千条链与四条链每步的墙钟几乎一样。1024 条短链合并后的后验与 4 条长链参照接近，每秒有效样本多约 17 倍；但 R-hat 约 1.2，单条链混合不足，还不能直接替代长链</span><i class="pg"></i></li>
+      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag real">实测·骨架</span>：用一个分布 q 去贴后验，每步抽一大批参数，一次批量前向加反向。每步从 1 个样本加到 1024 个，墙钟几乎不变，损失噪声降约 80 倍；但高斯近似把弱可辨识参数的标准差低估 2.6–4 倍，均值也偏，须与 MCMC 对照</span><i class="pg"></i></li>
       <li class="step" data-f="8"><span class="i">4.9</span><span>嵌入网络：把气孔阻力换成小网络，梯度穿过机理过程流进权重</span><i class="pg"></i></li>
     </ol>
-    <p class="note">采样式标定与梯度法的相对代价取决于目标函数、参数相关性与所用算法；梯度在每一步给出下降方向，其代价与参数个数无关。多链一帧是待验证的假设：MCMC 样本自相关，推断效率须在相同有效样本量（ESS）下比较，原始样本数不代表推断质量。参数柱、损失谷、归因曲线、撒点与下降路径、SVI 动画为示意；变分近似可能低估后验方差，须与 MCMC 对照。</p>
+    <p class="note">采样式标定与梯度法的相对代价取决于目标函数、参数相关性与所用算法；梯度在每一步给出下降方向，其代价与参数个数无关。多链与 SVI 两帧的结论来自计算骨架上的孪生实验（4 个参数、一年合成观测，参照为 4 条链 × 1500 个样本的 NUTS）：比较以相同有效样本量（ESS）为准，原始样本数不代表推断质量。参数柱、损失谷、归因曲线、撒点与下降路径、SVI 动画为示意。</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
@@ -379,8 +379,9 @@ function drawSearch(q,Z){ const c=C(), pw=340, lx=70, rx=560, py=92;
 function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpS');
   T(Z.post,px+pw,py-12,{a:'right',c:'xs'});
   const TOT=60, st=Math.floor(q*TOT+1e-9), t=(1-Math.exp(-st/11))/(1-Math.exp(-TOT/11));
-  const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(Po.cx-mx0)*t, my=my0+(Po.cy-my0)*t;
-  const ra=0.2*pw+(Po.s1-0.2*pw)*t, rb=0.2*pw+(Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
+  /* measured on the skeleton: q ends too narrow (sd 2.6–4× small) and off-centre, so the animation ends there too */
+  const [tx,ty]=Po.unrot(-0.28*Po.s1,0.35*Po.s2); const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(tx-mx0)*t, my=my0+(ty-my0)*t;
+  const ra=0.2*pw+(0.32*Po.s1-0.2*pw)*t, rb=0.2*pw+(0.75*Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
   let s=st*7919+3; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return (s+1)/0x80000000; };
   S.push(`<clipPath id="cpS2"><rect x="${px}" y="${py}" width="${pw}" height="${pw}"/></clipPath><g clip-path="url(#cpS2)">`);
   [2,1].forEach(k=>S.push(`<ellipse cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" rx="${(ra*k).toFixed(1)}" ry="${(rb*k).toFixed(1)}" transform="rotate(${ang.toFixed(2)} ${mx.toFixed(1)} ${my.toFixed(1)})" fill="${c.vio}" fill-opacity="${k===1?0.16:0.07}" stroke="${c.vio}" stroke-width="${k===1?3:1.5}" ${k===2?'stroke-dasharray="6 5"':''}/>`));
@@ -398,7 +399,7 @@ const Z4={lhsT:'拉丁超立方撒点', gdT:'梯度下降', nPts:k=>`已撒 ${k}
   steps:k=>`第 ${k} 步`, gdSub:'每步 1 次前向 + 1 次反向，沿坡往下走', multi:'从每个象限最好的撒点出发：4 行矩阵同时下降', min:'谷底',
   fort:'Fortran：只能撒点或做有限差分，每个点 24 s，逐个排队', jax:'Agri-JAX：撒点和下降都成批', jax2:'10⁵ 个撒点一次跑完（计算骨架实测 82 s），再从最好的点出发，多条路径同时下降',
   post:'等高线 = 后验', qLab:'紫色椭圆 = q(θ)', stepN:k=>`第 ${k} 步`, evals:n=>`已评估 ${n} 组参数`, batch:'每步从 q 抽 1000 组参数，一次批量前向 + 反向', stepAxis:'步数 →',
-  res:'SVI：让分布 q 去贴后验，得到的是均值、方差和参数间的相关', why:'样本越多梯度噪声越小；GPU 吃满之前，每步多抽样本几乎不加墙钟', caveat:'待验证：变分近似可能低估不确定性，须与 MCMC 结果对照'};
+  res:'SVI：让分布 q 去贴后验，得到的是均值、方差和参数间的相关', why:'样本越多梯度噪声越小；GPU 吃满之前，每步多抽样本几乎不加墙钟', caveat:'实测（骨架）：弱可辨识参数的标准差被低估 2.6–4 倍，须与 MCMC 对照'};
 
 const ACTS=[
 /* ===== 0 opening: Fortran fills row by row, looping ===== */
@@ -520,7 +521,7 @@ const ACTS=[
       T('4 条链',60,432,{c:'ink b'}); R(x0,412,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,412,bw*(1-k),26,c.cell,{rx:2});
       T('1000 条链',60,492,{c:'ink b'}); R(x0,472,bw*k,26,c.vio,{rx:2}); R(x0+bw*k,472,bw*(1-k),26,c.cell,{rx:2});
       T('一步反向的墙钟',x0+bw+16,450,{c:'s'}); T('两者相同',x0+bw+16,478,{c:'v s b'});
-      T('链是矩阵的行，行数从 4 变 1000，一步仍是一次整列运算',60,560,{c:'s'}); T('待验证：很多条短链能否代替几条长链',60,592,{c:'s ink b'}); T('MCMC 样本自相关，须在相同有效样本量（ESS）下比较；原始样本数不代表推断质量',60,622,{c:'xs'}); return; }
+      T('链是矩阵的行，行数从 4 变 1000，一步仍是一次整列运算',60,560,{c:'s'}); T('实测（骨架）：合并后验接近参照，但 R-hat ≈ 1.2，还不能替代长链',60,592,{c:'s ink b'}); T('MCMC 样本自相关，须在相同有效样本量（ESS）下比较；原始样本数不代表推断质量',60,622,{c:'xs'}); return; }
     /* parameter bars */
     const by=432, bh=96, n=PAR.length, bw=(Mg.w-(f===3?340:0))/n; const grow= f===0?0 : f===1? q : 1;
     PAR.forEach((nm,i)=>{ const v=SENS[i]*grow; const x=Mg.x+i*bw+4, ww=bw-8; R(x,by,ww,bh,c.cell,{rx:2}); R(x,by+bh-v*bh,ww,v*bh,f===3&&(i===0||i===2)?c.neu:c.vio,{rx:2}); T(nm,x+ww/2,by+bh+24,{a:'center',c:'mono xs'+(f===3&&(i===0||i===2)?' ink':'')}); });

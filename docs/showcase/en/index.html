@@ -248,11 +248,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="3"><span class="i">4.4</span><span>Identifiability: the flat directions of the loss valley are parameter combinations the data cannot separate, visible at a glance</span><i class="pg"></i></li>
       <li class="step" data-f="4"><span class="i">4.5</span><span>Attribution: differentiate with respect to each day’s rainfall to see which rain decides the yield; the peak falls at silking</span><i class="pg"></i></li>
       <li class="step" data-f="5"><span class="i">4.6</span><span>Sampling versus descent: Latin hypercube sampling spends one forward run per point and learns no direction; every gradient step points downhill. Agri-JAX batches both: sample 10⁵ points first, then descend in parallel from the best few</span><i class="pg"></i></li>
-      <li class="step" data-f="6"><span class="i">4.7</span><span>Many chains <span class="tag">to be tested</span>: the rows change from “fields” to “chains”; a step with a thousand chains takes the same time as a step with four. Whether many short chains can replace a few long ones must be compared at equal effective sample size (ESS)</span><i class="pg"></i></li>
-      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag">to be tested</span>: fit a distribution q to the posterior; each step draws a large batch of parameter sets, runs one batched forward and reverse pass, and updates the mean and covariance of q. The result approximates the whole posterior, not just a best point</span><i class="pg"></i></li>
+      <li class="step" data-f="6"><span class="i">4.7</span><span>Many chains <span class="tag real">measured · skeleton</span>: the rows change from “fields” to “chains”; a step with a thousand chains takes almost the same wall time as a step with four. Pooled over 1024 short chains, the posterior is close to a 4-long-chain reference with about 17× more effective samples per second, but R-hat is about 1.2: single chains are not mixed yet, so they cannot replace long chains as they stand</span><i class="pg"></i></li>
+      <li class="step" data-f="7"><span class="i">4.8</span><span>SVI <span class="tag real">measured · skeleton</span>: fit a distribution q to the posterior; each step draws a batch of parameter sets and runs one batched forward and reverse pass. Going from 1 to 1024 samples per step leaves the wall time almost unchanged and cuts loss noise about 80×, but the Gaussian approximation understates the spread of weakly identified parameters 2.6–4× and shifts their means, so it must be checked against MCMC</span><i class="pg"></i></li>
       <li class="step" data-f="8"><span class="i">4.9</span><span>Embedded network: replace stomatal resistance with a small network; the gradient passes through the process model into its weights</span><i class="pg"></i></li>
     </ol>
-    <p class="note">The relative cost of sampling-based calibration and gradient methods depends on the objective, the parameter correlations and the algorithm; a gradient gives a descent direction at every step, at a cost independent of the number of parameters. The many-chains frame is a hypothesis to be tested: MCMC samples are autocorrelated, so inference efficiency must be compared at equal effective sample size (ESS); raw sample counts are not a measure of inference quality. Parameter bars, loss valley, attribution curve, sampling and descent paths and the SVI animation are illustrative; variational approximations can understate posterior variance and must be checked against MCMC.</p>
+    <p class="note">The relative cost of sampling-based calibration and gradient methods depends on the objective, the parameter correlations and the algorithm; a gradient gives a descent direction at every step, at a cost independent of the number of parameters. The many-chains and SVI results come from twin experiments on the computational skeleton (4 parameters, one year of synthetic observations, reference NUTS with 4 chains × 1500 samples); comparisons use equal effective sample size (ESS), since raw sample counts do not measure inference quality. Parameter bars, loss valley, attribution curve, sampling and descent paths and the SVI animation are illustrative.</p>
   </section>
 
   <section class="act" id="a5" data-act="5">
@@ -341,7 +341,7 @@ const TX={
        steps:k=>`step ${k}`, gdSub:'Forward + reverse pass per step, downhill', multi:'Best sample per quadrant: 4 rows at once', min:'minimum',
        fort:'Fortran: sampling or finite differences only, 24 s per point, queued one by one', jax:'Agri-JAX: both sampling and descent run as batches', jax2:'10⁵ samples in one pass (82 s measured on the skeleton), then parallel descent from the best points',
        post:'contours = posterior', qLab:'violet ellipse = q(θ)', stepN:k=>`step ${k}`, evals:n=>`${n} parameter sets evaluated`, batch:'Per step: 1000 draws from q, one batched pass', stepAxis:'steps →',
-       res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'To be tested: variational approximations can understate uncertainty and must be checked against MCMC',
+       res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'Measured (skeleton): spread of weakly identified parameters understated 2.6–4×; check against MCMC',
        albedo:'α',
        netTitle:'Embedded network: stomatal resistance replaced by a small network', procs:['Weather','PET','Stomata','Light','Crop','Uptake','Soil water','Output'], smallNet:'small net',
        fwdArrow:'forward →', loss:'loss = (ET_sim − ET_tower)²', backflow:'← gradient flows back along the chain',
@@ -353,7 +353,7 @@ const TX={
        revPair:'1 forward + 1 reverse', revNote:'Reverse costs about 6.5 forward runs (measured); total ≈ 7.5 vs 31', grad56:'One full-parameter gradient, 10⁴ samples: 56 s (measured)',
        perCell:'Each cell = one forward run',
        ch4:'4 chains', ch1000:'1000 chains', wall:'Wall time / step', same:'identical',
-       chRows:'Chains are matrix rows; from 4 to 1000 rows, each step is still one column operation', shortLong:'To be tested: can many short chains replace a few long ones?', essNote:'MCMC samples are autocorrelated: compare at equal ESS; raw sample counts do not measure inference quality',
+       chRows:'Chains are matrix rows; from 4 to 1000 rows, each step is still one column operation', shortLong:'Measured (skeleton): pooled posterior close to the reference, but R-hat ≈ 1.2; not a replacement yet', essNote:'MCMC samples are autocorrelated: compare at equal ESS; raw sample counts do not measure inference quality',
        notYet:'Parameter derivatives: not started yet', dPar:'∂yield / ∂parameter',
        valley:'Loss valley (λ, K_sat plane)', grey:'Grey: flat, λ and K_sat co-vary:', green:'unidentifiable. Green: steep, constrained' },
   a5:{ name:'Your hardware', frames:['Estimate'], ext:'from H100 measurements via memory bandwidth and FP64 throughput; 3× full-model factor applied',
@@ -435,8 +435,9 @@ function drawSearch(q,Z){ const c=C(), pw=340, lx=70, rx=560, py=92;
 function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpS');
   T(Z.post,px+pw,py-12,{a:'right',c:'xs'});
   const TOT=60, st=Math.floor(q*TOT+1e-9), t=(1-Math.exp(-st/11))/(1-Math.exp(-TOT/11));
-  const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(Po.cx-mx0)*t, my=my0+(Po.cy-my0)*t;
-  const ra=0.2*pw+(Po.s1-0.2*pw)*t, rb=0.2*pw+(Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
+  /* measured on the skeleton: q ends too narrow (sd 2.6–4× small) and off-centre, so the animation ends there too */
+  const [tx,ty]=Po.unrot(-0.28*Po.s1,0.35*Po.s2); const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(tx-mx0)*t, my=my0+(ty-my0)*t;
+  const ra=0.2*pw+(0.32*Po.s1-0.2*pw)*t, rb=0.2*pw+(0.75*Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
   let s=st*7919+3; const rnd=()=>{ s=(s*1103515245+12345)&0x7fffffff; return (s+1)/0x80000000; };
   S.push(`<clipPath id="cpS2"><rect x="${px}" y="${py}" width="${pw}" height="${pw}"/></clipPath><g clip-path="url(#cpS2)">`);
   [2,1].forEach(k=>S.push(`<ellipse cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" rx="${(ra*k).toFixed(1)}" ry="${(rb*k).toFixed(1)}" transform="rotate(${ang.toFixed(2)} ${mx.toFixed(1)} ${my.toFixed(1)})" fill="${c.vio}" fill-opacity="${k===1?0.16:0.07}" stroke="${c.vio}" stroke-width="${k===1?3:1.5}" ${k===2?'stroke-dasharray="6 5"':''}/>`));
