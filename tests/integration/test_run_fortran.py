@@ -158,3 +158,21 @@ def test_dscsm_stale_outputs_not_staged(tmp_path: Path) -> None:
     r = run_dscsm(exp, tmp_path / "out", experiment_file="UFGA8201.MZX")
     assert r.summary_path is not None and "stale" not in r.summary_path.read_text()
     assert not (tmp_path / "out" / "ERROR.OUT").exists()
+
+
+def test_default_dscsm_is_reference_version(tmp_path: Path) -> None:
+    """The default engine runs DSSAT-CSM v4.8.6 (the version the validation is quoted against)."""
+    from agrijax.port.run_fortran import DSSAT_REFERENCE_VERSION, dscsm_paths
+
+    exe, _data = dscsm_paths()
+    src = DSSAT_ENGINE / "example_data" / "Maize"
+    if not exe.is_file() or not (src / "UFGA8201.MZX").is_file():
+        pytest.skip("DSSAT engine not present")
+    assert exe.parts[-3:] == ("build486", "bin", "dscsm048"), exe
+    exp = tmp_path / "exp"
+    exp.mkdir()
+    shutil.copy2(src / "UFGA8201.MZX", exp / "UFGA8201.MZX")
+    r = run_dscsm(exp, tmp_path / "out", experiment_file="UFGA8201.MZX")
+    assert r.summary_path is not None
+    head = r.summary_path.read_text(errors="replace").splitlines()[0]
+    assert f"Ver. {DSSAT_REFERENCE_VERSION}" in head, head

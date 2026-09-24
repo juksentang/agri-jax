@@ -58,6 +58,7 @@ from pathlib import Path
 __all__ = [
     "DSCSM_STOP_MARKERS",
     "DSSAT_ENGINE",
+    "DSSAT_REFERENCE_VERSION",
     "MAX_RZWQM_RUN_DIR_LEN",
     "RUN_ROOT",
     "RZWQM_STOP_MARKERS",
@@ -67,6 +68,7 @@ __all__ = [
     "RzwqmResult",
     "check_dscsm_outputs",
     "check_rzwqm_outputs",
+    "dscsm_paths",
     "elf_interpreter",
     "parse_overview_yields",
     "patch_ipnames",
@@ -88,6 +90,21 @@ DSSAT_ENGINE = Path(
     )
 ).expanduser()
 SYSTEM_LOADER = Path("/lib64/ld-linux-x86-64.so.2")
+#: DSSAT-CSM version the project validates against. An engine root that holds the v4.8.6.0 build
+#: (``source/build486/bin/dscsm048`` with ``source/Data``) runs that build; otherwise ``<root>/bin``.
+DSSAT_REFERENCE_VERSION = "4.8.6"
+
+
+def dscsm_paths(engine: str | os.PathLike[str] | None = None) -> tuple[Path, Path]:
+    """``(executable, data_dir)`` that :func:`run_dscsm` uses for ``engine`` (default
+    :data:`DSSAT_ENGINE`): the ``build486`` v4.8.6.0 binary and ``source/Data`` when the root has
+    them, else the ``bin/`` layout (``bin/dscsm048`` next to its ``*.CDE``, ``Genotype`` ...)."""
+    eng = Path(engine) if engine is not None else DSSAT_ENGINE
+    exe486, data486 = eng / "source" / "build486" / "bin" / "dscsm048", eng / "source" / "Data"
+    if exe486.is_file() and data486.is_dir():
+        return exe486, data486
+    return eng / "bin" / "dscsm048", eng / "bin"
+
 
 #: Fortran path records in IPNAMES.DAT / *.RZX are read into CHARACTER*80.
 MAX_PATH_LEN = 79
@@ -654,7 +671,8 @@ def run_dscsm(
     ``<INSI>*.WTH`` matching the experiment's first four letters are taken from ``exp_dir`` or
     ``weather_dir`` (default ``<engine>/example_data/Weather``); all ``*.SOL`` from ``soil_dir``
     (default ``<engine>/example_data/Soil``). ``engine`` defaults to
-    ``~/AFSoil/Formal_Analysis/02_DSSAT/dssat_engine``. Outputs matching ``keep_files`` go to
+    ``~/AFSoil/Formal_Analysis/02_DSSAT/dssat_engine``; the executable and data come from
+    :func:`dscsm_paths` (the v4.8.6.0 ``build486`` when present). Outputs matching ``keep_files`` go to
     ``out_dir`` (default ``<exp_dir>/dscsm_out``). ``*.OUT`` files in ``exp_dir`` (outputs of an
     earlier run) are not staged. With ``check=True`` (default) :func:`check_dscsm_outputs` must
     pass; ``check=False`` only requires ``Summary.OUT`` (for runs where a season is expected to be
@@ -662,8 +680,7 @@ def run_dscsm(
     """
     exp = Path(exp_dir).resolve()
     eng = Path(engine) if engine is not None else DSSAT_ENGINE
-    bindir = eng / "bin"
-    exe = bindir / "dscsm048"
+    exe, bindir = dscsm_paths(eng)
     if not exe.is_file():
         raise FileNotFoundError(f"dscsm048 not found at {exe}")
     if experiment_file is None:

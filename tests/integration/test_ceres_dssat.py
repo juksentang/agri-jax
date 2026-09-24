@@ -32,6 +32,7 @@ import pytest
 
 from agrijax.core import run
 from agrijax.io.dssat import read_out, read_plantgro, read_summary, read_wth
+from agrijax.port.run_fortran import dscsm_paths
 from agrijax.processes.crop.ceres_maize import CeresMaizeState, ceres_maize_model
 from agrijax.processes.crop.ceres_maize.dssat_inputs import ceres_forcing, ceres_params, yrdoy_range
 
@@ -45,8 +46,8 @@ pytestmark = pytest.mark.skipif(
 
 MAIZE = DSSAT_ENGINE / "example_data" / "Maize"
 WEATHER = DSSAT_ENGINE / "example_data" / "Weather"
-GENOTYPE = DSSAT_ENGINE / "bin" / "Genotype"
-DSCSM = DSSAT_ENGINE / "bin" / "dscsm048"
+DSCSM, _ENGINE_DATA = dscsm_paths(DSSAT_ENGINE)  # the v4.8.6.0 build486 and source/Data when present
+GENOTYPE = _ENGINE_DATA / "Genotype"
 
 #: PlantGro column -> (model output, print unit)
 COLUMNS = {
