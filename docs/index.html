@@ -347,7 +347,7 @@ const TX={
        lhsT:'Latin hypercube sampling', gdT:'Gradient descent', nPts:k=>`${k} points sampled`, lhsSub:'One forward run per point, no shared information', best:'Red ring: best sample, merely the one nearest the floor',
        steps:k=>`step ${k}`, gdSub:'Forward + reverse pass per step, downhill', multi:'Best sample per quadrant: 4 rows at once', min:'minimum',
        fort:'Fortran: sampling or finite differences only, 24 s per point, queued one by one', jax:'Agri-JAX: both sampling and descent run as batches', jax2:'10⁵ samples in one pass (82 s measured on the skeleton), then parallel descent from the best points',
-       post:'contours = posterior', qLab:'q(θ)', stepN:k=>`step ${k}`, evals:n=>`${n} parameter sets evaluated`, batch:'Per step: 1000 draws from q, one batched pass', stepAxis:'steps →',
+       post:'contours = posterior', qLab:'violet ellipse = q(θ)', stepN:k=>`step ${k}`, evals:n=>`${n} parameter sets evaluated`, batch:'Per step: 1000 draws from q, one batched pass', stepAxis:'steps →',
        res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'To be tested: variational approximations can understate uncertainty and must be checked against MCMC',
        albedo:'α',
        netTitle:'Embedded network: stomatal resistance replaced by a small network', procs:['Weather','PET','Stomata','Light','Crop','Uptake','Soil water','Output'], smallNet:'small net',
@@ -436,11 +436,11 @@ function drawSearch(q,Z){ const c=C(), pw=340, lx=70, rx=560, py=92;
     P(path.map((pt,j)=>(j?'L':'M')+pt[0].toFixed(1)+' '+pt[1].toFixed(1)).join(' '),c.vio,{sw:2.5});
     path.forEach((pt,j)=>DOT(pt[0],pt[1],j===path.length-1?6:3.2,c.vio));
     DOT(x0,y0,11,'none',{stroke:c.rust,sw:2,op:0.8}); });
-  if(sk===STEPS){ DOT(Ra.cx,Ra.cy,9,'none',{stroke:c.teal,sw:3}); TP(Z.min,Ra.cx-16,Ra.cy+36,{a:'right',c:'t xs b'}); }
+  if(sk===STEPS){ DOT(Ra.cx,Ra.cy,9,'none',{stroke:c.teal,sw:3}); const [lx2,ly2]=Ra.unrot(0,-62); L(Ra.cx-5,Ra.cy-8,lx2+4,ly2+8,c.teal,{sw:1.2}); T(Z.min,lx2,ly2,{a:'center',c:'t xs b'}); }
   T(Z.steps(sk),rx,462,{c:'s ink b'}); T(Z.gdSub,rx,488,{c:'xs'}); T(Z.multi,rx,512,{c:'xs'});
   T(Z.fort,lx,564,{c:'r s b'}); T(Z.jax,lx,596,{c:'t s b'}); T(Z.jax2,lx,624,{c:'s'}); }
 function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpS');
-  TP(Z.post,px+pw-16,py+44,{a:'right',c:'xs'});
+  T(Z.post,px+pw,py-12,{a:'right',c:'xs'});
   const TOT=60, st=Math.floor(q*TOT+1e-9), t=(1-Math.exp(-st/11))/(1-Math.exp(-TOT/11));
   const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(Po.cx-mx0)*t, my=my0+(Po.cy-my0)*t;
   const ra=0.2*pw+(Po.s1-0.2*pw)*t, rb=0.2*pw+(Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
@@ -449,7 +449,7 @@ function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,
   [2,1].forEach(k=>S.push(`<ellipse cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" rx="${(ra*k).toFixed(1)}" ry="${(rb*k).toFixed(1)}" transform="rotate(${ang.toFixed(2)} ${mx.toFixed(1)} ${my.toFixed(1)})" fill="${c.vio}" fill-opacity="${k===1?0.16:0.07}" stroke="${c.vio}" stroke-width="${k===1?3:1.5}" ${k===2?'stroke-dasharray="6 5"':''}/>`));
   for(let i=0;i<180;i++){ const r1=Math.sqrt(-2*Math.log(rnd())), th=2*Math.PI*rnd(); const z1=r1*Math.cos(th)*ra, z2=r1*Math.sin(th)*rb;
     DOT(mx+z1*Math.cos(A)-z2*Math.sin(A), my+z1*Math.sin(A)+z2*Math.cos(A), 2.6, c.vio, {op:0.8}); }
-  S.push('</g>'); TP(Z.qLab,clamp(mx+10,px+10,px+pw-60),clamp(my-rb*2-12,py+50,py+pw-10),{c:'v s b'});
+  S.push('</g>'); T(Z.qLab,px,py-12,{c:'v xs b'});
   const x0=540, x1=940, y0=236, y1=420;
   T(Z.stepN(st),x0,108,{c:'ink b l'}); T(Z.evals(fmt(st*1000)),x0,148,{c:'v b s'}); T(Z.batch,x0,178,{c:'xs'});
   L(x0,y1,x1,y1,c.muted,{sw:1}); L(x0,y0-10,x0,y1,c.muted,{sw:1}); T('ELBO',x0+8,y0+6,{c:'xs'}); T(Z.stepAxis,x1,y1+24,{a:'right',c:'xs'});

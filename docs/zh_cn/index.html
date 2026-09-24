@@ -372,11 +372,11 @@ function drawSearch(q,Z){ const c=C(), pw=340, lx=70, rx=560, py=92;
     P(path.map((pt,j)=>(j?'L':'M')+pt[0].toFixed(1)+' '+pt[1].toFixed(1)).join(' '),c.vio,{sw:2.5});
     path.forEach((pt,j)=>DOT(pt[0],pt[1],j===path.length-1?6:3.2,c.vio));
     DOT(x0,y0,11,'none',{stroke:c.rust,sw:2,op:0.8}); });
-  if(sk===STEPS){ DOT(Ra.cx,Ra.cy,9,'none',{stroke:c.teal,sw:3}); TP(Z.min,Ra.cx-16,Ra.cy+36,{a:'right',c:'t xs b'}); }
+  if(sk===STEPS){ DOT(Ra.cx,Ra.cy,9,'none',{stroke:c.teal,sw:3}); const [lx2,ly2]=Ra.unrot(0,-62); L(Ra.cx-5,Ra.cy-8,lx2+4,ly2+8,c.teal,{sw:1.2}); T(Z.min,lx2,ly2,{a:'center',c:'t xs b'}); }
   T(Z.steps(sk),rx,462,{c:'s ink b'}); T(Z.gdSub,rx,488,{c:'xs'}); T(Z.multi,rx,512,{c:'xs'});
   T(Z.fort,lx,564,{c:'r s b'}); T(Z.jax,lx,596,{c:'t s b'}); T(Z.jax2,lx,624,{c:'s'}); }
 function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,py,pw,c,'cpS');
-  TP(Z.post,px+pw-16,py+44,{a:'right',c:'xs'});
+  T(Z.post,px+pw,py-12,{a:'right',c:'xs'});
   const TOT=60, st=Math.floor(q*TOT+1e-9), t=(1-Math.exp(-st/11))/(1-Math.exp(-TOT/11));
   const mx0=px+0.2*pw, my0=py+0.8*pw, mx=mx0+(Po.cx-mx0)*t, my=my0+(Po.cy-my0)*t;
   const ra=0.2*pw+(Po.s1-0.2*pw)*t, rb=0.2*pw+(Po.s2-0.2*pw)*t, ang=ANG*t, A=ang*Math.PI/180;
@@ -385,7 +385,7 @@ function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,
   [2,1].forEach(k=>S.push(`<ellipse cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" rx="${(ra*k).toFixed(1)}" ry="${(rb*k).toFixed(1)}" transform="rotate(${ang.toFixed(2)} ${mx.toFixed(1)} ${my.toFixed(1)})" fill="${c.vio}" fill-opacity="${k===1?0.16:0.07}" stroke="${c.vio}" stroke-width="${k===1?3:1.5}" ${k===2?'stroke-dasharray="6 5"':''}/>`));
   for(let i=0;i<180;i++){ const r1=Math.sqrt(-2*Math.log(rnd())), th=2*Math.PI*rnd(); const z1=r1*Math.cos(th)*ra, z2=r1*Math.sin(th)*rb;
     DOT(mx+z1*Math.cos(A)-z2*Math.sin(A), my+z1*Math.sin(A)+z2*Math.cos(A), 2.6, c.vio, {op:0.8}); }
-  S.push('</g>'); TP(Z.qLab,clamp(mx+10,px+10,px+pw-60),clamp(my-rb*2-12,py+50,py+pw-10),{c:'v s b'});
+  S.push('</g>'); T(Z.qLab,px,py-12,{c:'v xs b'});
   const x0=540, x1=940, y0=236, y1=420;
   T(Z.stepN(st),x0,108,{c:'ink b l'}); T(Z.evals(fmt(st*1000)),x0,148,{c:'v b s'}); T(Z.batch,x0,178,{c:'xs'});
   L(x0,y1,x1,y1,c.muted,{sw:1}); L(x0,y0-10,x0,y1,c.muted,{sw:1}); T('ELBO',x0+8,y0+6,{c:'xs'}); T(Z.stepAxis,x1,y1+24,{a:'right',c:'xs'});
@@ -396,7 +396,7 @@ function drawSVI(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,
 const Z4={lhsT:'拉丁超立方撒点', gdT:'梯度下降', nPts:k=>`已撒 ${k} 个点`, lhsSub:'每个点一次前向，点与点之间不共享信息', best:'红圈：最好的点只是离谷底最近的那个样本',
   steps:k=>`第 ${k} 步`, gdSub:'每步 1 次前向 + 1 次反向，沿坡往下走', multi:'从每个象限最好的撒点出发：4 行矩阵同时下降', min:'谷底',
   fort:'Fortran：只能撒点或做有限差分，每个点 24 s，逐个排队', jax:'Agri-JAX：撒点和下降都成批', jax2:'10⁵ 个撒点一次跑完（计算骨架实测 82 s），再从最好的点出发，多条路径同时下降',
-  post:'等高线 = 后验', qLab:'q(θ)', stepN:k=>`第 ${k} 步`, evals:n=>`已评估 ${n} 组参数`, batch:'每步从 q 抽 1000 组参数，一次批量前向 + 反向', stepAxis:'步数 →',
+  post:'等高线 = 后验', qLab:'紫色椭圆 = q(θ)', stepN:k=>`第 ${k} 步`, evals:n=>`已评估 ${n} 组参数`, batch:'每步从 q 抽 1000 组参数，一次批量前向 + 反向', stepAxis:'步数 →',
   res:'SVI：让分布 q 去贴后验，得到的是均值、方差和参数间的相关', why:'样本越多梯度噪声越小；GPU 吃满之前，每步多抽样本几乎不加墙钟', caveat:'待验证：变分近似可能低估不确定性，须与 MCMC 结果对照'};
 
 const ACTS=[
