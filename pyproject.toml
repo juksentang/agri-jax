@@ -60,7 +60,7 @@ build-backend = "hatchling.build"
 packages = ["src/agrijax"]
 
 [tool.hatch.build.targets.sdist]
-only-include = ["src", "README.md", "README.zh.md", "LICENSE", "CITATION.cff", "pyproject.toml"]
+only-include = ["src", "README.md", "README.zh.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CITATION.cff", "pyproject.toml"]
 
 # ---------------------------------------------------------------------------
 # ruff

@@ -99,7 +99,7 @@ uv run python -m agrijax.core.lint src --strict
 
 ## 许可与来源
 
-Apache-2.0。CERES-Maize 依据开源的 DSSAT-CSM（BSD-3）独立实现，并保留其署名。土壤水分和潜在蒸散按 RZWQM2 的公开文献实现，不包含也不分发任何 RZWQM2 代码。RZWQM2 只用作参考模型：与它的输出对照在内部进行，对外只报告数字。与 DSSAT-CSM 的对照是公开的，可以复现。
+Apache-2.0。CERES-Maize 依据开源的 DSSAT-CSM（BSD-3）独立实现，并保留其署名。DSSAT-CSM 的版权声明和许可全文见 `THIRD_PARTY_NOTICES.md`。土壤水分和潜在蒸散按 RZWQM2 的公开文献实现，不包含也不分发任何 RZWQM2 代码。RZWQM2 只用作参考模型：与它的输出对照在内部进行，对外只报告数字。与 DSSAT-CSM 的对照是公开的，可以复现。
 
 ## 引用
 

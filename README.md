@@ -99,7 +99,7 @@ Data-backed tests read from `--data-dir` or `AGRI_JAX_DATA`. The unit tier needs
 
 ## Licensing and provenance
 
-Apache-2.0. CERES-Maize is implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained. Soil water and PET are implemented from the published RZWQM2 equations. No RZWQM2 code is included or redistributed. RZWQM2 is used only as a reference model: its outputs are compared privately and only the resulting numbers are reported. The comparison against DSSAT-CSM is public and reproducible.
+Apache-2.0. CERES-Maize is implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained. The DSSAT-CSM copyright notice and licence are in `THIRD_PARTY_NOTICES.md`. Soil water and PET are implemented from the published RZWQM2 equations. No RZWQM2 code is included or redistributed. RZWQM2 is used only as a reference model: its outputs are compared privately and only the resulting numbers are reported. The comparison against DSSAT-CSM is public and reproducible.
 
 ## Citation
 
