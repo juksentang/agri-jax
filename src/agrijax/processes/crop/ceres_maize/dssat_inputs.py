@@ -29,6 +29,7 @@ import pandas as pd
 from agrijax.io.dssat import read_eco, read_out, read_plantgro, read_soilwat, read_spe
 
 from ._util import daylength, twilight_daylength
+from .coefficients import BSGDD, CANHT_POT
 from .state import CeresCultivar, CeresForcing, CeresMaizeParams, CeresSoil, CeresSpecies
 
 __all__ = ["ceres_forcing", "ceres_params", "read_inp", "yrdoy_range"]
@@ -132,8 +133,8 @@ def ceres_params(inp_path: str, eco_path: str, spe_path: str, iswwat: bool = Tru
         pormin=a(spe["PORM"]),
         rlwr=a(spe["RLWR"]),
         rwuep1=a(spe["RWUEP1"]),
-        canht_pot=a(1.6),
-        bsgdd=a(250.0),
+        canht_pot=a(CANHT_POT),  # set in MZ_GROSUB SEASINIT, not read from the SPE file
+        bsgdd=a(BSGDD),
     )
     ds = np.asarray(inp["ds"], dtype=float)
     soil = CeresSoil(

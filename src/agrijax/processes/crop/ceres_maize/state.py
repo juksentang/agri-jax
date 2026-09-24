@@ -30,6 +30,8 @@ from jaxtyping import Array
 from agrijax.core.organs import OrganQueue
 from agrijax.core.state import Forcing, Params, State, field
 
+from .coefficients import DSSAT_COEFFICIENTS, CeresCoefficients
+
 __all__ = [
     "NOT_REACHED",
     "N_STAGE_DATES",
@@ -174,6 +176,13 @@ class CeresMaizeParams(Params):
     iswwat: bool = field(
         description="water balance on (DSSAT ISWWAT = Y)", fortran_name="ISWWAT", static=True, default=True
     )
+    coefficients: CeresCoefficients | None = field(
+        description="the coefficients DSSAT hard-codes (None: the DSSAT-CSM v4.8.6.0 values)", default=None
+    )
+
+    def coef(self) -> CeresCoefficients:
+        """The hard-coded coefficients in force: :attr:`coefficients`, or the DSSAT values."""
+        return DSSAT_COEFFICIENTS if self.coefficients is None else self.coefficients
 
 
 # --------------------------------------------------------------------------------------- forcing

@@ -22,6 +22,9 @@ from .state import CeresForcing, CeresMaizeParams, CeresMaizeState
 
 __all__ = ["OUTPUT_UNITS", "ceres_maize_model", "plantgro_outputs", "yield_kg_ha"]
 
+_KG_HA = 10.0  # g m-2 -> kg ha-1 (MZ_OPGROW: NINT(WTLF*10.), ...)
+_CM_TO_M = 100.0  # cm -> m (MZ_OPGROW: RDPD = RTDEP/100.)
+
 OUTPUT_UNITS = {
     "istage": "-",
     "gstd": "-",
@@ -62,17 +65,17 @@ def plantgro_outputs(
         "gstd": g.rstage,
         "lsd": g.leafno,
         "lai": g.lai,
-        "lwad": lfwt * pop * 10.0,
-        "swad": g.stmwt * pop * 10.0,
-        "gwad": g.grnwt * ph.ears * 10.0,
-        "rwad": g.rtwt * pop * 10.0,
-        "cwad": g.biomas * 10.0,
+        "lwad": lfwt * pop * _KG_HA,
+        "swad": g.stmwt * pop * _KG_HA,
+        "gwad": g.grnwt * ph.ears * _KG_HA,
+        "rwad": g.rtwt * pop * _KG_HA,
+        "cwad": g.biomas * _KG_HA,
         "g_ad": ph.gpp * ph.ears,
-        "pwad": g.earwt * ph.ears * 10.0,
+        "pwad": g.earwt * ph.ears * _KG_HA,
         "wspd": 1.0 - state.stress.swfac,
         "wsgd": 1.0 - state.stress.turfac,
         "ewsd": state.stress.satfac,
-        "rdpd": state.roots.rtdep / 100.0,
+        "rdpd": state.roots.rtdep / _CM_TO_M,
         "dttd": ph.dtt,
         "rlv": state.roots.rlv,
         "sumdtt": ph.sumdtt,
@@ -91,4 +94,4 @@ def ceres_maize_model(*, outputs: Any = plantgro_outputs) -> Model:
 
 def yield_kg_ha(state: CeresMaizeState) -> Array:
     """Grain yield ``YIELD = GRNWT x 10 x EARS`` [kg ha-1] (``MZ_GROSUB`` OUTPUT, Summary HWAM)."""
-    return state.growth.grnwt * 10.0 * state.phen.ears
+    return state.growth.grnwt * _KG_HA * state.phen.ears
