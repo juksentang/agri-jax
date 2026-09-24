@@ -160,7 +160,17 @@ a{color:var(--jax)}
       <div class="foot"><div>模拟日<b class="num" id="jDay">0 / 3287</b></div><div>同步样本<b class="num" id="jN">100,000</b></div><div>状态<b id="jState">待命</b></div></div>
     </div>
   </div>
-  <p class="muted" style="margin-top:12px;font-size:14px">右边格子每格代表 20 次模拟，颜色是当日的叶面积指数（示意）。真正的差别不是"快"，是形状：Fortran 的十万次是十万个独立进程，JAX 的十万次是一个数组上的一次运算，每一天所有样本一起前进。</p>
+  <p class="muted" style="margin-top:12px;font-size:14px">右边格子每格代表 20 次模拟，颜色是当日的叶面积指数（示意）。</p>
+  <div class="wcard" style="margin-top:22px">
+    <h3>为什么明明要顺序算的任务，能变成 GPU 上的一次数组运算</h3>
+    <canvas data-anim="swap" width="1200" height="575"></canvas>
+    <p>作物模型里真正的"顺序"只有一个方向：一块田的今天依赖它自己的昨天。不同田块、不同参数组之间没有任何依赖。所以两层循环可以交换顺序：不再是"对每块田，跑完它的 3287 天"，而是"对每一天，让所有田块一起做同一件事"。内层那件事对十万块田是完全相同的算式，只是数字不同，这正是 GPU 擅长的形状：一条指令，十万个数。Fortran 做不到不是因为它慢，而是它把每次运行绑死在一个进程里：全局状态、按文件名读输入、每天写文件，一块田一个进程，换不了循环顺序。</p>
+    <pre style="margin:4px 0 0">Fortran：  for 田块 in 十万块:            JAX：      for 天 in 3287 天:
+               for 天 in 3287 天:                          state[所有田块] = 日步(state[所有田块])   ← 一次数组运算
+                   state = 日步(state)                                                        ← vmap 把"所有田块"变成数组的第一维
+               写 99 个文件                                                                  ← scan 把"for 天"编译进图里</pre>
+    <button class="ghost small" data-replay="swap">↻ 重播</button>
+  </div>
 </section>
 
 <section id="shape">
@@ -431,6 +441,22 @@ const ease=p=>p<0?0:p>1?1:p*p*(3-2*p);
 function text(ctx,s,x,y,o={}){ ctx.fillStyle=o.c||css('--muted'); ctx.font=(o.w||'')+' '+(o.s||11)+'px IBM Plex Mono,monospace'; ctx.textAlign=o.a||'left'; ctx.fillText(s,x,y); ctx.textAlign='left'; }
 
 reg('strip',()=>{},1,[[0,'前向：状态从第 1 天推进到第 3287 天，每一天的中间量被记下（或按天 checkpoint）'],[0.34,'反向：从最后一天开始，伴随量沿同一条路倒着回传'],[0.68,'回传经过每一天时，把当天对各参数的影响累加进去'],[0.9,'走完：12 个参数的梯度同时得到，成本约为前向的几倍']]);
+
+/* loop swap: fields x days matrix */
+reg('swap',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const q=ease(p);
+  const rows=18, cols=44, half=W/2-24, x0=12, x1=W/2+12, y0=34, gh=H-70, cw=half/cols, ch=gh/rows;
+  text(ctx,'Fortran：一块田跑完全部天数，再换下一块',x0,20,{c:css('--fortran'),w:'600',s:12});
+  text(ctx,'Agri-JAX：所有田块一起走一天，再走下一天',x1,20,{c:css('--jax'),w:'600',s:12});
+  text(ctx,'↓ 田块 / 参数组',x0,H-22,{s:10}); text(ctx,'天 →',x0+half-40,H-22,{s:10}); text(ctx,'↓ 田块 / 参数组',x1,H-22,{s:10}); text(ctx,'天 →',x1+half-40,H-22,{s:10});
+  const total=rows*cols; const fdone=Math.floor(q*total*0.28);          /* Fortran gets through 28% of the matrix in the same screen time */
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ const k=r*cols+c; ctx.fillStyle= k<fdone? css('--fortran') : css('--surface'); ctx.fillRect(x0+c*cw,y0+r*ch,cw-1,ch-1); }
+  if(fdone<total){ const r=Math.floor(fdone/cols), c=fdone%cols; ctx.strokeStyle=css('--ink'); ctx.lineWidth=1.5; ctx.strokeRect(x0+c*cw-1,y0+r*ch-1,cw+1,ch+1); }
+  const jcols=Math.floor(q*cols);
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){ ctx.fillStyle= c<jcols? css('--jax') : css('--surface'); ctx.fillRect(x1+c*cw,y0+r*ch,cw-1,ch-1); }
+  if(jcols<cols){ ctx.strokeStyle=css('--ink'); ctx.lineWidth=1.5; ctx.strokeRect(x1+jcols*cw-1,y0-1,cw+1,gh+1); text(ctx,'一列 = 一次数组运算',x1+Math.min(jcols*cw+8,half-120),y0+gh/2,{s:10,c:css('--ink')}); }
+  /* dependency arrows on the first rows to show "today depends on own yesterday only" */
+  if(q<0.35){ const r=2, c=Math.max(1,jcols); ctx.strokeStyle=css('--grad'); ctx.lineWidth=2; for(const rr of [1,2,3]){ ctx.beginPath(); ctx.moveTo(x1+(c-1)*cw+cw/2,y0+rr*ch+ch/2); ctx.lineTo(x1+c*cw+cw/2-2,y0+rr*ch+ch/2); ctx.stroke(); } text(ctx,'只依赖同一行的前一天',x1+c*cw+cw+4,y0+2*ch+ch/2+4,{s:10,c:css('--grad')}); }
+},10,[[0,'每个格子是"某块田的某一天"。顺序依赖只沿着行：今天只依赖同一块田的昨天'],[0.12,'行与行之间没有依赖：这块田的水分不会流进另一块田的方程'],[0.3,'Fortran 沿行走：一块田算完 3287 天、写完文件，再拿下一块，一个进程只能干这个'],[0.5,'JAX 沿列走：交换循环顺序，一天之内让所有行做同一个算式'],[0.7,'一列 = 十万个数上的同一条指令 = GPU 最擅长的形状，所以列一列地"刷"过去'],[0.93,'同样的屏幕时间：左边刷了不到三成，右边已经走完全部天数']]);
 
 /* fd vs ad */
 reg('fd',(ctx,cv,p)=>{ const W=cv.width,H=cv.height; ctx.clearRect(0,0,W,H); const P=30, rows=P+1, top=34, rh=(H-70)/rows;
