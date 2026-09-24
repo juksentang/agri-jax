@@ -9,8 +9,11 @@ and the title in ``df.attrs["title"]`` (``df.attrs["site_text"]``: the site fiel
 decimals written in the file and ``df.attrs["four_digit_year"]`` the date style, so
 :func:`write_wth` reproduces the original look (``0.00`` rain stays ``0.00``).
 
-Dates may be ``YYDDD`` (DSSAT Y2K rule: ``YY <= 40`` -> 20YY, else 19YY, as ``Y2K_DOY``)
-or ``YYYYDDD``.
+Dates may be ``YYYYDDD`` or ``YYDDD``. For ``YYDDD`` DSSAT 4.8 (``Y2K_DOYW`` in ``DATES.for``)
+takes the century of the simulation start for the first record and moves to the next century
+only after a year ``xx99``; the simulation start itself is ``YYDDD`` through ``Y4K_DOY`` (``YY <=
+35`` -> 20YY, else 19YY). ``read_wth`` does the same, with the first record's century by the
+``Y4K_DOY`` rule unless ``century=`` gives it (e.g. ``19`` for a 1930 file).
 
 Field splitting. Values are split by the header positions (:mod:`._fixed`), which also reads
 values that overrun their header token by a column and six-column values that touch
@@ -53,16 +56,61 @@ _SITE_WIDTH = {"INSI": 6, "LAT": 9, "LONG": 9}
 _DEC = re.compile(r"^[+-]?\d*\.(\d*)$")
 
 
-def parse_dssat_date(code: str | int) -> date:
-    """``YYDDD`` / ``YYYYDDD`` -> ``datetime.date`` (Y2K rule of DSSAT ``Y2K_DOY``)."""
+#: two-digit years up to this one are 20YY in DSSAT 4.8 (``CROVER`` of ``Y4K_DOY``)
+Y4K_CROSSOVER = 35
+
+
+def parse_dssat_date(code: str | int, *, first_weather: date | str | int | None = None) -> date:
+    """``YYDDD`` / ``YYYYDDD`` -> ``datetime.date`` as DSSAT 4.8 ``Y4K_DOY`` (``DATES.for``).
+
+    A ``YYDDD`` code is 20YY when ``YY <= 35``, else 19YY. With ``first_weather`` (the first date
+    of a ``YYYYDDD`` weather file, which DSSAT keeps as ``FirstWeatherDate``), a ``YYDDD`` code is
+    instead the first date on or after ``first_weather`` with those last two year digits, as
+    DSSAT does for FileX and observed dates when the weather file has four-digit years.
+    ``YYYYDDD`` codes are taken as written.
+    """
     s = str(code).strip()
     if len(s) <= 5:
         v = int(s)
         yy, doy = divmod(v, 1000)
-        year = 2000 + yy if yy <= 40 else 1900 + yy
+        if first_weather is not None:
+            fw = first_weather if isinstance(first_weather, date) else parse_dssat_date(first_weather)
+            first = fw.year * 1000 + fw.timetuple().tm_yday
+            full = (first // 100000) * 100000 + v
+            if full < first:
+                full = ((first + 99000) // 100000) * 100000 + v
+            year, doy = divmod(full, 1000)
+        else:
+            year = 2000 + yy if yy <= Y4K_CROSSOVER else 1900 + yy
     else:
         year, doy = int(s[:-3]), int(s[-3:])
     return date(year, 1, 1) + timedelta(days=doy - 1)
+
+
+def _weather_dates(codes: list[str], century: int | None) -> list[date]:
+    """Dates of the weather records as DSSAT 4.8 ``Y2K_DOYW``: ``YYDDD`` records take the current
+    century (first record: ``century`` or the ``Y4K_DOY`` rule), which advances by one after a
+    year ``xx99``; a ``YYYYDDD`` record sets the century."""
+    out: list[date] = []
+    cent = century
+    prev_year: int | None = None
+    for c in codes:
+        s = c.strip()
+        if len(s) > 5:
+            d = parse_dssat_date(s)
+            cent = d.year // 100
+        else:
+            yy, doy = divmod(int(s), 1000)
+            if cent is None:
+                cent = parse_dssat_date(s).year // 100
+            year = cent * 100 + yy
+            if prev_year is not None and year < prev_year and prev_year % 100 == 99:
+                cent += 1
+                year = cent * 100 + yy
+            d = date(year, 1, 1) + timedelta(days=doy - 1)
+        prev_year = d.year
+        out.append(d)
+    return out
 
 
 def _site_value(raw: str) -> Any:
@@ -105,11 +153,12 @@ def _field_values(
     return vals, raws
 
 
-def read_wth(path: str | Path, *, dssat_spans: bool = False) -> pd.DataFrame:
+def read_wth(path: str | Path, *, dssat_spans: bool = False, century: int | None = None) -> pd.DataFrame:
     """Read a ``.WTH`` file into a daily DataFrame (see module docstring).
 
     ``dssat_spans=True`` splits every field exactly as DSSAT 4.8 does (``PARSE_HEADERS`` spans,
-    list-directed read), so the values are the ones ``dscsm048`` simulates with.
+    list-directed read), so the values are the ones ``dscsm048`` simulates with. ``century``
+    (e.g. ``19``) is the century of the first ``YYDDD`` record; by default ``YY <= 35`` is 20YY.
     """
     lines = read_lines(path)
     title = next((ln for ln in lines if ln.startswith(("*", "$"))), "")
@@ -159,7 +208,7 @@ def read_wth(path: str | Path, *, dssat_spans: bool = False) -> pd.DataFrame:
     cols = [c.lower() for c in names[1:]]
     data = np.array(rows, dtype=float).reshape(len(rows), len(cols))
     df = pd.DataFrame(data, columns=pd.Index(cols))
-    df.insert(0, "date", pd.to_datetime([parse_dssat_date(c) for c in dates]))
+    df.insert(0, "date", pd.to_datetime(_weather_dates(dates, century)))
     df.attrs["site"] = site
     df.attrs["site_text"] = site_raw
     df.attrs["title"] = title
@@ -214,7 +263,8 @@ def write_wth(
     ``12.35`` stays ``12.35``, ``8.4`` stays ``8.4`` and ``0.00`` stays ``0.00``
     (:func:`_wth_cell`); NaN -> ``-99``.
     Dates as ``YYDDD`` unless ``four_digit_year`` (default: ``df.attrs["four_digit_year"]``, or
-    ``YYYYDDD`` when a year falls outside 1941-2040, which ``YYDDD`` cannot express). A
+    ``YYYYDDD`` when a year falls outside 1936-2035, where DSSAT's ``YYDDD`` start dates cannot
+    point). A
     ``YYYYDDD`` file gets a ``$WEATHER`` title line (``*WEATHER`` otherwise): DSSAT 4.8 reads
     seven-digit dates only when that keyword is present, else it takes ``2002303`` as ``20023``.
     """
@@ -226,7 +276,7 @@ def write_wth(
     dates = pd.to_datetime(df["date"])
     if four_digit_year is None:
         four_digit_year = bool(df.attrs.get("four_digit_year", False)) or bool(
-            len(dates) and ((dates.dt.year < 1941).any() or (dates.dt.year > 2040).any())
+            len(dates) and ((dates.dt.year < 1936).any() or (dates.dt.year > 2035).any())
         )
     # DSSAT 4.8 reads YYYYDDD dates only from a file whose header holds "$WEATHER"
     # (MAKEFILEW.f90); otherwise it reads the first five columns as YYDDD

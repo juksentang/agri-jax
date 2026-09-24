@@ -1,7 +1,9 @@
 """Throughput skeleton for Agri-JAX: NOT a real model, but the same computational shape as the PoC
 (RZWQM Richards + S-W PET + CERES-Maize, CA-TPA 2015-2023 = 3287 days).
 Per day: PET (~60 elementwise transcendental ops), crop step (~80 ops with jnp.where branches),
-24 sub-steps x 3 Newton iterations of an implicit 37-node Richards step with a dense 37x37 solve.
+24 sub-steps x 3 Newton iterations of an implicit 37-node Richards step with a tridiagonal (default) or dense 37x37 solve.
+Sign convention: z and fluxes positive downward, Darcy q = -K (dh/dz - 1); mixed (theta) form residual. The "Newton"
+iteration is exact in theta but lags K (dK/dh omitted from the Jacobian), i.e. modified Picard (Celia et al. 1990).
 Usage: python bench_skeleton.py --n 1000 10000 [--days 3287] [--sub 24] [--newton 3] [--grad 1] [--check 1]
 Numerical guards (see poc/README.md, "NaN gradients"): the Newton update is clamped to [H_MIN, H_MAX], the top
 boundary flux is signed positive downward with supply-limited evaporation, and gravity drains downward.
@@ -83,7 +85,6 @@ def day_step(state, f):
     return (h_n, lai_n, stage_n, biom_n, root_n), jnp.stack([aet, lai_n, sw, biom_n]).astype(jnp.float32)
 
 def run(params, forcing):
-    p0 = {**params, "p": params}
     state0 = (jnp.full(NN, -200.0), 0.0, 0.0, 0.0, 5.0)
     fin = {k: forcing[k] for k in ("t", "rh", "rad", "u", "rain", "sow", "harv")}
     step = lambda s, f: day_step(s, {**f, "p": params})

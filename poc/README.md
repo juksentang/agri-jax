@@ -90,6 +90,20 @@ clamp is (almost) never active: after the fix the final heads lie in [-110, -13]
 
 Timing is unchanged by the fix (job 21688397 before the fix: 1.85 s forward, 15.6 s gradient at n = 1000).
 
+**Review of the fix (2026-09-24).** Signs re-derived from the mixed-form Richards equation with z and q positive
+downward, `d theta/dt = -dq/dz - S`, `q = -K (dh/dz - 1)`: the interface flux, the residual
+`(theta(h) - theta_old)/DT + (q_out - q_in)/dz + S`, the top flux (`+` = into the soil), the free-drainage bottom
+`q = K(h_N)` and the tridiagonal entries (off-diagonals `-K_{i+1/2}/dz^2`, diagonal `C/DT +` their negated sum) all
+agree; the tridiagonal matrix equals `jax.jacfwd` of the residual with K held fixed to 1e-17. The iteration is
+Newton in theta but lags K (the `dK/dh` part of the Jacobian, about 10 % of its largest entry on a test profile, is
+left out), i.e. modified Picard as in RZWQM2. The `[H_MIN, H_MAX]` clamp was never active on 256 samples × 365 days
+(12×2 and 24×3). The unconverged iteration is not mass-conservative: summed `|storage change - net flux|` per sample
+over 365 days is 0.045 cm median, 0.17 cm max at 12×2, and 4e-5 / 4e-4 cm at 24×3. The formulas assume a uniform
+grid (`dz[:-1]` doubles as the node spacing and `dz[:-1] * dz[1:]` in the Jacobian); a non-uniform grid needs the
+node spacing and the cell thickness kept apart. Known and left as is, because `exp_inference.py` carries the same
+physics and the published measurements were taken on it: the daily `aet` output adds the *potential* soil
+evaporation `pe`, not the supply-limited flux applied at the surface.
+
 **Lesson for the real model** (doc 05, lint rule AJ003): a finite forward output is not evidence of a finite
 forward *state*; guard `jnp.where` branches on the state variable itself, bound every implicit iterate, and
 bisect NaN gradients by truncating the forcing, never by masking the loss.

@@ -401,8 +401,12 @@ def test_every_example_wth_roundtrips(shard: str, tmp_path: Path) -> None:
 @pytest.mark.allow_skip(reason="needs the DSSAT example tree; CI has none")
 @pytest.mark.parametrize("sol", _SOL_FILES, ids=lambda p: p.name)
 def test_every_example_sol_roundtrips(sol: Path, tmp_path: Path) -> None:
-    a = read_sol(sol)
-    b = read_sol(write_sol(a, tmp_path / "x.SOL"))
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # CN.SOL / ET.SOL tables with other SLB
+        a = read_sol(sol)
+        b = read_sol(write_sol(a, tmp_path / "x.SOL"))
     assert list(a) == list(b) and len(a) >= 1
     for k, p in a.items():
         q = b[k]
@@ -413,6 +417,72 @@ def test_every_example_sol_roundtrips(sol: Path, tmp_path: Path) -> None:
             w = q.site.get(key)
             assert v == w or (isinstance(v, float) and math.isnan(v) and math.isnan(w)), (k, key)
         pd.testing.assert_frame_equal(p.layers, q.layers, check_exact=True, obj=f"{sol.name}:{k}")
+
+
+def _dssat_layer_tables(path: Path) -> dict[str, list[tuple[list[str], list[list[float]]]]]:
+    """Per profile, the layer tables (``@  SLB`` headers) as DSSAT reads them: header names and,
+    per data line, ``_dssat_rule`` values of fields 2..n. Header cut at ``!`` (``PARSE_HEADERS``),
+    blank and ``!`` lines skipped (``IGNORE3``)."""
+    out: dict[str, list[tuple[list[str], list[list[float]]]]] = {}
+    pid: str | None = None
+    table: tuple[list[str], list[list[float]]] | None = None
+    header = ""
+    for ln in read_lines(path):
+        if ln.startswith("*"):
+            pid = None if ln.upper().startswith("*SOILS") else ln[1:11].strip()
+            if pid is not None:
+                out[pid] = []
+            table = None
+            continue
+        if pid is None:
+            continue
+        if ln.startswith("@"):
+            bang = ln.find("!", 1)
+            header = ln[:bang] if bang > 0 else ln
+            names = [t.rstrip(".") for t in header[1:].split()]
+            table = (names, []) if names[:1] == ["SLB"] else None
+            if table is not None:
+                out[pid].append(table)
+            continue
+        if table is not None and ln.strip() and not ln.startswith("!"):
+            table[1].append(_dssat_rule(header, ln))
+    return out
+
+
+def _assert_layers_are_dssat_reading(layers: pd.DataFrame, tables: list, what: str) -> None:
+    """Every numeric layer value (not SLMH, not SLB) equals DSSAT's reading, tables by row."""
+    seen: set[str] = set()
+    for names, rows in tables:
+        for j, name in enumerate(names[1:]):
+            if name in seen or name == "SLMH" or name not in layers.columns:
+                continue
+            got = layers[name].to_numpy(dtype=float)[: len(rows)]
+            want = np.array([r[j] for r in rows], dtype=float)
+            ok = (got == want) | (np.isnan(got) & np.isnan(want))
+            assert ok.all(), (what, name, got[~ok][:3], want[~ok][:3])
+        seen.update(names)
+
+
+@pytest.mark.slow
+@pytest.mark.allow_skip(reason="needs the DSSAT example tree; CI has none")
+@pytest.mark.parametrize("sol", _SOL_FILES, ids=lambda p: p.name)
+def test_every_example_sol_dssat_reading(sol: Path, tmp_path: Path) -> None:
+    """``read_sol(dssat_spans=True)`` of every example profile equals DSSAT's reading rule
+    (re-implemented above); and DSSAT's rule on the file ``write_sol`` writes gives back the values
+    the default reader read (a written value never touches its left neighbour)."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # CN.SOL / ET.SOL tables with other SLB
+        exact = read_sol(sol, dssat_spans=True)
+        a = read_sol(sol)
+    src = _dssat_layer_tables(sol)
+    for k, p in exact.items():
+        _assert_layers_are_dssat_reading(p.layers, src[k], f"{sol.name}:{k}")
+    written = write_sol(a, tmp_path / "x.SOL")
+    back = _dssat_layer_tables(written)
+    for k, p in a.items():
+        _assert_layers_are_dssat_reading(p.layers, back[k], f"written {sol.name}:{k}")
 
 
 #: sugarcane ecotype file of key/value lines, not a table (read_eco does not apply)

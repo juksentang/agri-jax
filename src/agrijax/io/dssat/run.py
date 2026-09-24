@@ -66,7 +66,7 @@ def _soil_ids(filex_text: str) -> list[str]:
         if line.startswith("@"):
             col = line.find("ID_SOIL") if "ID_SOIL" in line else None
             continue
-        if col is not None and line.strip():
+        if col is not None and line.strip() and not line.lstrip().startswith("!"):
             sid = line[col : col + 10].strip()
             if sid and sid != "-99":
                 ids.append(sid)

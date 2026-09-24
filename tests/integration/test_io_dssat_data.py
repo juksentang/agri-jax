@@ -99,6 +99,7 @@ def test_read_sol_ibmz910014(tmp_path: Path) -> None:
     assert (lay["SLLL"] < lay["SDUL"]).all() and (lay["SDUL"] < lay["SSAT"]).all()
 
 
+@pytest.mark.filterwarnings("ignore:.*pairs the tables by row:UserWarning")  # CN.SOL, ET.SOL
 def test_write_sol_roundtrip_all_examples(tmp_path: Path) -> None:
     files = sorted((_need(DSSAT_ENGINE / "example_data" / "Soil")).glob("*.SOL"))
     n = 0

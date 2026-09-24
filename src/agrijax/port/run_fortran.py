@@ -6,8 +6,9 @@ It implements the verified local recipes without any shell script:
 RZWQM2 (:func:`run_rzwqm`)
     1. Stage the scenario directory plus ``RZWQM_Tool/DSSAT/*`` into a run directory
        ``<run_root>/rXXXXXXXX`` whose absolute path is at most :data:`MAX_RZWQM_RUN_DIR_LEN`
-       (45) characters: the Fortran reads fixed-width 80-character path records, and the
-       Cropsim-CERES ecotype path ``<rundir>/DSSAT/WHCER040.ECO`` must fit ``CHARACTER*64``.
+       (45) characters: the Cropsim-CERES ecotype path ``<rundir>/DSSAT/WHCER040.ECO`` must fit
+       ``CHARACTER*64``. Staged path records are also kept below 80 characters (a conservative
+       limit: RZWQM2 reads ``IPNAMES.DAT`` and the ``*.RZX`` database paths as ``A255``).
     2. Rewrite lines 1-8 of ``IPNAMES.DAT`` to absolute paths inside the run directory and,
        optionally, the simulation date line (line 9, ``DD MM YYYY DD MM YYYY``).
     3. Rewrite the two paths of the ``= DATABASE FILE LOCATIONS`` block of every ``*.RZX``
@@ -18,14 +19,18 @@ RZWQM2 (:func:`run_rzwqm`)
        (the cvmfs loader of the Alliance clusters) does not exist on this machine, with
        ``FORT_BUFFERED=TRUE``; stdout/stderr go to ``run.log``.
     6. :func:`check_rzwqm_outputs`: the binary exits 0 after a Fortran ``STOP``, so the run
-       fails unless ``run.log`` has no STOP marker and the ``.ana`` covers the whole period.
+       fails unless ``run.log`` has no fatal-error marker and the ``.ana`` covers the whole
+       period (the row count is the complete guard; most STOPs print nothing distinctive).
     7. Copy the kept files (``*.ana``, ``OVERVIEW.OUT`` and ``run.log``) to ``out_dir``.
 
 DSSAT-CSM (:func:`run_dscsm`)
     The run-dir staging pattern of ``AFSoil/.../0205_Run_DSSAT/01_run_all.py``
     (``setup_run_dir``): experiment files, engine ``*.CDE``/``DSCSM048.CTR``/``MODEL.ERR``/
     ``DSSATPRO.*``, ``StandardData`` and ``Genotype``, soil and weather files, and the
-    ``DSSATPRO.v48`` paths rewritten from ``C:\\DSSAT48`` to the run directory.
+    ``DSSATPRO.v48`` paths rewritten from ``C:\\DSSAT48`` to the run directory. ``*.OUT`` files of
+    ``exp_dir`` are not staged. :func:`check_dscsm_outputs` then rejects runs that exited 0 but
+    stopped or ended a season early (``STOP`` / ``ERROR.OUT`` / WARNING.OUT termination messages /
+    treatments missing from ``Summary.OUT``).
 
 CLI::
 
@@ -51,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = [
+    "DSCSM_STOP_MARKERS",
     "DSSAT_ENGINE",
     "MAX_RZWQM_RUN_DIR_LEN",
     "RUN_ROOT",
@@ -59,6 +65,7 @@ __all__ = [
     "DscsmResult",
     "FortranRunError",
     "RzwqmResult",
+    "check_dscsm_outputs",
     "check_rzwqm_outputs",
     "elf_interpreter",
     "parse_overview_yields",
@@ -89,9 +96,48 @@ MAX_PATH_LEN = 79
 #: longer run dir truncates the name and the model STOPs with exit status 0, so the RZWQM2 run
 #: dir must be at most this long.
 MAX_RZWQM_RUN_DIR_LEN = 64 - len("/DSSAT/") - len("WHCER040.ECO")
-#: ``run.log`` lines (lower case) printed by RZWQM2 / DSSAT40 before a Fortran ``STOP``; the
-#: binary still exits with status 0.
-RZWQM_STOP_MARKERS = ("program will have to stop", "could not find input file")
+#: ``run.log`` text (lower case) that RZWQM2 / DSSAT40 prints only right before a Fortran ``STOP``
+#: (or, for ``-- error -- error --``, before continuing with unread inputs); the binary still exits
+#: with status 0. RZWQM2 4.6 sources: ``program will have to stop`` / ``could not find input file``
+#: (Cropsim-CERES, ``DSSAT40/CSCER/CSUTS040.FOR`` FVCHECK and others); ``end of file reached in
+#: daymet.dat`` (``Rzmain.for`` weather reader); ``fatal error reading brkpnt.dat``
+#: (``Rzday.for``); ``-- error -- error --`` (``Rzmain.for`` IPNAMES opener, ``readrzx.for``);
+#: ``<<< error in dates >>>`` (``Rzmain.for`` period check). Most RZWQM2 STOPs are bare or print
+#: free text, and a normal run itself ends in ``STOP 'check your expdata.dat file ...'``, so the
+#: ``.ana`` row count in :func:`check_rzwqm_outputs` is the complete guard; these markers only
+#: give a clearer error.
+RZWQM_STOP_MARKERS = (
+    "program will have to stop",
+    "could not find input file",
+    "end of file reached in daymet.dat",
+    "fatal error reading brkpnt.dat",
+    "-- error -- error --",
+    "<<< error in dates >>>",
+)
+#: Text (lower case) in dscsm048's ``run.log`` or ``WARNING.OUT`` that means a run stopped or a
+#: season ended early; dscsm048 (gfortran) exits 0 after ``STOP ' '`` / bare ``STOP`` and after
+#: a season cut short by :code:`WeatherError` / :code:`ErrorCode`. DSSAT-CSM v4.8 sources:
+#: ``simulation will end`` (``Weather/IPWTH_alt.for`` WeatherError, ``InputModule/ipexp.for``);
+#: ``will be terminated`` and ``simulations terminated`` (``Utilities/ERROR.for`` ErrorCode and
+#: ERROR); ``simulation ended with error code`` (``CSM_Main/LAND.for``); ``program will stop`` /
+#: ``model will stop`` (WARNING before ERROR or STOP, e.g. ``SPAM/ETPHOT.for``, ``Plant/plant.for``);
+#: ``program will have to stop`` (``Utilities/CSUTS.for``, ``CSREADS.for``, Cropsim / CSCAS);
+#: ``unknown soil type`` (``Soil/SoilUtilities/TextureClass.for``); ``more than nl layers``
+#: (``Soil/SoilUtilities/LMATCH.for``). Crop failure (``Growth program terminated.``) is a model
+#: outcome, not a stop, and is not listed.
+DSCSM_STOP_MARKERS = (
+    "simulation will end",
+    "will be terminated",
+    "simulations terminated",
+    "simulation ended with error code",
+    "program will stop",
+    "model will stop",
+    "program will have to stop",
+    "unknown soil type",
+    "more than nl layers",
+)
+#: gfortran prints ``STOP <code>`` on stderr for a ``STOP`` with a stop code (``STOP ' '``).
+_GFORTRAN_STOP = re.compile(r"^\s*STOP\b", re.MULTILINE)
 _ANA_ROW = re.compile(r"^\s*(\d{4})\.(\d{3})\s")
 #: IPNAMES.DAT lines 1-8 (0-based index -> file role). Line 3 MET, 4 BRK, 7 SNO, 8 .ana.
 _IPNAMES_ROLES = ("cntrl", "rzwqm", "met", "brk", "rzinit", "plgen", "sno", "ana")
@@ -478,6 +524,113 @@ def _rewrite_dssatpro(path: Path, run_dir: Path) -> None:
         path.write_text(text.replace("\\", "/"))
 
 
+def _filex_treatments(path: Path) -> list[int]:
+    """``TRTNO`` of every data line of the ``*TREATMENTS`` section of a FileX.
+
+    Mirrors DSSAT-CSM ``IPEXP`` (``InputModule/ipexp.for``): ``IGNORE`` skips blank, ``!`` and
+    ``@`` lines and ends the section at a line starting ``*`` or ``$``; ``TRTALL`` is the number
+    of lines read, and ``TRTNO`` is format ``I3`` (columns 1-3).
+    """
+    out: list[int] = []
+    inside = False
+    for ln in path.read_text(errors="replace").splitlines():
+        if ln[:1] in ("*", "$"):
+            inside = ln.upper().startswith("*TREATMENTS")
+            continue
+        if not inside or ln[:1] in ("!", "@") or not ln.strip():
+            continue
+        try:
+            out.append(int(ln[:3]))
+        except ValueError:
+            continue
+    return out
+
+
+def _summary_trnos(path: Path) -> list[int]:
+    """``TRNO`` of every data row of a ``Summary.OUT`` (the column after ``RUNNO``)."""
+    out: list[int] = []
+    col: int | None = None
+    for ln in path.read_text(errors="replace").splitlines():
+        if ln.startswith("@"):
+            names = ln[1:].split()
+            col = names.index("TRNO") if "TRNO" in names else None
+            continue
+        if col is None or ln[:1] in ("*", "!") or not ln.strip():
+            continue
+        tok = ln.split()
+        if len(tok) > col and tok[0].isdigit() and tok[col].lstrip("-").isdigit():
+            out.append(int(tok[col]))
+    return out
+
+
+def check_dscsm_outputs(
+    run_dir: str | os.PathLike[str],
+    log: str | os.PathLike[str] | None = None,
+    *,
+    experiment_file: str | None = None,
+    run_mode: str = "A",
+) -> None:
+    """Raise :class:`FortranRunError` unless a dscsm048 run (exit status 0) finished every season.
+
+    dscsm048 exits 0 after ``STOP ' '`` and bare ``STOP`` (e.g. ``InputModule/ipexp.for`` when
+    both weather station and soil are ``-99``, ``Soil/SoilUtilities/LMATCH.for``,
+    ``SPAM/ETPHOT.for``, the Cropsim/CSCAS readers) and when a season is cut short by missing or
+    bad weather (``Weather/IPWTH_alt.for`` ``WeatherError`` in run modes other than F/Q/Y: the run
+    continues, ``Summary.OUT`` gets a row with ``-99`` dates). ``ERROR`` (``Utilities/ERROR.for``)
+    ends in ``STOP 99`` and is caught by the exit status. Checked here:
+
+    * no ``ERROR.OUT`` (written by ``ERROR`` and by the ``CSUTS``/``CSREADS`` stops);
+    * no ``STOP`` line (gfortran's report of ``STOP <code>``) in ``run.log``;
+    * no :data:`DSCSM_STOP_MARKERS` text in ``run.log`` or ``WARNING.OUT``;
+    * ``Summary.OUT`` exists with at least one run and, for ``run_mode="A"`` with the FileX in
+      ``run_dir``, holds every ``TRTNO`` of its ``*TREATMENTS`` section (a mid-season STOP leaves
+      that treatment and all later ones out, since the row is written at season end).
+    """
+    rd = Path(run_dir)
+    lg = Path(log) if log is not None else rd / "run.log"
+    log_text = lg.read_text(errors="replace") if lg.is_file() else ""
+
+    def fail(why: str) -> FortranRunError:
+        return FortranRunError(f"dscsm048 exited 0 but {why}; log tail:\n{_tail(lg)}")
+
+    if (rd / "ERROR.OUT").is_file():
+        err = (rd / "ERROR.OUT").read_text(errors="replace").strip().splitlines()
+        raise fail("wrote ERROR.OUT:\n" + "\n".join(err[-12:]))
+    m = _GFORTRAN_STOP.search(log_text)
+    if m is not None:
+        line = log_text[m.start() :].splitlines()[0].strip()
+        raise fail(f"run.log reports a Fortran STOP ({line!r})")
+    warn = rd / "WARNING.OUT"
+    for name, text in (("run.log", log_text), ("WARNING.OUT", _read_or_empty(warn))):
+        low = text.lower()
+        hit = next((k for k in DSCSM_STOP_MARKERS if k in low), None)
+        if hit is not None:
+            n = low[: low.index(hit)].count("\n")
+            ctx = "\n".join(text.splitlines()[max(0, n - 5) : n + 1])
+            raise fail(f"{name} reports {hit!r}:\n{ctx}")
+    summary = rd / "Summary.OUT"
+    if not summary.is_file():
+        raise fail(f"wrote no Summary.OUT in {rd}")
+    got = _summary_trnos(summary)
+    if not got:
+        raise fail("Summary.OUT has no run rows")
+    if run_mode.upper() == "A" and experiment_file is not None and (rd / experiment_file).is_file():
+        want = _filex_treatments(rd / experiment_file)
+        missing = sorted(set(want) - set(got))
+        if missing or len(got) < len(want):
+            raise fail(
+                f"Summary.OUT has {len(got)} runs (treatments {sorted(set(got))}); "
+                f"{experiment_file} lists {len(want)} treatments, missing {missing} (run stopped early)"
+            )
+
+
+def _read_or_empty(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
 def run_dscsm(
     exp_dir: str | os.PathLike[str],
     out_dir: str | os.PathLike[str] | None = None,
@@ -493,6 +646,7 @@ def run_dscsm(
     timeout: float = 180,
     keep_run_dir: bool = False,
     run_root: str | os.PathLike[str] | None = None,
+    check: bool = True,
 ) -> DscsmResult:
     """Run DSSAT-CSM ``dscsm048 <model> <run_mode> <experiment_file>`` in a staged run dir.
 
@@ -501,7 +655,10 @@ def run_dscsm(
     ``weather_dir`` (default ``<engine>/example_data/Weather``); all ``*.SOL`` from ``soil_dir``
     (default ``<engine>/example_data/Soil``). ``engine`` defaults to
     ``~/AFSoil/Formal_Analysis/02_DSSAT/dssat_engine``. Outputs matching ``keep_files`` go to
-    ``out_dir`` (default ``<exp_dir>/dscsm_out``).
+    ``out_dir`` (default ``<exp_dir>/dscsm_out``). ``*.OUT`` files in ``exp_dir`` (outputs of an
+    earlier run) are not staged. With ``check=True`` (default) :func:`check_dscsm_outputs` must
+    pass; ``check=False`` only requires ``Summary.OUT`` (for runs where a season is expected to be
+    cut short, e.g. weather that ends before the last harvest).
     """
     exp = Path(exp_dir).resolve()
     eng = Path(engine) if engine is not None else DSSAT_ENGINE
@@ -545,7 +702,7 @@ def run_dscsm(
             for f in sdir.glob("*.SOL"):
                 shutil.copy2(f, run_dir / f.name)
         for f in exp.iterdir():
-            if f.is_file():
+            if f.is_file() and f.suffix.upper() != ".OUT" and f.name != "run.log":
                 shutil.copy2(f, run_dir / f.name)
         for f in map(Path, extra_files):
             shutil.copy2(f, run_dir / f.name)
@@ -555,8 +712,9 @@ def run_dscsm(
         log = run_dir / "run.log"
         argv = [*_exec_argv(exe, "dscsm048"), model, run_mode, experiment_file]
         elapsed = _run(argv, run_dir, log, timeout, dict(os.environ), "\n")
-        summary = run_dir / "Summary.OUT"
-        if not summary.is_file():
+        if check:
+            check_dscsm_outputs(run_dir, log, experiment_file=experiment_file, run_mode=run_mode)
+        elif not (run_dir / "Summary.OUT").is_file():
             raise FortranRunError(f"dscsm048 wrote no Summary.OUT in {run_dir}; log tail:\n{_tail(log)}")
         kept = _keep(run_dir, out, [*keep_files, "run.log"])
         ok = True
@@ -603,6 +761,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ds.add_argument("--experiment")
     ds.add_argument("--timeout", type=float, default=180)
     ds.add_argument("--keep-run-dir", action="store_true")
+    ds.add_argument("--no-check", action="store_true", help="skip check_dscsm_outputs")
     a = ap.parse_args(argv)
     try:
         if a.cmd == "rzwqm":
@@ -631,6 +790,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 experiment_file=a.experiment,
                 timeout=a.timeout,
                 keep_run_dir=a.keep_run_dir,
+                check=not a.no_check,
             )
             print(f"ok {d.elapsed_s:.1f} s  summary={d.summary_path}  ({len(d.files)} files)")
     except (FortranRunError, FileNotFoundError, ValueError) as e:

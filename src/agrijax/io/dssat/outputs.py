@@ -117,19 +117,22 @@ def read_evaluate(path: str | Path, **kw: bool) -> pd.DataFrame:
     return read_out(path, **kw)
 
 
-def observed_date(code: int | str, sim_start: int | str | date) -> date:
+def observed_date(
+    code: int | str, sim_start: int | str | date, *, first_weather: date | str | int | None = None
+) -> date:
     """Calendar date of an observed-data date (``ADAT``, ``MDAT`` ... of a ``.MZA`` file).
 
     DSSAT (``READA_Dates`` in ``READS.for``) reads a value below 1000 as a day of year: in the
     year of the simulation start when it is later than the start day of year, else in the next
-    year; ``YYDDD`` / ``YYYYDDD`` values are full dates (:func:`parse_dssat_date`).
+    year; ``YYDDD`` / ``YYYYDDD`` values are full dates through ``Y4K_DOY``
+    (:func:`parse_dssat_date`, with ``first_weather`` when the weather file has four-digit years).
     ``sim_start`` is ``SDAT`` (``YYYYDDD``) or a date.
     """
     v = int(float(code))
     if not 0 < v:
         raise ValueError(f"not an observed date: {code!r}")
     if v >= 1000:
-        return parse_dssat_date(str(v))
+        return parse_dssat_date(str(v), first_weather=first_weather)
     start = sim_start if isinstance(sim_start, date) else parse_dssat_date(str(int(float(sim_start))))
     start_doy = start.timetuple().tm_yday
     year = start.year if v > start_doy else start.year + 1

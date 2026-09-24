@@ -115,3 +115,46 @@ def test_dscsm_ufga8201(tmp_path: Path) -> None:
     assert r.summary_path is not None
     runs = [ln for ln in r.summary_path.read_text().splitlines() if "MZCER048" in ln]
     assert len(runs) >= 1
+
+
+def _ufga8201_exp(tmp_path: Path) -> Path:
+    src = DSSAT_ENGINE / "example_data" / "Maize"
+    if not (DSSAT_ENGINE / "bin" / "dscsm048").is_file() or not (src / "UFGA8201.MZX").is_file():
+        pytest.skip("DSSAT engine / UFGA8201 example not found")
+    exp = tmp_path / "exp"
+    exp.mkdir()
+    for f in src.glob("UFGA8201.MZ*"):
+        (exp / f.name).write_bytes(f.read_bytes())
+    return exp
+
+
+def test_dscsm_truncated_weather_is_detected(tmp_path: Path) -> None:
+    """Weather ending on 1982-119 cuts every season short; dscsm048 still exits 0 with 6 rows.
+
+    ``Weather/IPWTH_alt.for`` ``WeatherError`` writes "Simulation will end." to WARNING.OUT and the
+    run continues (run mode A); :func:`check_dscsm_outputs` must reject it, ``check=False`` not.
+    """
+    from agrijax.port.run_fortran import FortranRunError
+
+    exp = _ufga8201_exp(tmp_path)
+    wth = DSSAT_ENGINE / "example_data" / "Weather" / "UFGA8201.WTH"
+    if not wth.is_file():
+        pytest.skip("UFGA8201.WTH not found")
+    keep = [ln for ln in wth.read_text().splitlines() if not re.match(r"^82(1[2-9]\d|[23]\d\d)\s", ln)]
+    (exp / "UFGA8201.WTH").write_text("\n".join(keep) + "\n")  # exp_dir files override the engine's
+    with pytest.raises(FortranRunError, match="simulation will end") as ei:
+        run_dscsm(exp, tmp_path / "out", experiment_file="UFGA8201.MZX")
+    assert ei.value.run_dir is not None
+    shutil.rmtree(ei.value.run_dir)
+    r = run_dscsm(exp, tmp_path / "out2", experiment_file="UFGA8201.MZX", check=False)
+    assert r.summary_path is not None
+
+
+def test_dscsm_stale_outputs_not_staged(tmp_path: Path) -> None:
+    """``*.OUT`` left in ``exp_dir`` by an earlier run must not reach the run dir."""
+    exp = _ufga8201_exp(tmp_path)
+    (exp / "ERROR.OUT").write_text("*RUN-TIME ERRORS OUTPUT FILE\n stale\n")
+    (exp / "Summary.OUT").write_text("stale\n")
+    r = run_dscsm(exp, tmp_path / "out", experiment_file="UFGA8201.MZX")
+    assert r.summary_path is not None and "stale" not in r.summary_path.read_text()
+    assert not (tmp_path / "out" / "ERROR.OUT").exists()
