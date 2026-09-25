@@ -68,22 +68,17 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[2]
 #: identity of the current snapshot (file ``baseline_<id>.npz``)
 BASELINE_ID = "a3_eop_trwup"
-#: the commit the snapshot was generated on (plus the uncommitted A2-A4 / A7 working tree)
+#: the commit the snapshot was generated on (HEAD at it and ``src/`` clean; the generator refuses otherwise)
 #:
-#: Bookkeeping of the current snapshot: ``a3_eop_trwup`` was written with ``--force`` on top of
-#: ``fca3ec8`` while the plan 19 M3 minimal set (A1-A12) was still uncommitted, so its manifest
-#: records ``git_hash = "fca3ec8"``, ``git_head = 5621696`` (a docs-only commit on top of
-#: ``fca3ec8``; ``src/`` is the same in both) and ``src_dirty = true``. The snapshot is kept as it is (the
-#: tests compare to it at 1e-12 and pass). After the M3 work is committed (commit ``X``) it is
-#: regenerated clean: (1) with HEAD at ``X`` and ``src/`` clean, set ``BASELINE_COMMIT = "X"``
-#: here (a change under ``tests/`` only, which the guard does not look at); (2) run
-#: ``uv run python tests/integration/ceres_baseline.py`` without ``--force`` (it refuses unless
-#: HEAD starts with ``BASELINE_COMMIT`` and ``git status -- src`` is empty), which writes
-#: ``src_dirty = false``; (3) run ``tests/integration/test_ceres_baseline.py --runslow`` against the
-#: new file, then commit the one-line change of step (1). The id stays ``a3_eop_trwup`` when the
-#: arrays are unchanged (only the provenance is new); a changed model gets a new id and a
+#: Bookkeeping: ``a3_eop_trwup`` was first written with ``--force`` on ``fca3ec8`` while the plan 19
+#: M3 minimal set was uncommitted (``src_dirty = true``). It was regenerated clean on ``f0f91d6``
+#: (coefficient labels; ``src_dirty = false``) with every one of the 15088 arrays byte-identical to
+#: that first snapshot. To regenerate after a model change: with HEAD at the new commit and ``src/``
+#: clean, set ``BASELINE_COMMIT`` here (a change under ``tests/`` only), run
+#: ``python tests/integration/ceres_baseline.py`` (without ``--force``), then
+#: ``tests/integration/test_ceres_baseline.py --runslow``; a changed model gets a new id and a
 #: :data:`HISTORY` entry.
-BASELINE_COMMIT = "fca3ec8"
+BASELINE_COMMIT = "f0f91d6"
 SNAPSHOT_NAME = f"baseline_{BASELINE_ID}.npz"
 MANIFEST_KEY = "__manifest__"
 #: why each snapshot was (re)generated, oldest first
