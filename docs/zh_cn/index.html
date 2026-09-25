@@ -202,11 +202,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
   <section class="intro" id="a0">
     <p class="lead">田块尺度的作物–土壤模型，写成可微分、可批量的形式。全页只有一张图：一个矩阵，行是田块，列是天。</p>
     <table class="spec">
-      <tr><td class="k">10⁵ 次九年模拟<small>集群实跑 → 计算骨架</small></td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">82 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
+      <tr><td class="k">10⁵ 次九年模拟<small>集群实跑 → 计算骨架，24×3</small></td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">243 s</span> <small>（12×2：82 s）</small></td><td class="g"><span class="tag real">实测</span></td></tr>
       <tr><td class="k">全参数梯度，每万样本</td><td class="v"><span class="v2">56 s</span></td><td class="g"><span class="tag real">实测</span></td></tr>
       <tr><td class="k">潜在蒸发，对参考模型</td><td class="v">0.02 <small>mm/d</small></td><td class="g"><span class="tag real">实测</span></td></tr>
     </table>
-    <p class="hint">≈10 h：RZWQM2 在集群上的批量实跑（每节点 8 任务的作业阵列，含排队与读写）。82 s：计算骨架，与模型逐日计算形状相同，单张 H100；整模型仍在验证中。</p>
+    <p class="hint">≈10 h：RZWQM2 在集群上的批量实跑（每节点 8 任务的作业阵列，含排队与读写）。243 s：计算骨架（24 子步 × 3 迭代），与模型逐日计算形状相同，单张 H100；12×2 为 82 s。在真实 Richards 上两者都不能保证 M1 精度（CA-TPA 2015–2023 逐年对照：24×3 有 4 年超出，12×2 大多超出），自适应步数开发中；整模型仍在验证中。</p>
     <p class="hint">往下滚动，矩阵随之变化；也可以用图下的按钮逐帧播放。</p>
   </section>
 
@@ -217,7 +217,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="0"><span class="i">1.1</span><span>逐行填：以 32 核工作站为例，一个核一次只跑一块田，32 个核同时开工，屏幕时间等于估算时间</span><i class="pg"></i></li>
       <li class="step" data-f="1"><span class="i">1.2</span><span>加速到跑完：32 核工作站按每次 24 秒估算需 20.8 小时，磁盘上堆到 80 GB、990 万个文件</span><i class="pg"></i></li>
       <li class="step" data-f="2"><span class="i">1.3</span><span>换走法：整列同亮，每一步全部田块前进一天，显存 8 GB，磁盘写入 0</span><i class="pg"></i></li>
-      <li class="step" data-f="3"><span class="i">1.4</span><span>列扫到底：3287 天，实测 82 秒（计算骨架）</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">1.4</span><span>列扫到底：3287 天，实测 243 秒（计算骨架，24×3）</span><i class="pg"></i></li>
     </ol>
     <p class="note">同一个矩阵、同一比例尺，只是走法不同。Fortran 时钟为 32 核工作站估算（每次 24 秒），集群上的批量实跑约 10 h（每节点 8 任务阵列，含排队与读写）；JAX 时钟（计算骨架）、磁盘、显存为实测；格子颜色为示意。</p>
   </section>
@@ -291,7 +291,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
     <thead><tr><th>指标</th><th class="num">数值</th><th>条件</th><th>性质</th></tr></thead>
     <tbody>
       <tr><td>10⁵ 次九年模拟，24 子步 × 3 迭代，float64</td><td class="num">243 s</td><td class="c">1 × H100，计算骨架</td><td><span class="tag real">实测</span></td></tr>
-      <tr><td>同上，12 × 2</td><td class="num">82 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
+      <tr><td>同上，12 × 2（真实 Richards 上不过 M1）</td><td class="num">82 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>同上，float32，24 × 3</td><td class="num">101 s</td><td class="c">同上</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>float32 对 float64，九年累计蒸散</td><td class="num">4×10⁻⁸</td><td class="c">相对差中位数，1000 组参数，H100 与 CPU 一致；梯度 6×10⁻⁷</td><td><span class="tag real">实测</span></td></tr>
       <tr><td>10⁶ 次，12 × 2</td><td class="num">14 min</td><td class="c">5 块 × 2×10⁵，单卡</td><td><span class="tag real">实测</span></td></tr>
@@ -341,7 +341,7 @@ function grid(fillFn,alpha=1,G=M){ const w=G.w/COLS,h=G.h/ROWS; ctx.globalAlpha=
 function head(left,cls,right){ T(left,M.x,40,{c:cls||'ink b'}); T(right||'行 = 田块 · 列 = 天',M.x+M.w,40,{a:'right',c:'s'}); }
 function readouts(items){ const y0=M.y+M.h+46; items.forEach((it,i)=>{ const x=M.x+i*225; T(it[0],x,y0,{c:'s'}); T(it[1],x,y0+38,{c:'ink b xl mono'}); if(it[2]) T(it[2],x,y0+64,{c:'xs'}); }); }
 /* ---------- constants (measured on the skeleton) ---------- */
-const FORT_H=20.8, JAX_S=82, DAYS=3287, N=100000, FILES=99*N, GB=80;
+const FORT_H=20.8, JAX_S=243, DAYS=3287, N=100000, FILES=99*N, GB=80;
 const seeds=new Float32Array(ROWS*COLS); { let a=7; for(let i=0;i<seeds.length;i++){ a=(a*1103515245+12345)&0x7fffffff; seeds[i]=0.6+0.4*(a/0x7fffffff);} }
 function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function mix(a,b,t){ const A=hexToRgb(a),B=hexToRgb(b); return `rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`; }
@@ -437,7 +437,7 @@ function drawLap(q,Z){ const c=C(), pw=400, px=60, py=74; const Po=lossPanel(px,
   T(Z.lRes,px,544,{c:'ink s b'}); T(Z.lWhy,px,574,{c:'s'}); T(Z.lCav,px,604,{c:'xs'}); T(Z.lCav2,px,628,{c:'xs'}); }
 const Z4={lhsT:'拉丁超立方撒点', gdT:'梯度下降', nPts:k=>`已撒 ${k} 个点`, lhsSub:'每个点一次前向，点与点之间不共享信息', best:'红圈：最好的点只是离谷底最近的那个样本',
   steps:k=>`第 ${k} 步`, gdSub:'每步 1 次前向 + 1 次反向，沿坡往下走', multi:'从每个象限最好的撒点出发：4 行矩阵同时下降', min:'谷底',
-  fort:'Fortran：只能撒点或做有限差分，每个点 24 s，逐个排队', jax:'Agri-JAX：撒点和下降都成批', jax2:'10⁵ 个撒点一次跑完（计算骨架实测 82 s），再从最好的点出发，多条路径同时下降',
+  fort:'Fortran：只能撒点或做有限差分，每个点 24 s，逐个排队', jax:'Agri-JAX：撒点和下降都成批', jax2:'10⁵ 个撒点一次跑完（计算骨架实测 243 s，24×3），再从最好的点出发，多条路径同时下降',
   post:'等高线 = 后验', qLab:'紫色椭圆 = q(θ)', stepN:k=>`第 ${k} 步`, evals:n=>`已评估 ${n} 组参数`, batch:'每步从 q 抽 1000 组参数，一次批量前向 + 反向', stepAxis:'步数 →',
   res:'SVI：让分布 q 去贴后验，得到的是均值、方差和参数间的相关', why:'样本越多梯度噪声越小；GPU 吃满之前，每步多抽样本几乎不加墙钟', caveat:'实测（骨架）：弱可辨识参数的标准差低估 2.6–4 倍；加样本也去不掉这个偏差，替代办法见下一帧',
   recipe:'笔记本上的低配流程', steps4:['MAP + Hessian：约 100 次梯度','标准差 ×2（协方差 ×4）作建议分布','4000 次前向，一批跑完','PSIS 权重，重采样'],
@@ -467,7 +467,7 @@ const ACTS=[
       const BLOCK=3; const cols=f===2? Math.floor(ease(p)*COLS/BLOCK)*BLOCK : COLS; const day=Math.round(cols/COLS*DAYS); const q=cols/COLS;
       grid((r,cc)=> cc<cols? laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal) : c.cell);
       if(cols<COLS){ R(M.x+cols*cw,M.y-4,BLOCK*cw,M.h+8,'none',{stroke:c.ink,sw:2}); }
-      readouts([['真实时间（共 82 s）',(q*JAX_S).toFixed(0)+' s','屏幕加速 ×12'],['模拟日（共 3287）',String(day),f===2?'屏幕每步 +'+(BLOCK/COLS*DAYS|0)+' 天':'全部完成'],['GPU 显存','8 GB','共 80 GB，全程不变'],['磁盘写入',f===3?'几 MB':'0 GB',f===3?'结束时落盘一次':'全程不落盘']]);
+      readouts([['真实时间（共 243 s）',(q*JAX_S).toFixed(0)+' s','屏幕加速 ×36'],['模拟日（共 3287）',String(day),f===2?'屏幕每步 +'+(BLOCK/COLS*DAYS|0)+' 天':'全部完成'],['GPU 显存','8 GB','共 80 GB，全程不变'],['磁盘写入',f===3?'几 MB':'0 GB',f===3?'结束时落盘一次':'全程不落盘']]);
     } } },
 /* ===== 2 why the loop order can be swapped ===== */
 { name:'为什么可以', frames:[{dur:3,text:'行内依赖'},{dur:3,text:'行间无关'},{dur:3,text:'交换循环'},{dur:1.5,text:'一条指令'}], real:'', ill:'格子、箭头',

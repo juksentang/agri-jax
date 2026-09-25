@@ -194,11 +194,11 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
   <section class="intro" id="a0">
     <p class="lead">Field-scale crop–soil models, written in a differentiable, batchable form. The page has a single figure: a matrix whose rows are fields and whose columns are days.</p>
     <table class="spec">
-      <tr><td class="k">10⁵ nine-year simulations<small>cluster batch → skeleton</small></td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">82 s</span></td><td class="g"><span class="tag real">measured</span></td></tr>
+      <tr><td class="k">10⁵ nine-year simulations<small>cluster batch → skeleton, 24×3</small></td><td class="v"><span class="r">≈10 h</span> <small>→</small> <span class="t">243 s</span> <small>(12×2: 82 s)</small></td><td class="g"><span class="tag real">measured</span></td></tr>
       <tr><td class="k">Full-parameter gradient, per 10⁴ samples</td><td class="v"><span class="v2">56 s</span></td><td class="g"><span class="tag real">measured</span></td></tr>
       <tr><td class="k">Potential evaporation vs. reference model</td><td class="v">0.02 <small>mm/d</small></td><td class="g"><span class="tag real">measured</span></td></tr>
     </table>
-    <p class="hint">≈10 h: RZWQM2 run as a cluster batch (job array, 8 tasks per node, including queueing and I/O). 82 s: the computational skeleton, which has the same per-day computational shape as the model, on one H100; the full model is still under validation.</p>
+    <p class="hint">≈10 h: RZWQM2 run as a cluster batch (job array, 8 tasks per node, including queueing and I/O). 243 s: the computational skeleton (24 sub-steps × 3 iterations), which has the same per-day computational shape as the model, on one H100; 12×2 takes 82 s. On the real Richards solver neither guarantees M1 accuracy (CA-TPA 2015–2023 year by year: 24×3 exceeds it in 4 years, 12×2 in most), and adaptive stepping is in development; the full model is still under validation.</p>
     <p class="hint">Scroll down and the matrix changes as you read; or step through the frames with the buttons below the figure.</p>
   </section>
 
@@ -209,7 +209,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
       <li class="step" data-f="0"><span class="i">1.1</span><span>Row by row, taking a 32-core workstation: each core runs one field at a time, 32 cores work in parallel, and screen time equals estimated time</span><i class="pg"></i></li>
       <li class="step" data-f="1"><span class="i">1.2</span><span>Fast-forward to completion: an estimated 20.8 hours on a 32-core workstation at 24 s per run, with 80 GB and 9.9 million files piled up on disk</span><i class="pg"></i></li>
       <li class="step" data-f="2"><span class="i">1.3</span><span>Change the order: a whole column lights up at once and every field advances one day per step; 8 GB of GPU memory, zero bytes written to disk</span><i class="pg"></i></li>
-      <li class="step" data-f="3"><span class="i">1.4</span><span>The column sweeps to the end: 3287 days in a measured 82 seconds (computational skeleton)</span><i class="pg"></i></li>
+      <li class="step" data-f="3"><span class="i">1.4</span><span>The column sweeps to the end: 3287 days in a measured 243 seconds (computational skeleton, 24×3)</span><i class="pg"></i></li>
     </ol>
     <p class="note">The same matrix at the same scale; only the traversal order differs. The Fortran clock is an estimate for a 32-core workstation at 24 s per run; the cluster batch as actually run took about 10 h (job array, 8 tasks per node, including queueing and I/O). The JAX clock (computational skeleton), disk and GPU memory are measured; cell colors are illustrative.</p>
   </section>
@@ -283,7 +283,7 @@ footer{font-size:13px;color:var(--muted);margin-top:24px;line-height:1.8}
     <thead><tr><th>Metric</th><th class="num">Value</th><th>Conditions</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td>10⁵ nine-year simulations, 24 sub-steps × 3 iterations, float64</td><td class="num">243 s</td><td class="c">1 × H100, computational skeleton</td><td><span class="tag real">measured</span></td></tr>
-      <tr><td>Same, 12 × 2</td><td class="num">82 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
+      <tr><td>Same, 12 × 2 (fails M1 on the real Richards solver)</td><td class="num">82 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>Same, float32, 24 × 3</td><td class="num">101 s</td><td class="c">Same</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>float32 vs. float64, nine-year total ET</td><td class="num">4×10⁻⁸</td><td class="c">Median relative difference, 1000 parameter sets, same on H100 and CPU; gradients 6×10⁻⁷</td><td><span class="tag real">measured</span></td></tr>
       <tr><td>10⁶ simulations, 12 × 2</td><td class="num">14 min</td><td class="c">5 batches × 2×10⁵, single GPU</td><td><span class="tag real">measured</span></td></tr>
@@ -317,7 +317,7 @@ const TX={
        fHead:'Fortran · row-wise: 32-core workstation (est.)', fClock:'Est. time (of 20.8 h)', speed:x=>'screen speed-up ×'+x,
        fDone:'Completed (of 100,000)', cpu:'CPU', cores:'32 cores', perCore:'one field per core',
        fDisk:'Disk written (of 80 GB)', files:n=>n+' files',
-       jHead:'Agri-JAX · column-wise: all fields, same day', jClock:'Wall time (of 82 s)', jDay:'Simulated day (of 3287)',
+       jHead:'Agri-JAX · column-wise: all fields, same day', jClock:'Wall time (of 243 s)', jDay:'Simulated day (of 3287)',
        perStep:n=>'screen: +'+n+' days per step', allDone:'all complete', mem:'GPU memory', memSub:'of 80 GB; constant',
        jDisk:'Disk written', fewMB:'a few MB', endOnce:'written once at the end', noDisk:'nothing written to disk' },
   a2:{ name:'Why it works', frames:['Row dependence','Independent rows','Loop swap','One instruction'], ill:'cells, arrows',
@@ -342,7 +342,7 @@ const TX={
   a4:{ name:'Gradients', frames:['Forward','Reverse','Cost','Identifiability','Attribution','Sampling','Chains','SVI','Laplace','Network'], real:'reverse/forward time ratio, 56 s, SVI and Laplace + PSIS timings and intervals', ill:'parameter bars, loss valley, attribution curve, sampling and descent paths, SVI and Laplace animations',
        lhsT:'Latin hypercube sampling', gdT:'Gradient descent', nPts:k=>`${k} points sampled`, lhsSub:'One forward run per point, no shared information', best:'Red ring: best sample, merely the one nearest the floor',
        steps:k=>`step ${k}`, gdSub:'Forward + reverse pass per step, downhill', multi:'Best sample per quadrant: 4 rows at once', min:'minimum',
-       fort:'Fortran: sampling or finite differences only, 24 s per point, queued one by one', jax:'Agri-JAX: both sampling and descent run as batches', jax2:'10⁵ samples in one pass (82 s measured on the skeleton), then parallel descent from the best points',
+       fort:'Fortran: sampling or finite differences only, 24 s per point, queued one by one', jax:'Agri-JAX: both sampling and descent run as batches', jax2:'10⁵ samples in one pass (243 s measured on the skeleton, 24×3), then parallel descent from the best points',
        post:'contours = posterior', qLab:'violet ellipse = q(θ)', stepN:k=>`step ${k}`, evals:n=>`${n} parameter sets evaluated`, batch:'Per step: 1000 draws from q, one batched pass', stepAxis:'steps →',
        res:'SVI: fit a distribution q to the posterior, giving means, variances and parameter correlations', why:'More samples mean less gradient noise; until the GPU is saturated, extra samples cost almost no wall time', caveat:'Measured (skeleton): spreads understated 2.6–4×; more particles do not remove the bias (next frame)',
        recipe:'Low-end recipe on a laptop', steps4:['MAP + Hessian: about 100 gradients','sd ×2 (covariance ×4) as proposal','4000 forward runs in one batch','PSIS weights, then resample'],
@@ -402,7 +402,7 @@ function grid(fillFn,alpha=1,G=M){ const w=G.w/COLS,h=G.h/ROWS; ctx.globalAlpha=
 function head(left,cls,right){ T(left,M.x,40,{c:cls||'ink b'}); T(right||TX.ui.axisRight,M.x+M.w,40,{a:'right',c:'s'}); }
 function readouts(items){ const y0=M.y+M.h+46; items.forEach((it,i)=>{ const x=M.x+i*225; T(it[0],x,y0,{c:'s'}); T(it[1],x,y0+38,{c:'ink b xl mono'}); if(it[2]) T(it[2],x,y0+64,{c:'xs'}); }); }
 /* ---------- constants (measured on the skeleton) ---------- */
-const FORT_H=20.8, JAX_S=82, DAYS=3287, N=100000, FILES=99*N, GB=80;
+const FORT_H=20.8, JAX_S=243, DAYS=3287, N=100000, FILES=99*N, GB=80;
 const seeds=new Float32Array(ROWS*COLS); { let a=7; for(let i=0;i<seeds.length;i++){ a=(a*1103515245+12345)&0x7fffffff; seeds[i]=0.6+0.4*(a/0x7fffffff);} }
 function hexToRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return[(n>>16)&255,(n>>8)&255,n&255];}
 function mix(a,b,t){ const A=hexToRgb(a),B=hexToRgb(b); return `rgb(${Math.round(A[0]+(B[0]-A[0])*t)},${Math.round(A[1]+(B[1]-A[1])*t)},${Math.round(A[2]+(B[2]-A[2])*t)})`; }
@@ -519,7 +519,7 @@ const ACTS=[
       const BLOCK=3; const cols=f===2? Math.floor(ease(p)*COLS/BLOCK)*BLOCK : COLS; const day=Math.round(cols/COLS*DAYS); const q=cols/COLS;
       grid((r,cc)=> cc<cols? laiColor(cc,seeds[r*COLS+cc],c.ts,c.teal) : c.cell);
       if(cols<COLS){ R(M.x+cols*cw,M.y-4,BLOCK*cw,M.h+8,'none',{stroke:c.ink,sw:2}); }
-      readouts([[X1.jClock,(q*JAX_S).toFixed(0)+' s',X1.speed(12)],[X1.jDay,String(day),f===2?X1.perStep(BLOCK/COLS*DAYS|0):X1.allDone],[X1.mem,'8 GB',X1.memSub],[X1.jDisk,f===3?X1.fewMB:'0 GB',f===3?X1.endOnce:X1.noDisk]]);
+      readouts([[X1.jClock,(q*JAX_S).toFixed(0)+' s',X1.speed(36)],[X1.jDay,String(day),f===2?X1.perStep(BLOCK/COLS*DAYS|0):X1.allDone],[X1.mem,'8 GB',X1.memSub],[X1.jDisk,f===3?X1.fewMB:'0 GB',f===3?X1.endOnce:X1.noDisk]]);
     } } },
 /* ===== 2 why the loop order can be swapped ===== */
 { name:X2.name, frames:frames(X2.frames,[3,3,3,1.5]), real:'', ill:X2.ill,
