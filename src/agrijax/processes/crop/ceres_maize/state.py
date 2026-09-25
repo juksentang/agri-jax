@@ -35,6 +35,7 @@ from agrijax.core.state import Forcing, Params, State, field
 from agrijax.processes.soil_water.uptake import CropWaterIn, RootRecord
 
 from .coefficients import DSSAT_COEFFICIENTS, CeresCoefficients
+from .constants import ISTAGE_SOWING, MDATE_NONE, XSTAGE_SEASINIT
 
 __all__ = [
     "NOT_REACHED",
@@ -447,12 +448,12 @@ class CeresMaizeState(State):
         i = jnp.zeros((n_crop,), dtype=jnp.int32)
         fl = jnp.zeros((n_crop, n_layer), dtype=f.dtype)
         phen = CeresPhenologyState(
-            istage=i + 7,
+            istage=i + ISTAGE_SOWING,
             sumdtt=f,
             cumdtt=f,
             dtt=f,
             ndas=f,
-            xstage=f + 0.1,
+            xstage=f + XSTAGE_SEASINIT,
             sind=f,
             p3=f,
             p9=f,
@@ -463,7 +464,7 @@ class CeresMaizeState(State):
             idurp=i,
             seed_layer=i,
             stgdoy=jnp.full((n_crop, N_STAGE_DATES), NOT_REACHED, dtype=jnp.int32),
-            mdate=i - 99,
+            mdate=i + MDATE_NONE,
             crop_status=i,
         )
         stress = CeresStressState(swfac=f + 1.0, turfac=f + 1.0, satfac=f, tss=fl)

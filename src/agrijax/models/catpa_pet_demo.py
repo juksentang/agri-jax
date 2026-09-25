@@ -278,11 +278,19 @@ def _cres(dat_path: Path) -> float:
     raise KeyError("residue block not found")
 
 
+#: residue type of each value of ``CRES`` in the residue block of ``rzwqm.dat`` (the mapping this demo
+#: assumes; any other value falls back to corn). A decoding table, not a model coefficient.
+_RESIDUE_TYPE_BY_CRES: dict[float, str] = {2.0: "corn", 2.5: "soybean", 4.0: "wheat"}
+#: DSSAT soil albedo ``MSALB`` of :class:`PETSiteParams`. Only the Priestley-Taylor path reads it;
+#: this Shuttleworth-Wallace demo never does, so it is a placeholder site input, not a coefficient.
+_MSALB_PLACEHOLDER: float = 0.13
+
+
 def site_params_from_dat(dat: Any, dat_path: str | Path) -> PETSiteParams:
     """:class:`PETSiteParams` of a scenario, from its parsed ``rzwqm.dat`` (``read_rzwqm_dat``)."""
     phys, pet, plant, hyd = dat.physiography, dat.pet, dat.plant_site_params[0], dat.hydraulics
     cres = _cres(Path(dat_path))
-    residue_type = {2.0: "corn", 2.5: "soybean", 4.0: "wheat"}.get(cres, "corn")
+    residue_type = _RESIDUE_TYPE_BY_CRES.get(cres, "corn")
 
     def f(x: Any) -> Array:
         return jnp.asarray(float(x), dtype=float)
@@ -301,7 +309,7 @@ def site_params_from_dat(dat: Any, dat_path: str | Path) -> PETSiteParams:
         wc13=f(hyd["theta_fc33"][0]),
         wc15=f(hyd["theta_wp"][0]),
         wind_height=f(pet["wind_height_m"]),
-        albedo_soil=f(0.13),
+        albedo_soil=f(_MSALB_PLACEHOLDER),
         trat=f(1.0),
         rainfall_zone=int(phys["rainfall_zone"]),
         residue_type=residue_type,

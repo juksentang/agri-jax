@@ -307,9 +307,6 @@ def test_every_conversion_function_of_units_is_an_adapter() -> None:
 #: with ``value = conversion_factor(src, dst)``; a new one must be added here (or moved into an
 #: adapter), so conversions never hide in process code.
 PINNED: dict[tuple[str, str], Any] = {
-    ("agrijax.core.organs", "_CM2_PER_PLANT_TO_LAI"): ("cm2 plant-1 plant m-2", "m2 m-2", 0.0),
-    ("agrijax.core.organs", "_G_M2_TO_KG_HA"): ("g m-2", "kg ha-1", 0.0),
-    ("agrijax.core.events", "_IRRIG_UNIT_TO_CM"): {"": ("cm", "cm"), "cm": ("cm", "cm"), "mm": ("mm", "cm")},
     ("agrijax.io.rzwqm.events", "_IRRIG_UNIT_TO_CM"): {
         "": ("cm", "cm"),
         "cm": ("cm", "cm"),
@@ -324,6 +321,13 @@ PINNED: dict[tuple[str, str], Any] = {
     ("agrijax.processes.crop.ceres_maize.model", "_CM_TO_M"): ("m", "cm", 0.0),
     # DSSAT PETPT SLANG = SRAD * 23.923 (the exact thermochemical value is 23.9006)
     ("agrijax.processes.pet.priestley_taylor", "LANGLEY_PER_MJ_M2"): ("MJ m-2", "cal cm-2", 1e-3),
+    # CERES-Maize: G3 in mg kernel-1 d-1 (MZ_GROSUB GROGRN), SUMP g -> mg (MZ_PHENOL PSKER)
+    ("agrijax.processes.crop.ceres_maize.constants", "G_PER_MG"): ("mg", "g", 0.0),
+    ("agrijax.processes.crop.ceres_maize.constants", "MG_PER_G"): ("g", "mg", 0.0),
+    # sun geometry of DSSAT SOLAR.for / MZ_PHENOL: hours of half a day, degrees in pi radians, 2 pi
+    ("agrijax.processes.crop.ceres_maize.constants", "HOURS_PER_HALF_DAY"): 12.0,
+    ("agrijax.processes.crop.ceres_maize.constants", "DEG_PER_HALF_TURN"): 180.0,
+    ("agrijax.processes.crop.ceres_maize.constants", "FULL_TURN_PER_PI"): 2.0,
 }
 
 _CONV_NAME = re.compile(r"_TO_|_PER_")

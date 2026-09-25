@@ -42,14 +42,29 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
+from agrijax.core.coefficients import numerical_guard
 from agrijax.core.state import Params, field
+from agrijax.core.units import CM_PER_M, KELVIN_OFFSET, MM_PER_CM, SECONDS_PER_HOUR
+
+from .coefficients import (
+    RZWQM_SW,
+    AlbedoCoefficients,
+    EconstCoefficients,
+    MaxswCoefficients,
+    NetradCoefficients,
+    ResistCoefficients,
+    SWCoefficients,
+    WindCoefficients,
+)
 
 __all__ = [
+    "RZWQM_SW",
     "AerodynamicResistances",
     "ClearSkyRadiation",
     "EnergyConstants",
     "NetRadiation",
     "PETParams",
+    "SWCoefficients",
     "SWResult",
     "WindAdjustment",
     "clear_sky_radiation",
@@ -64,36 +79,77 @@ __all__ = [
 ]
 
 # --------------------------------------------------------------------------------------
-# constants (Rzpet.for PARAMETER statements)
+# coefficients: declared once in :mod:`.coefficients` (RZWQM_SW); the names below are
+# read-only aliases of the defaults, kept for callers. The kernels read the coefficient set
+# passed to them (``coefficients=`` / ``c=``), never these aliases.
 # --------------------------------------------------------------------------------------
-VON_KARMAN = 0.41  # K in RESISThr
-Z0_BARE_SOIL = 0.01  # Z0P: effective roughness length of bare soil [m]
-EDDY_DECAY = 2.5  # N: eddy diffusivity decay constant
-DRAG_COEFF = 0.07  # CD
-LEAF_BOUNDARY_RESISTANCE = 10.0  # RB [s m-1]
+_RES = RZWQM_SW.resist
+_POT = RZWQM_SW.potevp
+VON_KARMAN = _RES.von_karman  # K in RESISThr
+Z0_BARE_SOIL = _RES.z0_soil  # Z0P: effective roughness length of bare soil [m]
+EDDY_DECAY = _RES.eddy_decay  # N: eddy diffusivity decay constant
+DRAG_COEFF = _RES.drag_coeff  # CD
+LEAF_BOUNDARY_RESISTANCE = _RES.leaf_boundary_resistance  # RB [s m-1]
+STEFAN_BOLTZMANN = _POT.stefan_boltzmann  # SIGMA [MJ m-2 K-4 d-1]
+CP_AIR = RZWQM_SW.econst.cp_air  # CP [MJ kg-1 degC-1]
+TWO_THIRDS = RZWQM_SW.wind.canopy_height_factor
+PEN123 = RZWQM_SW.wind.canopy_roughness_factor
+CANOPY_EXTINCTION = _POT.canopy_extinction  # CO = exp(-0.594 TLAI)
+SOLAR_CONST_HOURLY = RZWQM_SW.maxsw.solar_const_hourly  # W in MAXSW [MJ m-2 h-1]
+TURBIDITY = RZWQM_SW.maxsw.turbidity  # B in MAXSW
+_HOURS_PER_RADIAN = RZWQM_SW.maxsw.hours_per_radian  # PPCNST = 12/pi
+_MIN_SIN_ALTITUDE = RZWQM_SW.maxsw.min_sin_altitude  # CSRAD cutoff
+# residue characteristics in crop order corn / soybean / wheat (RESISThr DATA statements)
+RESIDUE_DIAMETER_CM = {
+    "corn": _RES.residue_diameter_corn,
+    "soybean": _RES.residue_diameter_soybean,
+    "wheat": _RES.residue_diameter_wheat,
+}
+RESIDUE_DENSITY_G_CM3 = {
+    "corn": _RES.residue_density_corn,
+    "soybean": _RES.residue_density_soybean,
+    "wheat": _RES.residue_density_wheat,
+}
+RESIDUE_RANDOMNESS = _RES.residue_cover_default  # CRES default
+# net long-wave coefficients per rainfall zone (POTEVPHR DATA al/bl): 1 arid, 2 semi-arid, 3 humid
+LONGWAVE_COEFFS = {
+    1: (_POT.lw_a_arid, _POT.lw_b_arid),
+    2: (_POT.lw_a_semiarid, _POT.lw_b_semiarid),
+    3: (_POT.lw_a_humid, _POT.lw_b_humid),
+}
+#: the rainfall zones of ``rainfall_zone`` (``rzwqm.dat`` IRAIN)
+RAINFALL_ZONES = (1, 2, 3)
+#: default inputs of the driver: anemometer height [m] and rainfall zone (semi-arid)
+DEFAULT_WIND_HEIGHT_M = 2.0
+DEFAULT_RAINFALL_ZONE = 2
+
+# ---- unit conversions (not coefficients) ---------------------------------------------
 KM_DAY_TO_M_S = 1.0e3 / 86400.0  # CONVW
 SECONDS_PER_DAY = 86400.0  # K in POTEVPHR (daily)
-STEFAN_BOLTZMANN = 4.903e-9  # SIGMA [MJ m-2 K-4 d-1]
-CP_AIR = 1.013e-3  # CP [MJ kg-1 degC-1]
-TWO_THIRDS = 2.0 / 3.0
-PEN123 = 0.123
-CANOPY_EXTINCTION = 0.594  # CO = exp(-0.594 TLAI)
-SOLAR_CONST_HOURLY = 4.9212  # W in MAXSW [MJ m-2 h-1]
-TURBIDITY = 3.5  # B in MAXSW
-_HOURS_PER_RADIAN = 12.0 / jnp.pi  # PPCNST
-_MIN_SIN_ALTITUDE = 4.2622e-3  # CSRAD cutoff
-# residue characteristics in crop order corn / soybean / wheat (RESISThr DATA statements)
-RESIDUE_DIAMETER_CM = {"corn": 1.0, "soybean": 0.5, "wheat": 0.25}
-RESIDUE_DENSITY_G_CM3 = {"corn": 0.15, "soybean": 0.17, "wheat": 0.18}
-RESIDUE_RANDOMNESS = 1.32  # CRES default
-# net long-wave coefficients per rainfall zone (POTEVPHR DATA al/bl): 1 arid, 2 semi-arid, 3 humid
-LONGWAVE_COEFFS = {1: (1.2, -0.2), 2: (1.1, -0.1), 3: (1.0, 0.0)}
+_ONE_PERCENT = 1.0e-2  # relative humidity: percent -> fraction
+_KILO = 1.0e3  # kPa -> Pa
+_MILLI = 1.0e-3  # kg ha-1 -> t ha-1
+_CENTI = 1.0e-2  # t ha-1 -> g cm-2
+_MEGA = 1.0e6  # MJ -> J
+#: arithmetic halves (means of two values, half-interval and midpoint of the quadrature)
+_HALF = 0.5
 
-# 10-point Gauss-Legendre nodes and weights (GAUSS, NGP=10; KEY(6)..KEY(7)-1)
+# 10-point Gauss-Legendre nodes and weights (GAUSS, NGP=10; KEY(6)..KEY(7)-1): constants of the
+# quadrature rule as the reference tabulates them, not model coefficients
 _GAUSS_X = jnp.asarray([0.148874339, 0.433395394, 0.679409568, 0.865063367, 0.973906529])
 _GAUSS_W = jnp.asarray([0.295524225, 0.269266719, 0.219086363, 0.149451349, 0.066671344])
 
-_EPS = 1e-12
+_EPS = numerical_guard(
+    "pet.sw.tiny",
+    1e-12,
+    "floor of divisors and logs, and the margin of the arccos argument, so that masked branches stay finite",
+)
+_WIND_FLOOR = numerical_guard("pet.sw.wind_floor", 1e-6, "floor of the wind speed [m s-1] in 1/(k^2 u)")
+_HEIGHT_FLOOR = numerical_guard(
+    "pet.sw.height_floor",
+    1e-6,
+    "floor of the canopy height [m] inside the log of the wind factor (masked at h = 0)",
+)
 
 
 class PETParams(Params):
@@ -197,18 +253,23 @@ class SWResult(eqx.Module):
 # --------------------------------------------------------------------------------------
 # psychrometrics (ECONST)
 # --------------------------------------------------------------------------------------
-def saturation_vapour_pressure(t: ArrayLike) -> Array:
+def saturation_vapour_pressure(t: ArrayLike, c: EconstCoefficients = RZWQM_SW.econst) -> Array:
     """Saturation vapour pressure [kPa] at ``t`` degC.
 
     Source: Bosen (1960) form used in ``ECONST`` (Rzpet.for): ``exp((16.78 T - 116.9)/(T + 237.3))``,
-    valid for -51 < T < 51 degC. Differs from the FAO-56 Tetens form by < 0.3 %.
+    valid for -51 < T < 51 degC. Differs from the FAO-56 Tetens form by < 0.3 %. Coefficients:
+    :class:`~.coefficients.EconstCoefficients`.
     """
     t = jnp.asarray(t)
-    return jnp.exp((16.78 * t - 116.9) / (t + 237.3))
+    return jnp.exp((c.svp_a * t - c.svp_b) / (t + c.svp_c))
 
 
 def energy_constants(
-    tmin: ArrayLike, tmax: ArrayLike, rh: ArrayLike, elevation: ArrayLike
+    tmin: ArrayLike,
+    tmax: ArrayLike,
+    rh: ArrayLike,
+    elevation: ArrayLike,
+    c: EconstCoefficients = RZWQM_SW.econst,
 ) -> EnergyConstants:
     """Psychrometric constants of the day (``ECONST``, Rzpet.for; van Bavel 1966).
 
@@ -222,32 +283,36 @@ def energy_constants(
     """
     tmin = jnp.asarray(tmin)
     tmax = jnp.asarray(tmax)
-    ea = 0.5 * (saturation_vapour_pressure(tmax) + saturation_vapour_pressure(tmin))
+    ea = _HALF * (saturation_vapour_pressure(tmax, c) + saturation_vapour_pressure(tmin, c))
     log_ea = jnp.log(ea)
-    ta = (237.3 * log_ea + 116.9) / (16.78 - log_ea)
-    ed = jnp.asarray(rh) * ea * 1.0e-2
-    delta = 4098.0 * saturation_vapour_pressure(ta) / (ta + 237.3) ** 2
-    pressure = 101.3 * ((288.0 - 0.01 * jnp.asarray(elevation)) / 288.0) ** (9.8 / 0.01 / 286.9)
-    tv = (ta + 273.2) / (1.0 - 0.378 * ed / pressure)
-    rho_air = 1.0e3 * pressure / (tv * 286.9)
-    latent_heat = 2.501 - 2.361e-3 * ta
-    gamma = CP_AIR * pressure / (0.622 * latent_heat)
+    ta = (c.svp_c * log_ea + c.svp_b) / (c.svp_a - log_ea)
+    ed = jnp.asarray(rh) * ea * _ONE_PERCENT
+    delta = c.slope_a * saturation_vapour_pressure(ta, c) / (ta + c.svp_c) ** 2
+    pressure = c.p0 * ((c.t0 - c.lapse_rate * jnp.asarray(elevation)) / c.t0) ** (
+        c.gravity / c.lapse_rate / c.gas_constant
+    )
+    tv = (ta + c.virtual_t_offset) / (1.0 - c.virtual_vapour * ed / pressure)
+    rho_air = _KILO * pressure / (tv * c.gas_constant)
+    latent_heat = c.latent_heat_0 - c.latent_heat_slope * ta
+    gamma = c.cp_air * pressure / (c.mw_ratio * latent_heat)
     return EnergyConstants(ea, ed, ta, delta, pressure, rho_air, latent_heat, gamma)
 
 
 # --------------------------------------------------------------------------------------
 # clear-sky radiation (MAXSW / CSRAD / GAUSS), horizontal surface only
 # --------------------------------------------------------------------------------------
-def _clear_sky_direct_instant(hour_angle: Array, c1: Array, c2: Array) -> Array:
+def _clear_sky_direct_instant(hour_angle: Array, c1: Array, c2: Array, c: MaxswCoefficients) -> Array:
     """``CSRAD``: instantaneous clear-sky direct beam relative to the solar constant (Eagleson 1970)."""
     sin_alt = c1 + c2 * jnp.cos(hour_angle)
-    sin_safe = jnp.maximum(sin_alt, _MIN_SIN_ALTITUDE)
+    sin_safe = jnp.maximum(sin_alt, c.min_sin_altitude)
     h0 = 1.0 / sin_safe
-    a1 = 0.128 - 0.054 * jnp.log10(h0)
-    return jnp.where(sin_alt > _MIN_SIN_ALTITUDE, sin_safe * jnp.exp(-TURBIDITY * a1 * h0), 0.0)
+    a1 = c.scatter_a - c.scatter_b * jnp.log10(h0)
+    return jnp.where(sin_alt > c.min_sin_altitude, sin_safe * jnp.exp(-c.turbidity * a1 * h0), 0.0)
 
 
-def clear_sky_radiation(doy: ArrayLike, latitude: ArrayLike) -> ClearSkyRadiation:
+def clear_sky_radiation(
+    doy: ArrayLike, latitude: ArrayLike, c: MaxswCoefficients = RZWQM_SW.maxsw
+) -> ClearSkyRadiation:
     """Daily clear-sky shortwave on a horizontal surface (``MAXSW`` with slope = 0).
 
     Steps (Swift 1976; Shaffer & Larson 1982):
@@ -261,13 +326,19 @@ def clear_sky_radiation(doy: ArrayLike, latitude: ArrayLike) -> ClearSkyRadiatio
 
     Source: MAXSW / CSRAD / GAUSS, Rzpet.for lines 70-134, 244-380, 543-907. Slope and aspect
     terms are omitted (the CA-TPA scenario has slope 0); the hourly arrays are not produced.
+    Coefficients: :class:`~.coefficients.MaxswCoefficients`.
     """
     xj = jnp.asarray(doy, dtype=float)
     lat = jnp.asarray(latitude, dtype=float)
-    ecc = 1.0 - 0.0167 * jnp.cos(0.0172 * (xj - 3.0))
-    we = SOLAR_CONST_HOURLY / (ecc * ecc)
+    ecc = 1.0 - c.eccentricity * jnp.cos(c.orbit_freq * (xj - c.perihelion_day))
+    we = c.solar_const_hourly / (ecc * ecc)
     dec = jnp.arcsin(
-        0.39785 * jnp.sin(4.868961 + 0.017203 * xj + 0.033446 * jnp.sin(6.224111 + 0.017202 * xj))
+        c.decl_amp
+        * jnp.sin(
+            c.decl_phase
+            + c.decl_freq * xj
+            + c.decl_ecc_amp * jnp.sin(c.decl_ecc_phase + c.decl_ecc_freq * xj)
+        )
     )
     # clipped strictly inside (-1, 1): d/dx arccos is infinite at +-1, and the clip keeps the
     # gradient finite (zero) in the polar day / night regime the reference model cannot handle
@@ -275,18 +346,18 @@ def clear_sky_radiation(doy: ArrayLike, latitude: ArrayLike) -> ClearSkyRadiatio
     tsrh = -tssh
     c1 = jnp.sin(dec) * jnp.sin(lat)
     c2 = jnp.cos(dec) * jnp.cos(lat)
-    rp = we * _HOURS_PER_RADIAN * (c1 * (tssh - tsrh) + c2 * (jnp.sin(tssh) - jnp.sin(tsrh)))
+    rp = we * c.hours_per_radian * (c1 * (tssh - tsrh) + c2 * (jnp.sin(tssh) - jnp.sin(tsrh)))
     # 10-point Gauss-Legendre over [tsrh, tssh]
-    half = 0.5 * (tssh - tsrh)
-    mid = 0.5 * (tssh + tsrh)
+    half = _HALF * (tssh - tsrh)
+    mid = _HALF * (tssh + tsrh)
     xc = _GAUSS_X * half[..., None]
-    f_plus = _clear_sky_direct_instant(mid[..., None] + xc, c1[..., None], c2[..., None])
-    f_minus = _clear_sky_direct_instant(mid[..., None] - xc, c1[..., None], c2[..., None])
-    rchd = we * _HOURS_PER_RADIAN * half * jnp.sum(_GAUSS_W * (f_plus + f_minus), axis=-1)
-    rdif = jnp.maximum(0.0, 0.5 * (0.91 * rp - rchd))
+    f_plus = _clear_sky_direct_instant(mid[..., None] + xc, c1[..., None], c2[..., None], c)
+    f_minus = _clear_sky_direct_instant(mid[..., None] - xc, c1[..., None], c2[..., None], c)
+    rchd = we * c.hours_per_radian * half * jnp.sum(_GAUSS_W * (f_plus + f_minus), axis=-1)
+    rdif = jnp.maximum(0.0, c.diffuse_share * (c.diffuse_fraction * rp - rchd))
     rch = rdif + rchd
-    sunrise = 12.0 + tsrh / 0.2618
-    sunset = 12.0 + tssh / 0.2618
+    sunrise = c.solar_noon_hour + tsrh / c.radians_per_hour
+    sunset = c.solar_noon_hour + tssh / c.radians_per_hour
     return ClearSkyRadiation(rp, rchd, rdif, rch, sunrise, sunset)
 
 
@@ -302,6 +373,7 @@ def soil_albedo(
     *,
     crust: ArrayLike = 0.0,
     roughness_cm: ArrayLike = 0.0,
+    c: AlbedoCoefficients = RZWQM_SW.albedo,
 ) -> Array:
     """Soil albedo weighted by surface water content (``ALBSWS``, DeCoursey).
 
@@ -312,7 +384,7 @@ def soil_albedo(
     Source: ALBSWS, Rzpet.for lines 3-68.
     """
     theta = jnp.asarray(theta)
-    rr_mod = jnp.asarray(roughness_cm) * 0.08
+    rr_mod = jnp.asarray(roughness_cm) * c.roughness_reduction
     scale = jnp.where(rr_mod > 0.0, 1.0 - rr_mod, 1.0)
     a_dry = jnp.asarray(albedo_dry) * (1.0 + jnp.asarray(crust)) * scale
     a_wet = jnp.asarray(albedo_wet) * scale
@@ -326,6 +398,7 @@ def residue_albedo(
     albedo_residue: ArrayLike,
     residue_age: ArrayLike = 0.0,
     residue_wet: ArrayLike = 0.0,
+    c: AlbedoCoefficients = RZWQM_SW.albedo,
 ) -> Array:
     """Residue albedo decaying with age towards 1.06 x the dry-soil albedo; 0.75 x when wet.
 
@@ -336,16 +409,22 @@ def residue_albedo(
     """
     a0 = jnp.asarray(albedo_dry)
     ari = jnp.asarray(albedo_residue)
-    ar = a0 * (1.06 + (ari / jnp.maximum(a0, _EPS) - 1.06) * jnp.exp(-0.0255 * jnp.asarray(residue_age)))
+    r = c.residue_aged_ratio
+    ar = a0 * (
+        r + (ari / jnp.maximum(a0, _EPS) - r) * jnp.exp(-c.residue_ageing_rate * jnp.asarray(residue_age))
+    )
     ar = jnp.maximum(ar, 0.0)
-    return jnp.where(jnp.asarray(residue_wet) > 0.0, 0.75 * ar, ar)
+    return jnp.where(jnp.asarray(residue_wet) > 0.0, c.wet_residue_factor * ar, ar)
 
 
 # --------------------------------------------------------------------------------------
 # wind adjustment (POTEVPHR wind block, "HAMID, 9/10/93")
 # --------------------------------------------------------------------------------------
 def wind_adjustment(
-    wind_run: ArrayLike, height_cm: ArrayLike, wind_height: ArrayLike = 2.0
+    wind_run: ArrayLike,
+    height_cm: ArrayLike,
+    wind_height: ArrayLike = DEFAULT_WIND_HEIGHT_M,
+    c: WindCoefficients = RZWQM_SW.wind,
 ) -> WindAdjustment:
     """Move the wind run from the measurement height to a reference height above the canopy.
 
@@ -358,19 +437,20 @@ def wind_adjustment(
 
     Source: POTEVPHR, Rzpet.for (wind height block, "HAMID, 9/10/93").
     """
-    h = jnp.asarray(height_cm) / 100.0
+    h = jnp.asarray(height_cm) / CM_PER_M
     xw = jnp.asarray(wind_height)
-    h_safe = jnp.maximum(h, 1e-6)
-    airport = xw >= 10.0
-    xw_new_crop = jnp.where(airport, 1.33, 1.93) + TWO_THIRDS * h
-    w1_crop = jnp.log(jnp.where(airport, 1.33, 1.93) / (PEN123 * h_safe))
-    xw_new_bare = jnp.where(airport, 1.6, 2.0)
-    w1_bare = jnp.log(xw_new_bare / 0.01)
-    w2 = jnp.where(
-        airport,
-        jnp.log(jnp.maximum(xw - 0.27, _EPS) / 0.05),
-        jnp.log(jnp.maximum(xw - 0.07, _EPS) / 0.0123),
+    h_safe = jnp.maximum(h, _HEIGHT_FLOOR)
+    airport = xw >= c.airport_height
+    xw_new_crop = jnp.where(airport, c.ref_offset_airport, c.ref_offset_micro) + c.canopy_height_factor * h
+    w1_crop = jnp.log(
+        jnp.where(airport, c.ref_offset_airport, c.ref_offset_micro) / (c.canopy_roughness_factor * h_safe)
     )
+    xw_new_bare = jnp.where(airport, c.ref_bare_airport, c.ref_bare_micro)
+    w1_bare = jnp.log(xw_new_bare / c.bare_roughness)
+    # both branches are evaluated (as inside the where); the roughness lengths are positive coefficients
+    w2_airport = jnp.log(jnp.maximum(xw - c.airport_displacement, _EPS) / c.airport_roughness)
+    w2_micro = jnp.log(jnp.maximum(xw - c.micro_displacement, _EPS) / c.micro_roughness)
+    w2 = jnp.where(airport, w2_airport, w2_micro)
     has_canopy = h > 0.0
     xw_new = jnp.where(has_canopy, xw_new_crop, xw_new_bare)
     w1 = jnp.where(has_canopy, w1_crop, w1_bare)
@@ -392,9 +472,10 @@ def resistances(
     stomatal_resistance: ArrayLike,
     *,
     trat: ArrayLike = 1.0,
-    residue_diameter_cm: ArrayLike = RESIDUE_DIAMETER_CM["corn"],
-    residue_density: ArrayLike = RESIDUE_DENSITY_G_CM3["corn"],
+    residue_diameter_cm: ArrayLike | None = None,
+    residue_density: ArrayLike | None = None,
     residue_randomness: ArrayLike = RESIDUE_RANDOMNESS,
+    c: ResistCoefficients = RZWQM_SW.resist,
 ) -> AerodynamicResistances:
     """Aerodynamic and surface resistances of the three-source Shuttleworth-Wallace scheme.
 
@@ -415,86 +496,101 @@ def resistances(
     Soil surface resistance is the constant parameter (``rzwqm.dat`` item 11 >= 0).
     ``residue_diameter_cm``, ``residue_density`` and ``residue_randomness`` may be traced arrays
     (one value per day under ``vmap``), so that the reference model's switch of the residue-type
-    constants at harvest can be expressed without splitting the batch.
+    constants at harvest can be expressed without splitting the batch; ``None`` takes the corn values
+    of ``c``.
 
     Known deviations: the wetness-dependent ``rss`` options (item 11 = -1 Sakaguchi & Zeng 2009,
     -2 Farahani & Bausch 1995), standing stubble (``sai``), plastic mulch and the PENFLUX residue
     conductances are not implemented. The reference model uses 1e30 for the missing canopy
     resistances; here ``rac``/``rsc`` are still computed (masked downstream) so gradients stay finite.
 
+    Coefficients: :class:`~.coefficients.ResistCoefficients`.
+
     Source: RESISThr, Rzpet.for lines 2433-2838.
     """
     lai = jnp.asarray(lai)
     tlai = jnp.asarray(tlai)
-    us = jnp.maximum(wind.wind_run * KM_DAY_TO_M_S, 1e-6)
-    dk = 1.0 / (VON_KARMAN**2 * us)
+    us = jnp.maximum(wind.wind_run * KM_DAY_TO_M_S, _WIND_FLOOR)
+    dk = 1.0 / (c.von_karman**2 * us)
     xw_new = wind.reference_height
-    plht = jnp.maximum(jnp.asarray(height_cm) / 100.0, 0.05)
-    xlai = jnp.maximum(0.5 * (lai + tlai), 0.05)
+    plht = jnp.maximum(jnp.asarray(height_cm) / CM_PER_M, c.min_plant_height)
+    xlai = jnp.maximum(_HALF * (lai + tlai), c.min_lai)
     has_canopy = lai > 0.0
     lai_safe = jnp.maximum(lai, _EPS)
 
     # ---- canopy ----
-    dp = 0.63 * plht
-    zp = 0.13 * plht
-    x = DRAG_COEFF * xlai
-    d = 1.1 * plht * jnp.log(1.0 + x**0.25)
-    z0_can = jnp.where(x <= 0.2, Z0_BARE_SOIL + 0.3 * plht * jnp.sqrt(x), 0.3 * plht * (1.0 - d / plht))
-    rac = LEAF_BOUNDARY_RESISTANCE / (2.0 * xlai)
+    n = c.eddy_decay
+    dp = c.displacement_pref * plht
+    zp = c.roughness_pref * plht
+    x = c.drag_coeff * xlai
+    d = c.displacement_factor * plht * jnp.log(1.0 + x**c.displacement_exp)
+    # X = cd XLAI >= 0.05 cd > 0 for a positive drag coefficient: the sqrt is finite on both branches
+    sparse = x <= c.sparse_x_limit
+    z0_sparse = c.z0_soil + c.roughness_factor * plht * jnp.sqrt(x)
+    z0_can = jnp.where(sparse, z0_sparse, c.roughness_factor * plht * (1.0 - d / plht))
+    rac = c.leaf_boundary_resistance / (c.rac_lai_factor * xlai)
     rst = jnp.asarray(stomatal_resistance)
-    rsc = jnp.where(xlai < 2.0, rst / (2.0 * lai_safe), jnp.where(xlai > 3.0, rst / 3.0, rst / lai_safe))
+    # the divisors are positive coefficients (and the floored LAI): every branch is finite
+    low_lai = xlai < c.rsc_low_lai
+    rsc_low = rst / (c.rsc_low_divisor * lai_safe)
+    high_lai = xlai > c.rsc_high_lai
+    rsc_high = rst / c.rsc_high_divisor
+    rsc = jnp.where(low_lai, rsc_low, jnp.where(high_lai, rsc_high, rst / lai_safe))
     rsc = rsc * jnp.asarray(trat)
     gap = jnp.maximum(xw_new - d, _EPS)
     c1 = jnp.log(gap / z0_can) * dk
-    shape = plht / (EDDY_DECAY * jnp.maximum(plht - d, _EPS)) * jnp.exp(EDDY_DECAY)
-    c2 = shape * jnp.exp(-EDDY_DECAY * Z0_BARE_SOIL / plht)
-    c3 = shape * jnp.exp(-EDDY_DECAY * (zp + dp) / plht)
-    ras_neutral = jnp.log(xw_new / z0_can) * jnp.log(0.5 * xw_new / z0_can) * dk
+    shape = plht / (n * jnp.maximum(plht - d, _EPS)) * jnp.exp(n)
+    c2 = shape * jnp.exp(-n * c.z0_soil / plht)
+    c3 = shape * jnp.exp(-n * (zp + dp) / plht)
+    ras_neutral = jnp.log(xw_new / z0_can) * jnp.log(c.ras_height_fraction * xw_new / z0_can) * dk
     ras_can = jnp.where(c2 <= c3, ras_neutral, c1 * (c2 - c3))
     raa_can = c1 * (
         jnp.log(gap / jnp.maximum(plht - d, _EPS))
-        + plht
-        / (EDDY_DECAY * jnp.maximum(plht - d, _EPS))
-        * (jnp.exp(EDDY_DECAY * (1.0 - (dp + zp) / plht)) - 1.0)
+        + plht / (n * jnp.maximum(plht - d, _EPS)) * (jnp.exp(n * (1.0 - (dp + zp) / plht)) - 1.0)
     )
 
     # ---- residue ----
     rm = jnp.asarray(residue_mass)
-    rdia = jnp.asarray(residue_diameter_cm)
-    rhors = jnp.asarray(residue_density)
+    rdia = jnp.asarray(c.residue_diameter_corn if residue_diameter_cm is None else residue_diameter_cm)
+    rhors = jnp.asarray(c.residue_density_corn if residue_density is None else residue_density)
     cres = jnp.asarray(residue_randomness)
-    has_residue = rm > 1.0e-6
-    trm = rm * 1.0e-3
+    has_residue = rm > c.residue_mass_threshold
+    trm = rm * _MILLI
     cs = jnp.where(
         has_residue,
-        jnp.exp(-cres * 1.27e-2 * trm / jnp.maximum(rdia * rhors, _EPS)),
+        jnp.exp(-cres * c.residue_cover_coeff * trm / jnp.maximum(rdia * rhors, _EPS)),
         1.0,
     )
-    rhorb = 0.2 * rhors
-    hr = jnp.where(has_residue, trm * 1.0e-2 / (jnp.maximum(1.0 - cs, _EPS) * jnp.maximum(rhorb, _EPS)), 0.0)
-    hrm = hr / 100.0
-    z0r = 0.197 * hrm
+    rhorb = c.residue_bulk_ratio * rhors
+    hr = jnp.where(has_residue, trm * _CENTI / (jnp.maximum(1.0 - cs, _EPS) * jnp.maximum(rhorb, _EPS)), 0.0)
+    hrm = hr / CM_PER_M
+    z0r = c.residue_roughness_ratio * hrm
     z0r_safe = jnp.maximum(z0r, _EPS)
     resp = 1.0 - rhorb / jnp.maximum(rhors, _EPS)
-    resp = jnp.where((resp <= 0.5) | (resp > 0.95), 0.8, resp)
-    u2 = us * jnp.log(2.0 / z0r_safe) / jnp.log(xw_new / z0r_safe)
-    rsr = jnp.where(
-        has_residue,
-        1.1
+    resp = jnp.where((resp <= c.porosity_low) | (resp > c.porosity_high), c.porosity_default, resp)
+    u2 = us * jnp.log(c.u2_height / z0r_safe) / jnp.log(xw_new / z0r_safe)
+    # the vapour diffusivity and the bracketed factors are positive: finite with or without residue
+    rsr_layer = (
+        c.rsr_tortuosity
         * hrm
         / (
-            2.12e-5
-            * (1.0 + 0.007 * jnp.maximum(0.0, jnp.asarray(ta) - 20.0))
-            * (1.0 + 1.25e-3 * jnp.maximum(rhorb, _EPS) ** (-1.79) * jnp.maximum(u2, 0.0))
+            c.vapour_diffusivity
+            * (1.0 + c.diffusivity_temp_coeff * jnp.maximum(0.0, jnp.asarray(ta) - c.diffusivity_ref_temp))
+            * (
+                1.0
+                + c.residue_wind_coeff
+                * jnp.maximum(rhorb, _EPS) ** (-c.residue_wind_exp)
+                * jnp.maximum(u2, 0.0)
+            )
             * resp
-        ),
-        0.0,
+        )
     )
+    rsr = jnp.where(has_residue, rsr_layer, 0.0)
 
     # ---- bare soil / no canopy ----
-    z0_bare = jnp.maximum(Z0_BARE_SOIL, z0r)
+    z0_bare = jnp.maximum(c.z0_soil, z0r)
     log_bare = jnp.log(xw_new / z0_bare)
-    ras_bare = log_bare * jnp.log(0.5 * xw_new / z0_bare) * dk
+    ras_bare = log_bare * jnp.log(c.ras_height_fraction * xw_new / z0_bare) * dk
     raa_bare = log_bare**2 * dk - ras_bare
 
     ras = jnp.where(has_canopy, ras_can, ras_bare)
@@ -514,6 +610,7 @@ def net_radiation(
     albedo_soil: ArrayLike,
     canopy_fraction: ArrayLike,
     soil_fraction: ArrayLike,
+    c: NetradCoefficients = RZWQM_SW.netrad,
 ) -> NetRadiation:
     """Net radiation over the field and at the soil and residue surfaces (``NETRAD``).
 
@@ -535,8 +632,10 @@ def net_radiation(
     ts = 1.0 - jnp.asarray(albedo_soil)
     tcan = ccl * tc + co * cr * tr + co * cs * ts
     rn = tcan * rts + rnl
-    rn = jnp.where(rn < 0.0, tcan * rts / 3.0, rn)
-    tac = 1.0 - (0.5 + 0.44 * ccl)
+    negative_rn = rn < 0.0
+    rn_floor = tcan * rts / c.negative_rn_divisor  # positive coefficient divisor
+    rn = jnp.where(negative_rn, rn_floor, rn)
+    tac = 1.0 - (c.canopy_absorb_base + c.canopy_absorb_slope * ccl)
     through = co + tac * ccl * tc
     rnr = cr * tr * through * rts + co * cr * rnl
     rns = cs * ts * through * rts + co * cs * rnl
@@ -571,14 +670,15 @@ def shuttleworth_wallace(
     residue_wet: ArrayLike = 0.0,
     crust: ArrayLike = 0.0,
     roughness_cm: ArrayLike = 0.0,
-    wind_height: ArrayLike = 2.0,
+    wind_height: ArrayLike = DEFAULT_WIND_HEIGHT_M,
     trat: ArrayLike = 1.0,
     soil_heat_flux: ArrayLike = 0.0,
-    rainfall_zone: int = 2,
+    rainfall_zone: int = DEFAULT_RAINFALL_ZONE,
     residue_type: str = "corn",
     residue_cover_factor: ArrayLike = RESIDUE_RANDOMNESS,
     residue_diameter_cm: ArrayLike | None = None,
     residue_density: ArrayLike | None = None,
+    coefficients: SWCoefficients = RZWQM_SW,
 ) -> SWResult:
     """Daily Shuttleworth-Wallace potential transpiration, soil and residue evaporation [cm d-1].
 
@@ -599,6 +699,10 @@ def shuttleworth_wallace(
         ``residue_density`` are passed explicitly (traced values, one per day under ``vmap``).
     residue_cover_factor : ``CRES`` of the ``rzwqm.dat`` residue block (corn 2.0, soybean 2.5,
         wheat 4.0; the reference model falls back to 1.32 when the file gives <= 0).
+    coefficients : :class:`~.coefficients.SWCoefficients`, every coefficient of the equations below
+        (default :data:`~.coefficients.RZWQM_SW`, the RZWQM2 values; an instance with array leaves,
+        ``RZWQM_SW.as_arrays()``, makes them differentiable and calibratable). The residue diameter
+        and density of ``residue_type`` are read from it unless passed explicitly.
 
     Input timing (what the reference model passes at its daily PET call, measured on CA-TPA 2015
     against every ``.ana`` row, see ``poc/coarse_compare.py``): all state inputs are
@@ -648,17 +752,25 @@ def shuttleworth_wallace(
 
     Source: POTEVPHR, Rzpet.for lines 1673-2428; Shuttleworth & Wallace (1985); Farahani & Ahuja (1996).
     """
+    cf = coefficients
+    pc = cf.potevp
     tlai_arr = jnp.asarray(lai) if tlai is None else jnp.asarray(tlai)
     lai = jnp.asarray(lai)
     srad = jnp.asarray(srad)
     tmin = jnp.asarray(tmin)
     tmax = jnp.asarray(tmax)
     g = jnp.asarray(soil_heat_flux)
-    a_lw, b_lw = LONGWAVE_COEFFS[int(rainfall_zone)]
+    zone = int(rainfall_zone)
+    if zone not in RAINFALL_ZONES:
+        raise KeyError(f"rainfall_zone must be one of {RAINFALL_ZONES}, got {rainfall_zone!r}")
+    if residue_type not in RESIDUE_DIAMETER_CM:
+        raise KeyError(f"residue_type must be one of {tuple(RESIDUE_DIAMETER_CM)}, got {residue_type!r}")
+    a_lw = (pc.lw_a_arid, pc.lw_a_semiarid, pc.lw_a_humid)[zone - 1]
+    b_lw = (pc.lw_b_arid, pc.lw_b_semiarid, pc.lw_b_humid)[zone - 1]
 
-    wind = wind_adjustment(wind_run, height_cm, wind_height)
-    ec = energy_constants(tmin, tmax, rh, elevation)
-    csr = clear_sky_radiation(doy, latitude)
+    wind = wind_adjustment(wind_run, height_cm, wind_height, cf.wind)
+    ec = energy_constants(tmin, tmax, rh, elevation, cf.econst)
+    csr = clear_sky_radiation(doy, latitude, cf.maxsw)
     rch = jnp.maximum(csr.total, srad)
 
     a_soil = soil_albedo(
@@ -669,11 +781,18 @@ def shuttleworth_wallace(
         params.albedo_wet,
         crust=crust,
         roughness_cm=roughness_cm,
+        c=cf.albedo,
     )
-    a_res = residue_albedo(params.albedo_dry, params.albedo_residue, residue_age, residue_wet)
+    a_res = residue_albedo(params.albedo_dry, params.albedo_residue, residue_age, residue_wet, cf.albedo)
 
-    rdia = RESIDUE_DIAMETER_CM[residue_type] if residue_diameter_cm is None else residue_diameter_cm
-    rhors = RESIDUE_DENSITY_G_CM3[residue_type] if residue_density is None else residue_density
+    rdia = (
+        getattr(cf.resist, f"residue_diameter_{residue_type}")
+        if residue_diameter_cm is None
+        else residue_diameter_cm
+    )
+    rhors = (
+        getattr(cf.resist, f"residue_density_{residue_type}") if residue_density is None else residue_density
+    )
     res = resistances(
         wind,
         lai,
@@ -687,11 +806,12 @@ def shuttleworth_wallace(
         residue_diameter_cm=rdia,
         residue_density=rhors,
         residue_randomness=residue_cover_factor,
+        c=cf.resist,
     )
     # Rzpet.for line 1957: the hourly W m-2 night test on the daily total (effective threshold
     # 0.036 MJ m-2 d-1); intentionally reproduced, see step 5 of the docstring
-    night = srad * 1.0e6 / 3.6e3 < 10.0
-    rsc = jnp.where(night, res.rsc * 10.0, res.rsc)
+    night = srad * _MEGA / SECONDS_PER_HOUR < pc.night_radiation
+    rsc = jnp.where(night, res.rsc * pc.night_rsc_factor, res.rsc)
     cs = res.soil_fraction
     cr = 1.0 - cs
     # RESISThr takes the canopy branch for LAI > 0 (height floored at 5 cm); the transpiration
@@ -700,22 +820,22 @@ def shuttleworth_wallace(
     has_canopy = has_canopy_res & (jnp.asarray(height_cm) > 0.0)
     has_residue = jnp.asarray(residue_mass) > 0.0
 
-    ccl = 1.0 - jnp.exp(-CANOPY_EXTINCTION * tlai_arr)
+    ccl = 1.0 - jnp.exp(-pc.canopy_extinction * tlai_arr)
 
-    tl4 = 0.5 * ((tmax + 273.15) ** 4 + (tmin + 273.15) ** 4)
+    tl4 = _HALF * ((tmax + KELVIN_OFFSET) ** 4 + (tmin + KELVIN_OFFSET) ** 4)
     # sqrt floored at _EPS: d sqrt(x)/dx is infinite at x = 0 (rh = 0), the floor makes it zero
-    rb0 = (0.39 - 0.158 * jnp.sqrt(jnp.maximum(ec.ed, _EPS))) * STEFAN_BOLTZMANN * tl4
+    rb0 = (pc.emissivity_a - pc.emissivity_b * jnp.sqrt(jnp.maximum(ec.ed, _EPS))) * pc.stefan_boltzmann * tl4
     rsratio = jnp.clip(jnp.where(rch > 0.0, srad / jnp.maximum(rch, _EPS), 0.0), 0.0, 1.0)
     rnl = -(a_lw * rsratio + b_lw) * rb0
 
-    nr = net_radiation(srad, rnl, params.albedo_maturity, a_res, a_soil, ccl, cs)
+    nr = net_radiation(srad, rnl, params.albedo_maturity, a_res, a_soil, ccl, cs, cf.netrad)
     rn, rns, rnr = nr
     rnsub = rns + rnr
 
     delta, gamma = ec.delta, ec.gamma
     vpd = ec.ea - ec.ed
     c1 = delta * (rn - g)
-    c2 = SECONDS_PER_DAY * ec.rho_air * CP_AIR
+    c2 = SECONDS_PER_DAY * ec.rho_air * cf.econst.cp_air
     raa, rac, ras, rss, rsr = res.raa, res.rac, res.ras, res.rss, res.rsr
 
     pmc = (c1 + (c2 * vpd - delta * rac * (rnsub - g)) / (raa + rac)) / (
@@ -749,7 +869,7 @@ def shuttleworth_wallace(
     lam_es = lam_sub / (delta + gamma * (1.0 + rss / ras)) * cs
     lam_er = lam_sub / (delta + gamma * (1.0 + (rss + rsr) / ras)) * cr
 
-    to_cm = 1.0 / (ec.latent_heat * 10.0)
+    to_cm = 1.0 / (ec.latent_heat * MM_PER_CM)
     transp = jnp.maximum(lam_t * to_cm, 0.0)
     soil_evap = jnp.maximum(lam_es * to_cm, 0.0)
     res_evap = jnp.maximum(lam_er * to_cm, 0.0)

@@ -83,13 +83,13 @@ The parameters are *not* taken from the file as they stand.  ``SOILPR``
 initialisation from ``Rzmain.for`` line 5969 with ``ITYPE = SOILPP(1,J)``,
 the first token of the soil-physical record, ``0`` for every CA-TPA horizon)
 takes, for ``ITYPE = 0`` and unchanged bulk density, the ``ELSE`` branch at
-lines 4579-4620:
+lines 4587-4637:
 
-* ``hb lambda eps ksat wr ws hb_k n1 a1`` are used as read (lines 4580-4588);
+* ``hb lambda eps ksat wr ws hb_k n1 a1`` are used as read (lines 4589-4597);
 * **fc13 and fc110 are recomputed from the curve** at ``-333`` and ``-100`` cm
-  (lines 4597-4616, ``FC33 = B/333**lambda + WR`` when ``hb < 333``, the
+  (lines 4609-4625, ``FC33 = B/333**lambda + WR`` when ``hb < 333``, the
   linear segment when ``hb >= 333``), overwriting the file values;
-* ``C2 = ksat * hb_k**(eps - n1)`` (line 4611), overwriting the file value;
+* ``C2 = ksat * hb_k**(eps - n1)`` (line 4632), overwriting the file value;
 * on exit (label 10, lines 4849-4862) **wp is recomputed** as
   ``B/|HWP|**lambda + WR`` with ``HWP = -15000`` cm (line 4858;
   ``Rzmain.for`` line 4589 sets ``HWP``), overwriting the file value.
@@ -143,6 +143,7 @@ import jax.numpy as jnp
 import numpy as np
 from jaxtyping import Array
 
+from agrijax.core.coefficients import Coefficients, Provenance, coef, numerical_guard
 from agrijax.core.state import Params, field
 
 __all__ = [
@@ -152,6 +153,8 @@ __all__ = [
     "H_FC110",
     "H_MIN",
     "H_WP",
+    "RZWQM_HYDRAULICS",
+    "HydraulicsCoefficients",
     "SoilHydraulicParams",
     "c2_of_params",
     "c_of_h",
@@ -161,30 +164,126 @@ __all__ = [
     "theta_of_h",
 ]
 
-#: matric potential of "1/3 bar" field capacity used by RZWQM [cm] (``SOILPR`` line 4597).
-H_FC13: float = -333.0
-#: matric potential of "1/10 bar" field capacity used by RZWQM [cm] (``SOILPR`` line 4607).
-H_FC110: float = -100.0
-#: matric potential of the 15 bar wilting point used by RZWQM [cm] (``Rzmain.for`` line 4589, ``HWP``).
-H_WP: float = -15000.0
+_REF = "rzwqm2-4.6"
+_BOOK = "Ahuja et al. (2000)"
+
+
+class HydraulicsCoefficients(Coefficients):
+    """The reference heads of the RZWQM2 soil-water characteristic (``SOILPR``, ``INPUT``, ``HYDPAR``).
+
+    The Brooks-Corey parameters themselves are read from ``rzwqm.dat`` (:class:`SoilHydraulicParams`);
+    the coefficients here are the heads at which RZWQM2 evaluates the curve for its derived
+    diagnostics (:func:`derive_rzwqm`) and the dry-end clamp of the state. They are conventions of the
+    reference model (1/3 bar written as 333 cm, 15 bar as 15000 cm), declared with ``calibrate=False``;
+    the reference source writes the magnitudes (``333.0D0``, ``-15000.D0``).
+    """
+
+    h_fc13: float = coef(
+        -333.0,
+        "cm",
+        "matric potential of the 1/3-bar field capacity SOILPR derives (fc13 = theta(h))",
+        Provenance(
+            _REF,
+            file="RZWQM/RZTEST.for",
+            line=4610,
+            routine="SOILPR",
+            paper=_BOOK,
+            note="written as 333.0D0 (|h|); also the linear-segment case on line 4615",
+        ),
+        calibrate=False,
+    )
+    h_fc110: float = coef(
+        -100.0,
+        "cm",
+        "matric potential of the 1/10-bar field capacity SOILPR derives (fc110 = theta(h))",
+        Provenance(
+            _REF,
+            file="RZWQM/RZTEST.for",
+            line=4620,
+            routine="SOILPR",
+            paper=_BOOK,
+            note="written as 100.0D0 (|h|); also the linear-segment case on line 4625",
+        ),
+        calibrate=False,
+    )
+    h_wp: float = coef(
+        -15000.0,
+        "cm",
+        "matric potential of the 15-bar wilting point SOILPR derives (wp = theta(HWP))",
+        Provenance(
+            _REF,
+            file="RZWQM/Rzmain.for",
+            line=4589,
+            routine="INPUT",
+            paper=_BOOK,
+            note="HWP of the 16-item soil-physics control record; used by SOILPR (RZTEST.for:4858)",
+        ),
+        calibrate=False,
+        fortran_name="HWP",
+    )
+    h_clamp: float = coef(
+        -15000.0,
+        "cm",
+        "dry-end clamp of the matric potential of the state, H = max(H, Hmin)",
+        Provenance(
+            _REF,
+            file="RZWQM/Rzmain.for",
+            line=4587,
+            routine="INPUT",
+            paper=_BOOK,
+            note="Hmin of the 16-item record (item 17 of a 17/19-item record; CA-TPA: -15000); "
+            "applied in HYDPAR (Rzrich.for:706) and CNHEAD (Rzrich.for:387, 426)",
+        ),
+        calibrate=False,
+        fortran_name="HMIN",
+    )
+
+
+#: the RZWQM2 reference heads (the defaults of the hydraulic functions)
+RZWQM_HYDRAULICS = HydraulicsCoefficients()
+
+#: matric potential of "1/3 bar" field capacity used by RZWQM [cm] (alias of ``RZWQM_HYDRAULICS.h_fc13``).
+H_FC13: float = RZWQM_HYDRAULICS.h_fc13
+#: matric potential of "1/10 bar" field capacity used by RZWQM [cm] (alias of ``RZWQM_HYDRAULICS.h_fc110``).
+H_FC110: float = RZWQM_HYDRAULICS.h_fc110
+#: matric potential of the 15 bar wilting point used by RZWQM [cm] (``HWP``),
+#: alias of ``RZWQM_HYDRAULICS.h_wp``.
+H_WP: float = RZWQM_HYDRAULICS.h_wp
 #: lowest matric potential returned by :func:`h_of_theta` [cm]: an overflow guard for ``theta -> theta_r``,
 #: not a physical limit. The dry-end clamp of the *state* belongs to the Richards process, not to the
 #: curve: see :data:`H_CLAMP_RZWQM`.
-H_MIN: float = -1.0e30
+H_MIN: float = numerical_guard(
+    "hydraulics.h_min",
+    -1.0e30,
+    "lowest matric potential [cm] of h_of_theta: overflow guard as theta -> theta_r",
+)
 #: dry-end clamp of the matric potential in RZWQM2 [cm] (``Hmin``: ``H = MAX(H, HMIN)`` in ``HYDPAR``,
 #: ``Rzrich.for`` line 706, and in the Richards solver ``CNHEAD``, lines 387 and 426). The active default is
 #: ``Hmin = -15000`` cm set with the 16-item soil-physics control record (``Rzmain.for`` line 4587,
 #: equal to ``HWP``); a 17- or 19-item record reads it as item 17 instead (``Rzmain.for`` lines
 #: 4590-4599), and CA-TPA's 19-item record gives ``-15000`` too. The ``HMIN = -35000`` PARAMETER seen
 #: in older comments (``Rzrich.for`` lines 46, 240; ``Rzmain.for`` line 6104) is commented out.
-H_CLAMP_RZWQM: float = -15000.0
+#: Alias of ``RZWQM_HYDRAULICS.h_clamp``.
+H_CLAMP_RZWQM: float = RZWQM_HYDRAULICS.h_clamp
 #: ``a1`` at or below this is treated as 0 by :func:`h_of_theta` (no linear segment) [cm3 cm-3 cm-1];
 #: RZWQM's reference value is 0.002, so anything this small is a rounding artefact, not a segment.
-A1_MIN: float = 1.0e-12
+A1_MIN: float = numerical_guard(
+    "hydraulics.a1_min", 1.0e-12, "a1 [cm3 cm-3 cm-1] at or below which h_of_theta has no linear segment"
+)
 
 _LOG_H_MAX: float = float(np.log(-H_MIN))
 #: value floor of the effective saturation inside the log; 1 / _SE_FLOOR must stay finite in float32.
-_SE_FLOOR: float = 1.0e-30
+_SE_FLOOR: float = numerical_guard(
+    "hydraulics.se_floor",
+    1.0e-30,
+    "floor of the effective saturation inside the log (1/floor finite in float32)",
+)
+#: floor of |h| [cm] of the wet K(h) segment, finite |h|**(-n1) for n1 > 0 as h -> 0-
+_ABSH_WET_FLOOR: float = numerical_guard(
+    "hydraulics.absh_wet_floor",
+    1.0e-6,
+    "floor of |h| [cm] in the wet K(h) segment (finite for n1 > 0 at h -> 0-)",
+)
 
 
 def _as_horizon_index(x: Any) -> tuple[int, ...] | None:
@@ -470,7 +569,7 @@ def h_of_theta(theta: Any, params: SoilHydraulicParams) -> Array:
 
 
 def c2_of_params(params: SoilHydraulicParams) -> Array:
-    """``C2 = ksat * hb_k**(eps - n1)``: the second K(h) intercept RZWQM derives at start-up (SOILPR l. 4611).
+    """``C2 = ksat * hb_k**(eps - n1)``: the second K(h) intercept RZWQM derives at start-up (SOILPR l. 4632).
 
     This is the value :func:`k_of_h` uses; it makes ``K`` continuous at ``-hb_k``
     whatever ``ksat`` is, which the stored ``c2`` field would not.
@@ -490,25 +589,29 @@ def k_of_h(h: Any, params: SoilHydraulicParams) -> Array:
     h, p = _prepare(h, params)
     absh_dry = _clamp_min(-h, p.hb_k)
     k_dry = c2_of_params(p) * absh_dry ** (-p.eps)
-    absh_wet = _clamp(-h, 1.0e-6, p.hb_k)
+    absh_wet = _clamp(-h, _ABSH_WET_FLOOR, p.hb_k)
     k_wet = p.ksat * absh_wet ** (-p.n1)
     k = jnp.where(h >= -p.hb_k, k_wet, k_dry)
     return jnp.where(h >= 0.0, p.ksat, k)
 
 
-def derive_rzwqm(params: SoilHydraulicParams) -> SoilHydraulicParams:
+def derive_rzwqm(
+    params: SoilHydraulicParams, coefficients: HydraulicsCoefficients = RZWQM_HYDRAULICS
+) -> SoilHydraulicParams:
     """Recompute ``fc13 fc110 wp c2`` from the primary parameters as ``SOILPR`` does at start-up.
 
     ``fc13 = theta(-333)``, ``fc110 = theta(-100)``, ``wp = theta(-15000)``
-    (RZTEST.for lines 4597-4616 and 4858; the ``hb >= 333`` case falls on the
-    linear segment there as here) and ``c2 = ksat hb_k**(eps - n1)`` (line 4611).
+    (RZTEST.for lines 4609-4625 and 4858; the ``hb >= 333`` case falls on the
+    linear segment there as here) and ``c2 = ksat hb_k**(eps - n1)`` (line 4632).
+    The heads are :class:`HydraulicsCoefficients` (default :data:`RZWQM_HYDRAULICS`).
     The node map is untouched.
     """
+    c = coefficients
     hp = params.replace(node_horizon=None)
     shape = jnp.shape(hp.hb)
     return params.replace(
-        fc13=theta_of_h(jnp.full(shape, H_FC13), hp),
-        fc110=theta_of_h(jnp.full(shape, H_FC110), hp),
-        wp=theta_of_h(jnp.full(shape, H_WP), hp),
+        fc13=theta_of_h(jnp.full(shape, c.h_fc13), hp),
+        fc110=theta_of_h(jnp.full(shape, c.h_fc110), hp),
+        wp=theta_of_h(jnp.full(shape, c.h_wp), hp),
         c2=c2_of_params(hp),
     )

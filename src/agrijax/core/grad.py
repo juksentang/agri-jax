@@ -46,6 +46,8 @@ from jax import lax
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
+from agrijax.core.coefficients import numerical_guard
+
 __all__ = [
     "DEFAULT_GRADIENT_MODE",
     "GRADIENT_MODES",
@@ -64,6 +66,16 @@ __all__ = [
     "trunc_st",
 ]
 
+#: floor of the segment widths ``x1 - xb``, ``xm - x2`` (``curv_lin``) and ``arg[j] - arg[j-1]``
+#: (``tabex``): keeps a degenerate (zero-width) segment finite
+_SEGMENT_WIDTH_MIN: float = numerical_guard(
+    "grad.segment_width_min", 1e-6, "floor of a piecewise-linear segment width (curv_lin, tabex)"
+)
+#: Fortran ``NINT`` rounds a fractional part of magnitude >= 1/2 away from zero
+_NINT_HALF: float = 0.5
+#: base of the ``10**decimals`` scale of :func:`round_st`
+_DECIMAL_BASE: float = 10.0
+
 GradientMode = Literal["exact", "ste", "implicit"]
 GRADIENT_MODES: tuple[str, ...] = ("exact", "ste", "implicit")
 DEFAULT_GRADIENT_MODE: GradientMode = "ste"
@@ -72,7 +84,9 @@ GRADIENT_MODE_ENV = "AGRI_JAX_GRADIENT_MODE"
 _MODE: contextvars.ContextVar[str | None] = contextvars.ContextVar("agrijax_gradient_mode", default=None)
 
 #: smallest accumulator step used by :func:`event_ste` (the ramp width is ``max(rate, _RATE_FLOOR)``)
-_RATE_FLOOR = 1e-6
+_RATE_FLOOR: float = numerical_guard(
+    "grad.rate_floor", 1e-6, "smallest accumulator step of the event_ste ramp (keeps the ramp finite)"
+)
 
 
 # ------------------------------------------------------------------------------------- the mode
@@ -139,8 +153,8 @@ def curv_lin(xb: ArrayLike, x1: ArrayLike, x2: ArrayLike, xm: ArrayLike, x: Arra
     Source: DSSAT-CSM Utilities/UTILS.for, FUNCTION CURV (CTYPE 'LIN').
     """
     x = jnp.asarray(x)
-    up = (x - xb) / jnp.maximum(jnp.asarray(x1) - xb, 1e-6)
-    down = 1.0 - (x - x2) / jnp.maximum(jnp.asarray(xm) - x2, 1e-6)
+    up = (x - xb) / jnp.maximum(jnp.asarray(x1) - xb, _SEGMENT_WIDTH_MIN)
+    down = 1.0 - (x - x2) / jnp.maximum(jnp.asarray(xm) - x2, _SEGMENT_WIDTH_MIN)
     out = jnp.where(
         (x > xb) & (x < x1),
         up,
@@ -170,7 +184,7 @@ def tabex(val: ArrayLike, arg: ArrayLike, x: ArrayLike) -> Array:
     a_lo = jnp.sum(jnp.where(lo, arg, 0.0), axis=-1)
     v_hi = jnp.sum(jnp.where(hi, val, 0.0), axis=-1)
     v_lo = jnp.sum(jnp.where(lo, val, 0.0), axis=-1)
-    return (x - a_lo) * (v_hi - v_lo) / jnp.maximum(a_hi - a_lo, 1e-6) + v_lo
+    return (x - a_lo) * (v_hi - v_lo) / jnp.maximum(a_hi - a_lo, _SEGMENT_WIDTH_MIN) + v_lo
 
 
 # ------------------------------------------------------------------- truncation and rounding
@@ -196,7 +210,7 @@ def _nint(x: Array) -> Array:
     """Fortran ``NINT``: round half away from zero, from the exact fractional part."""
     t = jnp.trunc(x)
     frac = x - t  # exact for every finite x
-    return t + jnp.where(jnp.abs(frac) >= 0.5, jnp.sign(x), 0.0)
+    return t + jnp.where(jnp.abs(frac) >= _NINT_HALF, jnp.sign(x), 0.0)
 
 
 def round_st(x: ArrayLike, decimals: int = 0, *, mode: str | None = None) -> Array:
@@ -213,7 +227,7 @@ def round_st(x: ArrayLike, decimals: int = 0, *, mode: str | None = None) -> Arr
     if int(decimals) != decimals or decimals < 0:
         raise ValueError(f"decimals must be a non-negative integer, got {decimals!r}")
     x = jnp.asarray(x)
-    scale = 10.0 ** int(decimals)
+    scale = _DECIMAL_BASE ** int(decimals)
     xs = x * scale if decimals else x
     q = _nint(lax.stop_gradient(xs))
     y = xs + lax.stop_gradient(q - xs)  # value q (exact, as in trunc_st), derivative 1 w.r.t. xs

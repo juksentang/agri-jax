@@ -20,7 +20,7 @@ repos:
   - repo: local
     hooks:
       - id: agrijax-lint
-        name: agrijax three-rules lint (AJ001-AJ006)
+        name: agrijax three-rules lint (AJ001-AJ007)
         # lint.py imports nothing from JAX, so it runs in the bare hook interpreter
         # --strict: warnings fail too, the same gate as CI
         entry: python src/agrijax/core/lint.py --strict

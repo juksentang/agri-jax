@@ -34,7 +34,7 @@ import pytest
 from agrijax.io.rzwqm.ana import read_ana
 from agrijax.io.rzwqm.dat import RzwqmDat, read_rzwqm_dat, set_value, write_rzwqm_dat
 from agrijax.io.rzwqm.params import canonical_name
-from agrijax.port.run_fortran import RZWQM_BINARY, parse_overview_yields, run_rzwqm
+from agrijax.port.run_fortran import RUN_ROOT, RZWQM_BINARY, parse_overview_yields, run_rzwqm
 from agrijax.processes.soil_water.hydraulics import (
     H_CLAMP_RZWQM,
     H_FC13,
@@ -255,8 +255,9 @@ def inertness_runs(
 ) -> dict[str, tuple[Path, list[float], RzwqmDat]]:
     if not RZWQM_BINARY.is_file():
         pytest.skip(f"RZWQM binary not found at {RZWQM_BINARY}")
-    run_root = data_dir / "run"
-    run_root.mkdir(exist_ok=True)
+    # the reference binary needs short run-dir paths: AGRI_JAX_RUN_ROOT when set (run_fortran.RUN_ROOT)
+    run_root = RUN_ROOT
+    run_root.mkdir(parents=True, exist_ok=True)
     assert len(str(run_root.resolve())) < 60  # + "/rz_xxxxxxxx/CA-TPA.MET" must stay < 80
     tmp = tmp_path_factory.mktemp("hyd_inert")
     base = read_rzwqm_dat(catpa_scenario / "rzwqm.dat")

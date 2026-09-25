@@ -20,8 +20,10 @@ import dataclasses
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from agrijax.core import Day, Lag, Model, Phase, bind, compose, process, run
+from agrijax.core.coefficients import coefficient_table
 from agrijax.core.ports import Binding
 from agrijax.core.state import get_path, set_path
 from agrijax.processes.crop.ceres_maize import (
@@ -33,6 +35,7 @@ from agrijax.processes.crop.ceres_maize import (
     plantgro_outputs,
     water_stress_factors,
 )
+from agrijax.processes.crop.ceres_maize.growth import WATER_STRESS_COEFFICIENTS, WaterStressCoefficients
 from agrijax.processes.soil_water.uptake import RootwuParams, RootwuState, rootwu_supply
 
 from .test_ceres_growth import season_forcing
@@ -212,3 +215,22 @@ def test_coupled_gradient_reaches_the_published_rwumx() -> None:
 
     g = jax.grad(loss)(jnp.asarray(0.03))
     assert np.isfinite(float(g)) and float(g) != 0.0
+
+
+def test_water_stress_numbers_are_declared_coefficients() -> None:
+    """The TURFAC storage precision and the last stress-block stage are coefficients with their
+    DSSAT-CSM statement (checked against the source in tests/integration/test_rootwu_dssat.py);
+    ``EP1 = EOP * 0.1`` is the mm -> cm adapter."""
+    rows = {r["path"]: r for r in coefficient_table(WaterStressCoefficients)}
+    assert set(rows) == {"turfac_scale", "grosub_last_stage"}
+    for r in rows.values():
+        assert r["ref_version"] == "dssat-4.8.6.0" and r["line"] and r["statement"] and not r["calibratable"]
+    assert rows["grosub_last_stage"]["static"] and WATER_STRESS_COEFFICIENTS.grosub_last_stage == 6
+    eop = jnp.asarray([4.0, 4.0, 0.0])
+    trwup = jnp.asarray([0.2123456, 0.5, 0.1])
+    sw, tu = water_stress_factors(eop, trwup, 1.5)
+    np.testing.assert_allclose(np.asarray(sw), [0.2123456 / 0.4, 1.0, 1.0], rtol=1e-6)
+    assert float(tu[0]) == pytest.approx(np.trunc(0.2123456 / 0.4 / 1.5 * 1000.0) / 1000.0, rel=1e-6)
+    coarse = WaterStressCoefficients(turfac_scale=10.0)
+    _, tu10 = water_stress_factors(eop, trwup, 1.5, coarse)
+    assert float(tu10[0]) == pytest.approx(np.trunc(0.2123456 / 0.4 / 1.5 * 10.0) / 10.0, rel=1e-6)

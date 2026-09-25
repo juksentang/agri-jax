@@ -99,7 +99,9 @@ def test_rzwqm_full_catpa_yields(catpa_scenario: Path, rz_binary: Path, tmp_path
     r = run_rzwqm(catpa_scenario, tmp_path / "out")
     assert r.overview_path is not None
     yields = parse_overview_yields(r.overview_path)
-    assert yields[:4] == [9916.0, 9608.0, 5996.0, 10444.0]
+    # The RZWQM2 binary's floating point differs across CPUs (e.g. 2016: 9608 kg/ha on the i7-14700HX
+    # laptop, 9625 on rorqual's EPYC 9654), so the yields are pinned to 0.5 %, not bit for bit.
+    assert yields[:4] == pytest.approx([9916.0, 9608.0, 5996.0, 10444.0], rel=5e-3)
     assert len(_data_rows(r.ana_path)) == 1 + sum(366 if y % 4 == 0 else 365 for y in range(2015, 2024))
 
 

@@ -312,7 +312,6 @@ EVENT_ALIASES: dict[str, str] = {a: k.name for k in EVENT_REGISTRY.values() for 
 CSV_IGNORED = ("pesticide",)
 """``events.csv`` kinds with no model effect yet; :meth:`EventTable.from_csv` drops them by default."""
 
-_IRRIG_UNIT_TO_CM = {"": 1.0, "cm": 1.0, "mm": 0.1}
 _LEAVES: dict[str, Payload] = {p.leaf: p for k in EVENT_REGISTRY.values() for p in k.payload}
 
 

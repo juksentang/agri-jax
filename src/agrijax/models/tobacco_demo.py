@@ -43,6 +43,7 @@ import pandas as pd
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
+from agrijax.core.coefficients import Provenance, coef
 from agrijax.core.events import EventTable
 from agrijax.core.model import Model
 from agrijax.core.organs import OrganQueue, age, aggregate, appear, grow, prime, top
@@ -71,6 +72,25 @@ __all__ = [
 DEFAULT_PRIMINGS: tuple[tuple[int, tuple[int, int]], ...] = ((70, (0, 6)), (80, (6, 12)), (90, (12, 18)))
 
 
+#: default values of the :class:`TobaccoParams` fields (units and meaning in the field declarations).
+#: Illustrative: plausible flue-cured tobacco orders of magnitude chosen for the demo, not taken from
+#: a reference model or a paper; every one is a calibratable parameter of :class:`TobaccoParams`.
+_DEFAULT_VALUES: dict[str, float] = {
+    "phyllochron": 22.0,  # degC d
+    "tbase": 10.0,  # degC
+    "leaf_mass_max": 5.0,  # g plant-1 (one leaf)
+    "growth_rate": 0.02,  # (degC d)-1
+    "age_half": 250.0,  # degC d
+    "sla": 180.0,  # cm2 g-1
+    "density": 1.8,  # plants m-2
+}
+#: scenario defaults of :func:`synthetic_events` and :func:`initial_state` (calendar, not model)
+_DEFAULT_SOW_MONTH_DAY: tuple[int, int] = (5, 1)
+_DEFAULT_TOPPING_AFTER: int = 60  # days after sowing
+_DEFAULT_HARVEST_AFTER: int = 100  # days after sowing
+_DEFAULT_N_COHORT: int = 30  # leaf positions of the organ queue
+
+
 class TobaccoParams(Params):
     """Run-constant parameters of the demo (all scalars; batch with a leading axis)."""
 
@@ -83,6 +103,17 @@ class TobaccoParams(Params):
     age_half: Array = field(dims=(), unit="degC d", description="leaf age at the logistic inflection")
     sla: Array = field(dims=(), unit="cm2 g-1", description="specific leaf area")
     density: Array = field(dims=(), unit="plants m-2", description="plant density")
+    tmean_weight: float | Array = coef(
+        0.5,
+        "-",
+        "weight of tmin and of tmax in the daily mean temperature of thermal time",
+        Provenance(
+            "none",
+            paper="McMaster and Wilhelm (1997), Agric. For. Meteorol. 87: 291-300",
+            equation="1",
+            note="growing degree-days from the mean of the daily extremes, (tmax + tmin) / 2",
+        ),
+    )
 
 
 class TobaccoCrop(State):
@@ -178,7 +209,7 @@ def leaf_appearance_growth(
     """
     c = state.crop
     q = c.organs
-    tmean = 0.5 * (forcing_t.tmin + forcing_t.tmax)
+    tmean = params.tmean_weight * (forcing_t.tmin + forcing_t.tmax)
     dtt = jnp.where(c.active, jnp.maximum(tmean - params.tbase, 0.0), 0.0)  # [n_crop]
     a_old = q.age_tt
     d_mass = jnp.where(q.alive, leaf_mass(a_old + dtt[:, None], params) - leaf_mass(a_old, params), 0.0)
@@ -256,20 +287,12 @@ def tobacco_model() -> Model:
 
 def default_params(**overrides: float) -> TobaccoParams:
     """Plausible tobacco-like values (flue-cured tobacco order of magnitude); override by keyword."""
-    vals = dict(
-        phyllochron=22.0,
-        tbase=10.0,
-        leaf_mass_max=5.0,
-        growth_rate=0.02,
-        age_half=250.0,
-        sla=180.0,
-        density=1.8,
-    )
+    vals = dict(_DEFAULT_VALUES)
     vals.update(overrides)
     return TobaccoParams(**{k: jnp.asarray(float(v)) for k, v in vals.items()})
 
 
-def initial_state(n_cohort: int = 30, n_crop: int = 1) -> TobaccoState:
+def initial_state(n_cohort: int = _DEFAULT_N_COHORT, n_crop: int = 1) -> TobaccoState:
     """No crop sown yet; an empty queue of ``n_cohort`` leaf positions."""
     z = jnp.zeros((n_crop,))
     return TobaccoState(
@@ -287,10 +310,10 @@ def initial_state(n_cohort: int = 30, n_crop: int = 1) -> TobaccoState:
 def synthetic_events(
     dates: pd.DatetimeIndex,
     *,
-    sow_month_day: tuple[int, int] = (5, 1),
-    topping_after: int = 60,
+    sow_month_day: tuple[int, int] = _DEFAULT_SOW_MONTH_DAY,
+    topping_after: int = _DEFAULT_TOPPING_AFTER,
     primings: Sequence[tuple[int, tuple[int, int]]] = DEFAULT_PRIMINGS,
-    harvest_after: int = 100,
+    harvest_after: int = _DEFAULT_HARVEST_AFTER,
 ) -> EventTable:
     """One tobacco season per calendar year of ``dates``: sow, topping, primings, final harvest.
 

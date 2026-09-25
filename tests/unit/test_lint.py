@@ -1,4 +1,5 @@
-"""agrijax.core.lint: each rule AJ001-AJ005 fires on a violating fixture and a clean process passes (AJ006: test_depth_scan.py)."""
+"""agrijax.core.lint: each rule AJ001-AJ005 and AJ007 fires on a violating fixture and a clean process passes
+(AJ006: test_depth_scan.py)."""
 
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ import equinox as eqx
 import jax.numpy as jnp
 from agrijax.core import process
 
+_TINY = 1e-6  # a numerical guard is a named module constant (AJ007)
+
 @process(reads=("water",), writes=("water",))
 def clean_process(state, params, forcing_t):
     """Add today's rain to the bucket when it rains.
@@ -24,7 +27,7 @@ def clean_process(state, params, forcing_t):
     """
     rain = jnp.maximum(forcing_t.rain, 0.0)
     new = jnp.where(rain > 0.0, state.water + rain, state.water)
-    ratio = jnp.where(state.water > 0.0, jnp.log(jnp.maximum(state.water, 1e-6)), 0.0)
+    ratio = jnp.where(state.water > 0.0, jnp.log(jnp.maximum(state.water, _TINY)), 0.0)
     return eqx.tree_at(lambda s: s.water, state, new + 0.0 * ratio)
 '''
 
@@ -131,6 +134,9 @@ HEADER = (
 
 
 def rules(src: str, **kw) -> set[str]:
+    """Rules reported on a fixture; AJ007 (bare literals, which most fixtures have) is not run
+    unless asked for with ``ignore=()``."""
+    kw.setdefault("ignore", {"AJ007"})
     return {f.rule for f in lint.lint_source(HEADER + textwrap.dedent(src), "fixture.py", **kw)}
 
 
@@ -229,7 +235,7 @@ def test_lint_paths_and_main(tmp_path: Path, capsys: pytest.CaptureFixture[str])
     (tmp_path / "__pycache__").mkdir()
     (tmp_path / "__pycache__" / "x.py").write_text(HEADER + AJ001)
 
-    findings = lint.lint_paths([tmp_path])
+    findings = lint.lint_paths([tmp_path], ignore={"AJ007"})
     assert {f.rule for f in findings} == {"AJ001", "AJ005"}
     assert all("__pycache__" not in f.path for f in findings)
 
@@ -349,7 +355,7 @@ def test_kernels_under_processes_get_numerical_rules(tmp_path: Path) -> None:
     f = tmp_path / "processes" / "pet" / "k.py"
     f.parent.mkdir(parents=True)
     f.write_text(KERNEL)
-    found = lint.lint_file(f)
+    found = lint.lint_file(f, ignore={"AJ007"})
     # only the traced ``if x > 0`` is reported: static args, self/cls, shape and str tests are not
     assert [(x.rule, x.line) for x in found] == [("AJ001", 11)]
     assert {x.rule for x in found} <= lint.KERNEL_RULES  # no AJ004/AJ005 on kernels
@@ -359,6 +365,11 @@ def test_kernels_under_processes_get_numerical_rules(tmp_path: Path) -> None:
     g.write_text(KERNEL)
     assert lint.lint_file(g) == []
     assert {"AJ001", "AJ004", "AJ005"} <= {x.rule for x in lint.lint_file(g, all_functions=True)}
+    # the default 2.0, the factor 2.0 and the threshold 3 are AJ007 warnings; 0 and 1.0 are
+    # whitelisted, and so is the 6 of the shape test
+    aj007 = [x for x in lint.lint_file(f) if x.rule == "AJ007"]
+    assert [ln.split(";")[0].rsplit(": ", 1)[1] for ln in (x.message for x in aj007)] == ["2.0", "2.0", "3"]
+    assert all(x.level == "warning" for x in aj007)
 
 
 def test_lint_of_the_package_is_not_vacuous() -> None:
@@ -371,6 +382,126 @@ def test_lint_of_the_package_is_not_vacuous() -> None:
     procs = {c.name for c in visited if c.is_process}
     assert {"pet_shuttleworth_wallace", "pet_asce_reference", "pet_priestley_taylor"} <= procs
     assert all(c.rules == lint.ALL_RULES for c in visited if c.is_process)
-    # and the package is clean under the strict gate that CI and pre-commit run
+    # and the package is clean under the strict gate that CI and pre-commit run (AJ007 included)
     findings = lint.lint_paths([Path(lint.__file__).resolve().parents[1]])
     assert findings == [], "\n".join(f.format() for f in findings)
+
+
+# ---------------------------------------------------------------------------
+# AJ007: bare numeric literals
+# ---------------------------------------------------------------------------
+
+AJ007_BAD = """
+@process(writes=("water",))
+def literals(state, params, forcing_t, eps=1e-9):
+    \"\"\"Bare model numbers, unit conversions and guards.
+
+    Source: fixture.
+    \"\"\"
+    w = state.water * 0.85 + 2.0
+    cm = forcing_t.rain * 0.1
+    safe = w / jnp.maximum(cm, 1e-12)
+    k = jnp.where(w > 4.0, -0.5, safe)
+    f = lambda x: x * 7
+    return eqx.tree_at(lambda s: s.water, state, k + f(w) + 3)
+"""
+
+AJ007_OK = """
+_EPS = 1e-12
+_GAIN = 0.85
+
+
+@process(writes=("theta",))
+def allowed(state, params, forcing_t):
+    \"\"\"Only whitelisted literals: 0, 1, -1, indices, axes, shapes and small integer exponents.
+
+    Source: fixture.
+    \"\"\"
+    t = state.theta
+    if t.ndim == 2 and t.shape[-1] != 6:
+        raise ValueError("bad shape")
+    a = t[..., 2] + t[:, -3:] ** 2 + jnp.power(t, 3) + t**-2
+    b = jnp.sum(t, axis=-2) + jnp.reshape(t, (-1, 4)).sum(axis=1) + jnp.zeros((3, 2))
+    c = jnp.maximum(t, _EPS) * _GAIN + 1.0 - 0 + t[..., : t.shape[-1] - 2]
+    seeds = [t * k for k in range(3)]
+    return eqx.tree_at(lambda s: s.theta, state, a + b + c - 1 + seeds[0])
+"""
+
+
+def _aj007(src: str) -> list[lint.Finding]:
+    return [f for f in lint.lint_source(HEADER + textwrap.dedent(src), "f.py") if f.rule == "AJ007"]
+
+
+def test_aj007_reports_bare_literals() -> None:
+    found = _aj007(AJ007_BAD)
+    texts = [f.message.split(";")[0].rsplit(": ", 1)[1] for f in found]
+    assert sorted(texts) == sorted(["1e-09", "0.85", "2.0", "0.1", "1e-12", "4.0", "-0.5", "7", "3"])
+    assert all(f.level == "warning" for f in found)
+    # powers of ten carry the unit-adapter hint; a negative literal is one finding, not two
+    by = {f.message.split(";")[0].rsplit(": ", 1)[1]: f.message for f in found}
+    assert "core.units" in by["0.1"] and "core.units" in by["1e-12"] and "core.units" not in by["0.85"]
+    assert "AJ007" in lint.KERNEL_RULES and lint.RULES["AJ007"][0] == "warning"
+
+
+def test_aj007_whitelist() -> None:
+    assert _aj007(AJ007_OK) == [], [f.format() for f in _aj007(AJ007_OK)]
+    assert {0.0, 1.0, -1.0} == set(lint.AJ007_TRIVIAL)
+
+
+def test_aj007_arithmetic_on_an_index_is_not_structural() -> None:
+    src = """
+    @process(writes=("water",))
+    def p(state, params, forcing_t):
+        \"\"\"Doc.
+
+        Source: fixture.
+        \"\"\"
+        return eqx.tree_at(lambda s: s.water, state, jnp.sum(state.water * 2, axis=0) + state.water[3] ** 0.5)
+    """
+    texts = [f.message.split(";")[0].rsplit(": ", 1)[1] for f in _aj007(src)]
+    assert texts == ["2", "0.5"]  # an argument of a structural call only when it is the argument itself
+
+
+def test_aj007_decorators_annotations_and_module_constants_are_not_checked() -> None:
+    src = """
+    import functools
+    from typing import Literal
+
+    SCALE = 0.3
+
+    @process(writes=("water",), version=2)
+    def p(state, params, forcing_t, mode: Literal[5] = 5) -> "Annotated[int, 7]":
+        \"\"\"Doc.
+
+        Source: fixture.
+        \"\"\"
+        return eqx.tree_at(lambda s: s.water, state, state.water * SCALE)
+    """
+    assert [f.message for f in _aj007(src)] == [f.message for f in _aj007(src) if "5" in f.message]
+    assert len(_aj007(src)) == 1  # the default value 5 is checked; decorator and annotations are not
+
+
+def test_aj007_is_escalated_by_strict(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    f = tmp_path / "lit.py"
+    f.write_text(HEADER + AJ007_BAD)
+    assert {x.rule for x in lint.lint_file(f)} == {"AJ007"}
+    assert lint.main([str(f)]) == 0
+    assert lint.main([str(f), "--strict"]) == 1
+    assert lint.main([str(f), "--strict", "--ignore", "AJ007"]) == 0
+    assert lint.main([str(f), "--strict-aj007"]) == 1
+    assert lint.main([str(f), "--strict-aj007", "--ignore", "AJ007"]) == 0
+    assert lint.main([str(f), "--aj007-report", "--quiet"]) == 0
+    out = capsys.readouterr().out
+    assert f"AJ007     9  {f}" in out
+    assert "(9 AJ007)" in out
+    with pytest.raises(SystemExit):
+        lint.main([str(f), "--ignore", "AJ999"])
+
+
+def test_aj007_package_count() -> None:
+    """The package has no AJ007 finding (every coefficient is labelled; --strict enforces it)."""
+    src = Path(lint.__file__).resolve().parents[1]
+    counts = lint.count_by_file(lint.lint_paths([src]), "AJ007")
+    assert counts == {}, counts
+    # the coefficient declarations themselves carry no finding (they are module-level fields)
+    assert not any(p.endswith(("coefficients.py", "units.py")) for p in counts)

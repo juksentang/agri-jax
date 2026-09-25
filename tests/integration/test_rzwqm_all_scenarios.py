@@ -156,13 +156,18 @@ def _first_year(ipnames: Path) -> tuple[_dt.date, _dt.date]:
     return start, _dt.date(start.year, 12, 31)
 
 
+def _short_run_root(data_dir: str | Path) -> Path:
+    """Run root for the reference binary (<= 45 characters): AGRI_JAX_RUN_ROOT if set, like run_fortran."""
+    return Path(os.environ.get("AGRI_JAX_RUN_ROOT", str(Path(data_dir) / "run")))
+
+
 def _run_one(site: str, data_dir: str, out_root: str, stage_root: str) -> dict[str, Any]:
     """Pool worker: stage + run one scenario; never raises (failures are returned with the log)."""
     rec: dict[str, Any] = {"site": site, "ok": False, "error": "", "log_tail": ""}
     out = Path(out_root) / site
     try:
         scenario = Path(data_dir) / BATCH / site / "Scenario"
-        run_root = Path(data_dir) / "run"
+        run_root = _short_run_root(data_dir)
         src = _stage_source(site, scenario, Path(stage_root), run_root)
         start, end = _first_year(src / "IPNAMES.DAT")
         rec.update(start=start.isoformat(), end=end.isoformat(), source=str(src))
@@ -479,7 +484,9 @@ def test_truncated_run_is_detected(batch_dir: Path, data_dir: Path, tmp_path: Pa
     start, end = _first_year(scen / "IPNAMES.DAT")
     with mock.patch.object(rf, "_make_run_dir", _long_run_dir):
         with pytest.raises(rf.FortranRunError) as ei:
-            rf.run_rzwqm(scen, tmp_path / "out", start=start, end=end, timeout=120, run_root=data_dir / "run")
+            rf.run_rzwqm(
+                scen, tmp_path / "out", start=start, end=end, timeout=120, run_root=_short_run_root(data_dir)
+            )
     run_dir = ei.value.run_dir
     assert run_dir is not None and len(str(run_dir)) == MAX_RUN_DIR_LEN + 1
     try:

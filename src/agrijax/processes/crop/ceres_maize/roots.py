@@ -29,6 +29,7 @@ from agrijax.core.process import process
 
 from ._util import safe_div, trunc_st
 from .coefficients import RootgrCoefficients
+from .constants import DEN_MIN, ISTAGE_EMERGENCE, ISTAGE_GERMINATION, ISTAGE_SOWING, RLV_PRECISION
 from .state import CeresForcing, CeresMaizeParams, CeresMaizeState
 
 __all__ = [
@@ -67,9 +68,9 @@ def emergence_rlv(rtdep: Array, pltpop: Array, dlayr: Array, c: RootgrCoefficien
     idx = jnp.arange(n)
     at_l = idx == l_em[..., None]
     rlv0 = jnp.where(
-        idx <= l_em[..., None], c.rlv_emergence * pltpop[..., None] / jnp.maximum(dlayr, 1e-6), 0.0
+        idx <= l_em[..., None], c.rlv_emergence * pltpop[..., None] / jnp.maximum(dlayr, DEN_MIN), 0.0
     )
-    frac = 1.0 - (_at(at_l, bottom) - rtdep) / jnp.maximum(_at(at_l, dlayr), 1e-6)
+    frac = 1.0 - (_at(at_l, bottom) - rtdep) / jnp.maximum(_at(at_l, dlayr), DEN_MIN)
     return jnp.where(at_l, rlv0 * frac[..., None], rlv0)
 
 
@@ -93,7 +94,7 @@ def waterlogging_survival(sat: Array, sw: Array, pormin: ArrayLike, c: RootgrCoe
     Source: DSSAT-CSM v4.8.6.0 MZ_ROOTS.for (MZ_ROOTGR), INTEGR, RTEXF / SWEXF / RTSURV.
     """
     air = sat - sw
-    swexf = jnp.where(air < pormin, jnp.minimum(air / jnp.maximum(pormin, 1e-6), 1.0), 1.0)
+    swexf = jnp.where(air < pormin, jnp.minimum(air / jnp.maximum(pormin, DEN_MIN), 1.0), 1.0)
     return jnp.minimum(1.0, 1.0 - c.rtexf * (1.0 - swexf))
 
 
@@ -133,7 +134,7 @@ def root_length_growth(
     rnlf = safe_div(rlnew, trldf)
     rlv_g = rlv + rldf * rnlf[..., None] / dlayr - c.rlv_decay * rlv
     rlv_g = rlv_g * rtsurv[..., None]
-    return jnp.clip(trunc_st(rlv_g * 1000.0) / 1000.0, 0.0, c.rlv_max), spread
+    return jnp.clip(trunc_st(rlv_g * RLV_PRECISION) / RLV_PRECISION, 0.0, c.rlv_max), spread
 
 
 @process(
@@ -194,8 +195,8 @@ def ceres_roots(state: CeresMaizeState, params: CeresMaizeParams, forcing_t: Cer
     bottom = jnp.cumsum(dlayr)
     top = bottom - dlayr
 
-    rtdep = jnp.where((s == 7) | (s == 8), params.sdepth, r.rtdep)
-    rtdep = jnp.where(s == 9, rtdep + c.rtdep_emerg * dtt, rtdep)
+    rtdep = jnp.where((s == ISTAGE_SOWING) | (s == ISTAGE_GERMINATION), params.sdepth, r.rtdep)
+    rtdep = jnp.where(s == ISTAGE_EMERGENCE, rtdep + c.rtdep_emerg * dtt, rtdep)
     rlv = jnp.where((yrdoy == ph.stgdoy[..., 8])[..., None], emergence_rlv(rtdep, pltpop, dlayr, c), r.rlv)
 
     # ---- daily growth over the rooted layers (those the DO WHILE visits: CUMDEP < RTDEP before adding)
@@ -221,7 +222,7 @@ def ceres_roots(state: CeresMaizeState, params: CeresMaizeParams, forcing_t: Cer
         bottom[..., -1],
         c,
     )
-    frac_l1 = 1.0 - (_at(at_l1, bottom * ones) - rtdep_g) / jnp.maximum(_at(at_l1, dlayr * ones), 1e-6)
+    frac_l1 = 1.0 - (_at(at_l1, bottom * ones) - rtdep_g) / jnp.maximum(_at(at_l1, dlayr * ones), DEN_MIN)
     rldf = jnp.where(at_l1, rldf * frac_l1[..., None], rldf)
     rlv_g, spread = root_length_growth(rlv, rldf, rlnew, dlayr, rtsurv, c)
     grows = grort > c.grort_min

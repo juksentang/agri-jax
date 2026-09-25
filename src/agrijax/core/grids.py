@@ -9,7 +9,8 @@ bottoms from the surface (cm), cells stacked from depth 0. The grids of the M3 a
 * :func:`lyrset` / :func:`rzwqm_lyrset` - the fixed layers of an embedded DSSAT crop: bottoms at
   5, 15, 30, 45, 60 cm, then every 30 cm, cut at the bottom of the source profile, with the
   last layer merged half-and-half into the one above when it is thinner than that layer and
-  thinner than 15 cm (``LYRSET``).
+  thinner than 15 cm (``LYRSET``). These numbers are the static coefficients of
+  :class:`LyrsetCoefficients` (unit, meaning, ``LMATCH.for`` line and statement).
 
 The remapping operators are built from the overlap matrix ``O[i, j]`` = thickness of target cell
 ``i`` inside source cell ``j`` (:func:`overlap`):
@@ -42,18 +43,22 @@ from __future__ import annotations
 import functools
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import jax.numpy as jnp
 import numpy as np
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
+from agrijax.core.coefficients import Coefficients, Provenance, coef
+
 __all__ = [
+    "LYRSET_COEFFICIENTS",
     "LYRSET_FIXED",
     "LYRSET_MERGE_BELOW",
     "LYRSET_N_MAX",
     "LYRSET_STEP",
+    "LyrsetCoefficients",
     "SoilGrid",
     "lyrset",
     "overlap",
@@ -65,14 +70,80 @@ __all__ = [
     "rzwqm_nodes",
 ]
 
+_REF = "dssat-4.8.6.0"
+_LMATCH = "Soil/SoilUtilities/LMATCH.for"
+
+
+def _lyrset(value: float, unit: str, description: str, file_line: str, statement: str, **kw: Any) -> Any:
+    """A static ``LYRSET`` coefficient (grid geometry: not a pytree leaf, not calibrated)."""
+    routine = kw.pop("routine", "LYRSET")
+    prov = Provenance.at(_REF, file_line, routine=routine, statement=statement, note=kw.pop("note", ""))
+    return coef(value, unit, description, prov, static=True, **kw)
+
+
+class LyrsetCoefficients(Coefficients):
+    """The numbers of DSSAT ``LYRSET`` (and of RZWQM2's embedded-crop layers, which use the same).
+
+    Grid geometry, so every field is static: a layer boundary is a structural choice (it sets the
+    number of layers), not a calibratable response. RZWQM2 4.6 sets the same fixed bottoms and
+    the ``+30 cm`` step for all 20 layers (``RZWQM/DSSATDRV.for:557-563``, ``dslayer = 20`` at
+    line 69, routine ``DSSATDRV``), and calls ``LYRSET`` / ``REALMATCH`` of its bundled
+    ``DSSAT40/Input/LMATCH.FOR``; the values below are cited from DSSAT-CSM v4.8.6.0, where they
+    are the same numbers.
+    """
+
+    ds1: float = _lyrset(5.0, "cm", "bottom of fixed crop layer 1", f"{_LMATCH}:177", "DS(1) =  5.")
+    ds2: float = _lyrset(15.0, "cm", "bottom of fixed crop layer 2", f"{_LMATCH}:178", "DS(2) = 15.")
+    ds3: float = _lyrset(30.0, "cm", "bottom of fixed crop layer 3", f"{_LMATCH}:179", "DS(3) = 30.")
+    ds4: float = _lyrset(45.0, "cm", "bottom of fixed crop layer 4", f"{_LMATCH}:180", "DS(4) = 45.")
+    ds5: float = _lyrset(60.0, "cm", "bottom of fixed crop layer 5", f"{_LMATCH}:181", "DS(5) = 60.")
+    step: float = _lyrset(
+        30.0,
+        "cm",
+        "thickness of the crop layers below 60 cm",
+        f"{_LMATCH}:184",
+        "DS(L) = DS(L - 1) + 30.",
+        note="DSSAT-CSM uses 60 cm from layer 18 on; RZWQM2 keeps 30 cm to layer 20 (DSSATDRV.for:563)",
+    )
+    merge_below: float = _lyrset(
+        15.0,
+        "cm",
+        "a last layer thinner than this (and than the layer above) is merged with the layer above",
+        f"{_LMATCH}:233",
+        "DLAYR (NLAYRO) .LT. 15.0) THEN",
+    )
+    merge_divisor: float = _lyrset(
+        2.0,
+        "-",
+        "the merged last two layers each get their summed thickness divided by this",
+        f"{_LMATCH}:234",
+        "DLAYR (NLAYRO)   = (DLAYR(NLAYRO) + DLAYR(NLAYRO-1))/2",
+    )
+    n_max: int = _lyrset(
+        20,
+        "-",
+        "maximum number of crop layers (DSSAT NL; RZWQM2 dslayer)",
+        "Utilities/ModuleDefs.for:49",
+        "NL       = 20,",
+        routine="ModuleDefs",
+    )
+
+    @property
+    def fixed(self) -> tuple[float, ...]:
+        """The fixed layer bottoms ``DS(1..5)`` [cm]."""
+        return (self.ds1, self.ds2, self.ds3, self.ds4, self.ds5)
+
+
+#: the DSSAT-CSM v4.8.6.0 values of :class:`LyrsetCoefficients`
+LYRSET_COEFFICIENTS = LyrsetCoefficients()
 #: fixed layer bottoms of ``LYRSET`` [cm]
-LYRSET_FIXED: tuple[float, ...] = (5.0, 15.0, 30.0, 45.0, 60.0)
+LYRSET_FIXED: tuple[float, ...] = LYRSET_COEFFICIENTS.fixed
 #: thickness of the layers below 60 cm in RZWQM2's embedded crop [cm]
-LYRSET_STEP = 30.0
+LYRSET_STEP = LYRSET_COEFFICIENTS.step
 #: a last layer thinner than this (and than the layer above) is merged with the layer above [cm]
-LYRSET_MERGE_BELOW = 15.0
+LYRSET_MERGE_BELOW = LYRSET_COEFFICIENTS.merge_below
 #: maximum number of crop layers (DSSAT ``NL``; RZWQM2 ``dslayer``)
-LYRSET_N_MAX = 20
+LYRSET_N_MAX = LYRSET_COEFFICIENTS.n_max
 
 Kind = Literal["intensive", "extensive"]
 
@@ -171,8 +242,8 @@ def lyrset(
     out[-1] = last
     dl = np.diff(np.concatenate([[0.0], out]))
     if n > 1 and dl[-1] < dl[-2] and dl[-1] < LYRSET_MERGE_BELOW:
-        half = 0.5 * (dl[-1] + dl[-2])
-        out[-2] = (out[-3] if n > 2 else 0.0) + half
+        half = (dl[-1] + dl[-2]) / LYRSET_COEFFICIENTS.merge_divisor
+        out[-2] = (out[-3] if len(out) > 2 else 0.0) + half
     return SoilGrid(name, tuple(out.tolist()))
 
 

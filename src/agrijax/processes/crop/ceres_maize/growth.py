@@ -40,21 +40,33 @@ Development Center); Jones & Kiniry (1986) CERES-Maize; ear growth after J. I. L
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import equinox as eqx
 import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
+from agrijax.core.coefficients import Coefficients, Provenance, coef, numerical_guard
 from agrijax.core.organs import OrganQueue, appear
 from agrijax.core.process import process
+from agrijax.core.units import KG_HA_PER_G_M2, M2_PER_CM2, M_PER_CM, mm_to_cm
 
 from ._util import curv_lin, safe_div, tabex, trunc_st
 from .coefficients import DSSAT_COEFFICIENTS, GrosubCoefficients
+from .constants import (
+    CROP_STATUS_COLD,
+    CROP_STATUS_DROUGHT,
+    G_PER_MG,
+    ISTAGE_EFG,
+    ISTAGE_END_LEAF_GROWTH,
+    ISTAGE_MATURITY,
+    PAIR_MEAN_WEIGHT,
+)
 from .state import CeresForcing, CeresGrowthState, CeresMaizeParams, CeresMaizeState, CeresSpecies
 
 __all__ = [
+    "WATER_STRESS_COEFFICIENTS",
     "CropFailure",
     "EarlyMaturity",
     "EmergenceInit",
@@ -63,6 +75,7 @@ __all__ = [
     "LeafAppearance",
     "OrganGrowth",
     "StageDateInit",
+    "WaterStressCoefficients",
     "assimilation",
     "canopy_height",
     "ceres_growth",
@@ -89,27 +102,78 @@ __all__ = [
     "water_stress_factors",
 ]
 
-_EPS = 1e-12
+_EPS = numerical_guard(
+    "ceres_maize.eps",
+    1e-12,
+    "floor of the divisors and power bases of the growth and stress kernels (RWUEP1, PORMIN, PHINT, "
+    "the organ demand, the canopy-height denominator)",
+)
 
 
-def water_stress_factors(eop: ArrayLike, trwup: ArrayLike, rwuep1: ArrayLike) -> tuple[Array, Array]:
+def _ws(value: float, description: str, file_line: str, routine: str, statement: str, **kw: Any) -> Any:
+    """A coefficient of the crop's water-stress interface (DSSAT-CSM v4.8.6.0, not calibrated)."""
+    prov = Provenance.at(
+        "dssat-4.8.6.0", f"Plant/CERES-Maize/{file_line}", routine=routine, statement=statement
+    )
+    return coef(value, "-", description, prov, **kw)
+
+
+class WaterStressCoefficients(Coefficients):
+    """The numbers of the crop's water-stress interface (``SWFAC``, ``TURFAC`` from ``EOP`` and
+    ``TRWUP``; the stages in which ``MZ_CERES`` calls the stress block).
+
+    Neither is a response to calibrate: ``turfac_scale`` is the storage precision DSSAT gives
+    ``TURFAC`` (a leaf kept out of the calibration vector), ``grosub_last_stage`` a stage code
+    (static). The ``0.1`` of ``EP1 = EOP * 0.1`` is the mm -> cm conversion
+    (:func:`agrijax.core.units.mm_to_cm`).
+    """
+
+    turfac_scale: float = _ws(
+        1000.0,
+        "TURFAC is truncated to 1 / turfac_scale (REAL(INT(TURFAC*1000))/1000)",
+        "MZ_GROSUB.for:1066",
+        "MZ_GROSUB",
+        "TURFAC = REAL(INT(TURFAC*1000))/1000",
+        calibrate=False,
+    )
+    grosub_last_stage: int = _ws(
+        6,
+        "last stage (ISTAGE) in which MZ_CERES runs MZ_GROSUB and its stress block",
+        "MZ_CERES.for:658",
+        "MZ_CERES",
+        "IF (ISTAGE .GT. 0 .AND. ISTAGE .LE. 6) THEN",
+        static=True,
+    )
+
+
+#: the DSSAT-CSM v4.8.6.0 values of :class:`WaterStressCoefficients`
+WATER_STRESS_COEFFICIENTS = WaterStressCoefficients()
+
+
+def water_stress_factors(
+    eop: ArrayLike,
+    trwup: ArrayLike,
+    rwuep1: ArrayLike,
+    c: WaterStressCoefficients = WATER_STRESS_COEFFICIENTS,
+) -> tuple[Array, Array]:
     """``(SWFAC, TURFAC)`` from potential transpiration ``EOP`` [mm d-1] and potential root water
     uptake ``TRWUP`` [cm d-1].
 
     ``EP1 = 0.1 EOP``; ``TURFAC = TRWUP / (RWUEP1 EP1)`` when that ratio is below 1 and
     ``SWFAC = TRWUP / EP1`` when ``EP1 >= TRWUP``, both 1 without demand; ``TURFAC`` is then
-    truncated to 1e-3 as in the Fortran (value exact, identity derivative, :func:`trunc_st`).
+    truncated to 1e-3 (``1 / c.turfac_scale``) as in the Fortran (value exact, identity
+    derivative, :func:`trunc_st`).
 
     Source: DSSAT-CSM MZ_GROSUB.for, "Compute Water Stress Factors".
     """
     eop = jnp.asarray(eop)
     trwup = jnp.asarray(trwup)
-    ep1 = eop * 0.1
+    ep1 = mm_to_cm(eop)  # EP1 = EOP * 0.1
     demand = eop > 0.0
     ratio = safe_div(trwup, ep1, 1.0)
     turfac = jnp.where(demand & (ratio < rwuep1), ratio / jnp.maximum(jnp.asarray(rwuep1), _EPS), 1.0)
     swfac = jnp.where(demand & (ep1 >= trwup), ratio, 1.0)
-    return swfac, trunc_st(turfac * 1000.0) / 1000.0
+    return swfac, trunc_st(turfac * c.turfac_scale) / c.turfac_scale
 
 
 def saturation_factor(
@@ -184,7 +248,7 @@ def ceres_stress(
     st = state.stress
     w = state.water_in
     yrdoy = jnp.asarray(forcing_t.yrdoy)
-    called = (s >= 1) & (s <= 6)
+    called = (s >= 1) & (s <= WATER_STRESS_COEFFICIENTS.grosub_last_stage)
     run = called & (state.phen.mdate != yrdoy)
     wat = params.iswwat
     one = jnp.ones_like(st.swfac)
@@ -285,7 +349,7 @@ def emergence_init(
         seedrv=jnp.where(at_em, spe.seedrve, g.seedrv),
         leafno=jnp.where(at_em, jnp.floor(spe.leafnoe).astype(g.leafno.dtype), g.leafno),
         senla=jnp.where(at_em, 0.0, g.senla),
-        lai=jnp.where(at_em, pltpop * pla * 0.0001, g.lai),
+        lai=jnp.where(at_em, pltpop * pla * M2_PER_CM2, g.lai),
         cumph=jnp.where(at_em, c.cumph_emergence, g.cumph),
     )
 
@@ -317,7 +381,7 @@ def assimilation(
     tmax = jnp.asarray(tmax)
     tmin = jnp.asarray(tmin)
     par = jnp.asarray(srad) * spe.parsr
-    lifac = c.lifac_max - c.lifac_slope * _pow((rowspc * 0.01) ** 2 * pltpop, c.lifac_exp)
+    lifac = c.lifac_max - c.lifac_slope * _pow((rowspc * M_PER_CM) ** 2 * pltpop, c.lifac_exp)
     pco2 = tabex(spe.co2y, spe.co2x, co2)
     ipar = jnp.where(pltpop > 0.0, safe_div(par, pltpop) * (1.0 - jnp.exp(-lifac * lai)), 0.0)
     pcarb = ipar * rue * pco2
@@ -376,7 +440,7 @@ def _leaf_respiration(lfwt: Array, slan: Array, pltpop: Array, c: GrosubCoeffici
     Source: DSSAT-CSM v4.8.6.0 MZ_GROSUB.for, INTEGR, ``LFWT = LFWT - SLAN/600.0`` and
     ``CumLeafSenes = SLAN / 600. * PLTPOP * 10.`` of the stage 1-4 blocks.
     """
-    return lfwt - slan / c.sla_senes, slan / c.sla_senes * pltpop * 10.0
+    return lfwt - slan / c.sla_senes, slan / c.sla_senes * pltpop * KG_HA_PER_G_M2
 
 
 def juvenile_growth(
@@ -591,7 +655,7 @@ def grain_fill_rate(
     """
     rg = rgfil
     rgfill = jnp.clip(curv_lin(rg[..., 0], rg[..., 1], rg[..., 2], rg[..., 3], tempm), 0.0, 1.0)
-    return rgfill, rgfill * gpp * g3 * 0.001 * (c.grogrn_sw_base + c.grogrn_sw_slope * swfac)
+    return rgfill, rgfill * gpp * g3 * G_PER_MG * (c.grogrn_sw_base + c.grogrn_sw_slope * swfac)
 
 
 class EarlyMaturity(NamedTuple):
@@ -713,7 +777,7 @@ def leaf_senescence(
     )
     plas = (pla - senla) * (1.0 - jnp.minimum(jnp.minimum(slfw, slfc), jnp.minimum(slft, 1.0)))
     senla_g = jnp.minimum(jnp.maximum(senla + plas, slan), pla)
-    return senla_g, (pla - senla_g) * pltpop * 0.0001
+    return senla_g, (pla - senla_g) * pltpop * M2_PER_CM2
 
 
 class CropFailure(NamedTuple):
@@ -751,18 +815,23 @@ def crop_failure(
     """
     icold_n = jnp.where(grow, jnp.where(tmin <= tsen, icold + 1, 0), icold)
     cold = grow & (
-        ((leafno > c.cold_leafno) & (lai <= 0.0) & (istage <= 4) & (icold_n > c.cold_days))
+        (
+            (leafno > c.cold_leafno)
+            & (lai <= 0.0)
+            & (istage <= ISTAGE_END_LEAF_GROWTH)
+            & (icold_n > c.cold_days)
+        )
         | (icold_n.astype(lai.dtype) >= cday)
     )
-    istage = jnp.where(cold, 6, istage)
+    istage = jnp.where(cold, ISTAGE_MATURITY, istage)
     mdate = jnp.where(cold, yrdoy, mdate)
-    status = jnp.where(cold, 32, status)
+    status = jnp.where(cold, CROP_STATUS_COLD, status)
     nwsd_n = jnp.where(grow, jnp.where(swfac > c.drought_swfac, 0, nwsd + 1), nwsd)
-    drought = grow & (lai <= c.drought_lai) & (istage < 4) & (nwsd_n > c.drought_days)
+    drought = grow & (lai <= c.drought_lai) & (istage < ISTAGE_END_LEAF_GROWTH) & (nwsd_n > c.drought_days)
     return CropFailure(
-        istage=jnp.where(drought, 6, istage),
+        istage=jnp.where(drought, ISTAGE_MATURITY, istage),
         mdate=jnp.where(drought, yrdoy, mdate),
-        status=jnp.where(drought, 33, status),
+        status=jnp.where(drought, CROP_STATUS_DROUGHT, status),
         icold=icold_n,
         nwsd=nwsd_n,
     )
@@ -819,13 +888,13 @@ def grosub_blocks(
     cul, spe, f = params.cultivar, params.species, forcing_t
     yrdoy = jnp.asarray(f.yrdoy)
     s = ph.istage
-    called = (s >= 1) & (s <= 6)
+    called = (s >= 1) & (s <= WATER_STRESS_COEFFICIENTS.grosub_last_stage)
     pltpop = g.pltpop
 
     # stage-date initialisations (before any return), then the MZ_CERES / MZ_GROSUB returns
     sd = stage_date_init(yrdoy, called, ph.stgdoy, pltpop, ph.ears, g, c)
     em = emergence_init(called & (yrdoy == ph.stgdoy[..., 8]), pltpop, g, spe, c)
-    grow = called & (ph.mdate != yrdoy) & (s <= 5) & ~((s == 5) & (pltpop <= c.pltpop_min5))
+    grow = called & (ph.mdate != yrdoy) & (s <= ISTAGE_EFG) & ~((s == ISTAGE_EFG) & (pltpop <= c.pltpop_min5))
 
     tmax = jnp.asarray(f.tmax)
     tmin = jnp.asarray(f.tmin)
@@ -857,7 +926,7 @@ def grosub_blocks(
     b5, gf = grain_fill_growth(
         org,
         carbo,
-        (tmax + tmin) * 0.5,
+        (tmax + tmin) * PAIR_MEAN_WEIGHT,
         swfac,
         sumdtt,
         ph.gpp,

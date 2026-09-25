@@ -24,6 +24,7 @@ from jaxtyping import Array
 
 from agrijax.core.model import Model
 from agrijax.core.process import process
+from agrijax.core.units import CM_PER_M, KG_HA_PER_G_M2
 from agrijax.processes.soil_water.uptake import CropWaterIn, RootRecord
 
 from .growth import ceres_growth, ceres_stress
@@ -41,8 +42,9 @@ __all__ = [
     "yield_kg_ha",
 ]
 
-_KG_HA = 10.0  # g m-2 -> kg ha-1 (MZ_OPGROW: NINT(WTLF*10.), ...)
-_CM_TO_M = 100.0  # cm -> m (MZ_OPGROW: RDPD = RTDEP/100.)
+# the unit conversions of MZ_OPGROW, from agrijax.core.units (same values, same operations)
+_KG_HA = KG_HA_PER_G_M2  # g m-2 -> kg ha-1 (MZ_OPGROW: NINT(WTLF*10.), ...)
+_CM_TO_M = CM_PER_M  # cm -> m (MZ_OPGROW: RDPD = RTDEP/100.)
 
 OUTPUT_UNITS = {
     "istage": "-",

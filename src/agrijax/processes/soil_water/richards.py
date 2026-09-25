@@ -136,9 +136,12 @@ import numpy as np
 from jax import lax
 from jaxtyping import Array
 
+from agrijax.core import units
+from agrijax.core.coefficients import Provenance, numerical_guard
 from agrijax.core.process import check_enabled, process
 from agrijax.core.state import Forcing, Params, State, field
 
+from .coefficients import numerical_setting, rzwqm2, setting_field
 from .hydraulics import H_CLAMP_RZWQM, SoilHydraulicParams, h_of_theta, k_of_h, theta_of_h
 from .sinks import SINK_CHANNELS, SinkChannels, as_sink_channels
 
@@ -168,10 +171,63 @@ __all__ = [
     "v_of_head",
 ]
 
-HOURS_PER_DAY: float = 24.0
+#: hours of the redistribution day (the unit conversion of :mod:`agrijax.core.units`)
+HOURS_PER_DAY: float = units.HOURS_PER_DAY
+#: hour boundaries 0..24 of the hourly forcing (a count, not a model number)
+_N_HOUR_EDGES: int = int(HOURS_PER_DAY) + 1
 #: floor of K inside the logarithm of the geometric mean [cm h-1]; K(h_min) is ~1e-9 cm/h for CA-TPA.
-_K_FLOOR: float = 1.0e-300
-_K_FLOOR_F32: float = 1.0e-37
+_K_FLOOR: float = numerical_guard(
+    "richards.k_floor", 1.0e-300, "floor of K [cm h-1] inside the log of the geometric mean (float64)"
+)
+_K_FLOOR_F32: float = numerical_guard(
+    "richards.k_floor_f32", 1.0e-37, "floor of K [cm h-1] inside the log of the geometric mean (float32)"
+)
+_GRID_ATOL: float = numerical_guard(
+    "richards.grid_atol", 1.0e-9, "absolute tolerance [cm] of the vertex-centred grid check of rzwqm.dat"
+)
+_CELL_CENTRE: float = numerical_setting(
+    "richards.cell_centre",
+    0.5,
+    "-",
+    "vertex-centred grid: the first node at half the first cell, cell boundaries at the midpoints "
+    "between nodes (TL(i) = (DELZ(i-1) + DELZ(i)) / 2)",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/Rzmain.for:5921", "INPUT", note="ZN(1) and TL(i) at Rzmain.for:5921-5929"),
+)
+_GEOMETRIC_MEAN: float = numerical_setting(
+    "richards.face_k_mean_exponent",
+    0.5,
+    "-",
+    "face conductivity is the geometric mean exp(0.5 (log K_i + log K_i+1)) of the two nodes",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/Rzrich.for:322", "CNHEAD", note="HKBAR, also Rzrich.for:350"),
+)
+_ALPHA_FIRST: float = numerical_setting(
+    "richards.alpha_first",
+    1.0,
+    "-",
+    "time weight of the first sub-step of a day (fully implicit), and of every sub-step of "
+    "time_scheme='implicit'",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/Rzrich.for:1653", "RICHRD", note="ALPH at the start of the day"),
+)
+_ALPHA_CN: float = numerical_setting(
+    "richards.alpha_cn",
+    0.5,
+    "-",
+    "time weight of the later sub-steps of time_scheme='rzwqm' (Crank-Nicolson, no water table)",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/Rzrich.for:1655", "RICHRD", note="ALPH after the first step, ITBL != 1"),
+)
+#: colours of the tridiagonal band: row i couples to i-1, i, i+1, so seeds [i % 3 == k] recover it
+_N_COLOURS: int = numerical_setting(
+    "richards.jacobian_colours",
+    3,
+    "-",
+    "JVP seeds of the tridiagonal Jacobian (one per colour of the three-point stencil)",
+    origin="agrijax",
+    basis="Curtis, Powell & Reid (1974) column colouring; tests/unit/test_richards.py dense jacfwd check",
+)
 
 # ---------------------------------------------------------------------------
 # pytrees
@@ -206,7 +262,7 @@ class RichardsGrid(Params):
 
     def node_depth(self) -> Array:
         """Node depths [cm]: ``tl[0]/2`` for the first node, then cumulative ``delz``."""
-        z0 = 0.5 * self.tl[..., :1]
+        z0 = _CELL_CENTRE * self.tl[..., :1]
         return jnp.concatenate([z0, z0 + jnp.cumsum(self.delz, axis=-1)], axis=-1)
 
     @classmethod
@@ -223,9 +279,9 @@ class RichardsGrid(Params):
             raise ValueError(f"expected two [n] arrays, got {tlt.shape} and {dz.shape}")
         tl = np.diff(np.concatenate([[0.0], tlt]))
         delz = dz[:-1]
-        expect = np.concatenate([[delz[0]], 0.5 * (delz[:-1] + delz[1:]), [delz[-1]]])
+        expect = np.concatenate([[delz[0]], _CELL_CENTRE * (delz[:-1] + delz[1:]), [delz[-1]]])
         _require(
-            bool(np.allclose(tl, expect, atol=1e-9) and np.all(delz > 0)),
+            bool(np.allclose(tl, expect, atol=_GRID_ATOL) and np.all(delz > 0)),
             "node records are not a vertex-centred grid (TL != (DELZ(i-1)+DELZ(i))/2)",
         )
         return cls(tl=jnp.asarray(tl), delz=jnp.asarray(delz), dz_top=jnp.asarray(delz[0]))
@@ -254,19 +310,105 @@ class RichardsConfig(eqx.Module):
     Jacobian diagonal only (never to the residual); ``chop`` stops an update that leaves the
     saturated side across the air-entry kink ``h = -hb`` on the kink (see :func:`_iterate`);
     ``rain_fraction`` share of the sub-steps placed on the supply hours.
+
+    Every field is a numerical setting with its origin
+    (:data:`~agrijax.processes.soil_water.coefficients.SETTINGS`, ``richards.*``): RZWQM2 uses
+    an adaptive step of 1e-4 to 0.1 h with modified Picard iterations to a tolerance, so the
+    fixed counts, the damping and the clamps are choices of this implementation (private
+    design note 16, sections 4.4 and 6), measured in ``tests/unit/test_richards.py``.
     """
 
-    n_sub: int = eqx.field(static=True, default=24)
-    n_iter: int = eqx.field(static=True, default=3)
-    jacobian: str = eqx.field(static=True, default="newton")
-    time_scheme: str = eqx.field(static=True, default="implicit")
-    grad: str = eqx.field(static=True, default="unrolled")
-    h_upper: float = eqx.field(static=True, default=10.0)
-    sink_cutoff: float = eqx.field(static=True, default=1.0e-9)
-    dv_max: float = eqx.field(static=True, default=1.0)
-    c_floor: float = eqx.field(static=True, default=1.0e-7)
-    chop: bool = eqx.field(static=True, default=True)
-    rain_fraction: float = eqx.field(static=True, default=0.5)
+    n_sub: int = setting_field(
+        "richards.n_sub",
+        24,
+        "-",
+        "sub-steps per day (fixed; 24 = the 24 x 3 baseline, 96 x 8 the near-converged reference)",
+        origin="agrijax",
+        basis="private design note 16 section 6; tests/unit/test_richards.py convergence study",
+    )
+    n_iter: int = setting_field(
+        "richards.n_iter",
+        3,
+        "-",
+        "Newton (or Picard) iterations per sub-step (fixed count, no tolerance test)",
+        origin="agrijax",
+        basis="private design note 16 section 6; tests/unit/test_richards.py convergence study",
+    )
+    jacobian: str = setting_field(
+        "richards.jacobian",
+        "newton",
+        "-",
+        "'newton' (exact tridiagonal Jacobian incl. dK/dh) or 'picard' (K frozen, RZWQM2's scheme)",
+        origin="agrijax",
+        basis="private design note 16 section 3 (RZWQM2 RICHRD iterates modified Picard)",
+    )
+    time_scheme: str = setting_field(
+        "richards.time_scheme",
+        "implicit",
+        "-",
+        "'implicit' (alpha = 1 on every sub-step) or 'rzwqm' (1, then 1/2: richards.alpha_cn)",
+        origin="agrijax",
+        basis="tests/unit/test_richards.py convergence study (Crank-Nicolson oscillates unconverged)",
+    )
+    grad: str = setting_field(
+        "richards.grad",
+        "unrolled",
+        "-",
+        "'unrolled' (through the fixed iterations) or 'implicit' (implicit-function VJP per sub-step)",
+        origin="agrijax",
+        basis="tests/unit/test_richards_grad.py",
+    )
+    h_upper: float = setting_field(
+        "richards.h_upper",
+        10.0,
+        "cm",
+        "upper clamp of the head iterate above hydrostatic (node i clamped at h_upper + z_i); a "
+        "divergence guard that should never activate (n_clamp)",
+        origin="agrijax",
+        basis="private design note 16 section 4.4 (+10 cm); RZWQM2 caps the surface head at HMAX = 0",
+    )
+    sink_cutoff: float = setting_field(
+        "richards.sink_cutoff",
+        1.0e-9,
+        "cm3 cm-3",
+        "water kept above theta(h_min) by the sink cap (RZWQM2: no uptake from a node at Hmin)",
+        origin="agrijax",
+        basis="private design note 16 section 5; tests/unit/test_richards.py uptake-cap test",
+    )
+    dv_max: float = setting_field(
+        "richards.dv_max",
+        1.0,
+        "-",
+        "largest Newton update of the transformed variable v per node (a factor e in |h|)",
+        origin="agrijax",
+        basis="richards.py module docstring (damping); tests/unit/test_richards.py",
+    )
+    c_floor: float = setting_field(
+        "richards.c_floor",
+        1.0e-7,
+        "cm-1",
+        "storage floor added to the Jacobian diagonal only (never the residual): keeps it "
+        "non-singular on a saturated profile",
+        origin="agrijax",
+        basis="private design note 16 section 3 (regularise the Jacobian, not C(h))",
+    )
+    chop: bool = setting_field(
+        "richards.chop",
+        True,
+        "-",
+        "stop an update that leaves the saturated side across the air-entry kink h = -hb on the kink",
+        origin="agrijax",
+        provenance=Provenance("none", paper="Wang & Tchelepi (2013), J. Comput. Phys. 253, 114-137"),
+        basis="tests/unit/test_richards.py pond-emptying sub-step (measured with and without)",
+    )
+    rain_fraction: float = setting_field(
+        "richards.rain_fraction",
+        0.5,
+        "-",
+        "share of the sub-steps placed in proportion to the hourly supply (the rest uniform)",
+        origin="agrijax",
+        basis="richards.py substep_edges; tests/unit/test_richards.py",
+    )
 
     def __check_init__(self) -> None:
         if self.n_sub < 1 or self.n_iter < 1:
@@ -477,7 +619,7 @@ def surface_fluxes(h: Array, h_k: Array, a: _StepArgs) -> tuple[Array, Array, Ar
     # because its rain goes through the Green-Ampt INFIL routine, not through Richards.
     kw = jnp.exp(k_sat)
     # dry limit: geometric mean with K(h_min) as in RZWQM (monotone decreasing in h_0)
-    kd = jnp.exp(0.5 * (k_node + k_dry))
+    kd = jnp.exp(_GEOMETRIC_MEAN * (k_node + k_dry))
     q_wet_raw = -kw * (ht0 / a.dz_top - 1.0)
     q_dry_raw = -kd * ((ht0 - a.h_min) / a.dz_top - 1.0)
     q_wet = jnp.where(q_wet_raw > 0.0, q_wet_raw, 0.0)
@@ -491,7 +633,7 @@ def _face_fluxes(h: Array, h_k: Array, a: _StepArgs) -> Array:
     ht = a.alpha * h + (1.0 - a.alpha) * a.h_old
     hk = a.alpha * h_k + (1.0 - a.alpha) * a.h_old
     logk = _log_k(k_of_h(hk, a.soil))
-    k_face = jnp.exp(0.5 * (logk[:-1] + logk[1:]))
+    k_face = jnp.exp(_GEOMETRIC_MEAN * (logk[:-1] + logk[1:]))
     q_int = -k_face * ((ht[1:] - ht[:-1]) / a.delz - 1.0)
     q_top, _, _ = surface_fluxes(h, h_k, a)
     q_bot = jnp.exp(logk[-1])
@@ -517,12 +659,14 @@ def tridiagonal_jacobian(fun: Any, h: Array) -> tuple[Array, Array, Array, Array
     """
     n = h.shape[-1]
     idx = np.arange(n)
-    seeds = jnp.asarray(np.stack([(idx % 3 == k) for k in range(3)]).astype(float), dtype=h.dtype)
+    seeds = jnp.asarray(
+        np.stack([(idx % _N_COLOURS == k) for k in range(_N_COLOURS)]).astype(float), dtype=h.dtype
+    )
     r, lin = jax.linearize(fun, h)
     cols = jax.vmap(lin)(seeds)  # [3, n]
-    d = cols[idx % 3, idx]
-    dl = jnp.where(idx > 0, cols[(idx - 1) % 3, idx], 0.0)
-    du = jnp.where(idx < n - 1, cols[(idx + 1) % 3, idx], 0.0)
+    d = cols[idx % _N_COLOURS, idx]
+    dl = jnp.where(idx > 0, cols[(idx - 1) % _N_COLOURS, idx], 0.0)
+    du = jnp.where(idx < n - 1, cols[(idx + 1) % _N_COLOURS, idx], 0.0)
     return r, dl, d, du
 
 
@@ -784,7 +928,7 @@ def substep_edges(supply: Array, n_sub: int, rain_fraction: float) -> Array:
     the state, so the number of sub-steps stays fixed.
     """
     dtype = supply.dtype
-    hours = jnp.arange(25, dtype=dtype)
+    hours = jnp.arange(_N_HOUR_EDGES, dtype=dtype)
     pos = jnp.where(supply > 0.0, supply, 0.0)
     total = jnp.sum(pos)
     wet = total > 0.0
@@ -800,7 +944,7 @@ def substep_edges(supply: Array, n_sub: int, rain_fraction: float) -> Array:
 def _interval_means(hourly: Array, t: Array) -> Array:
     """Average of an hourly piecewise-constant rate over each interval ``[t[k], t[k+1]]`` (0 if empty)."""
     cum = jnp.concatenate([jnp.zeros_like(hourly[:1]), jnp.cumsum(hourly)])
-    c = jnp.interp(t, jnp.arange(25, dtype=hourly.dtype), cum)
+    c = jnp.interp(t, jnp.arange(_N_HOUR_EDGES, dtype=hourly.dtype), cum)
     width = t[1:] - t[:-1]
     return (c[1:] - c[:-1]) / jnp.where(width > 0.0, width, 1.0)
 
@@ -929,8 +1073,8 @@ def richards_substeps(
 
 def day_alphas(n_sub: int, cfg: RichardsConfig, dtype: Any) -> Array:
     """Time weights of a day's sub-steps: 1 on the first, then 1 (``"implicit"``) or 1/2 (``"rzwqm"``)."""
-    a_rest = 0.5 if cfg.time_scheme == "rzwqm" else 1.0
-    return jnp.where(jnp.arange(n_sub) == 0, 1.0, a_rest).astype(dtype)
+    a_rest = _ALPHA_CN if cfg.time_scheme == "rzwqm" else _ALPHA_FIRST
+    return jnp.where(jnp.arange(n_sub) == 0, _ALPHA_FIRST, a_rest).astype(dtype)
 
 
 def richards_day(

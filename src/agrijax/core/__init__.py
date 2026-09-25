@@ -1,7 +1,8 @@
 """Core abstractions: State/Params/Forcing pytrees, OrganQueue, EventTable, @process, Model, the day
 declaration (Day/Phase/Lag), ports and bindings, the water ledger, gradient helpers, runtime,
-units, lint."""
+coefficients (``coef`` / ``Provenance``), units, lint."""
 
+from agrijax.core.coefficients import Coefficients, Provenance, coef, coefficient_table
 from agrijax.core.day import Day, Lag, Phase, snapshot
 from agrijax.core.events import EventTable
 from agrijax.core.grad import gradient_mode
@@ -14,6 +15,7 @@ from agrijax.core.runtime import run, run_batch, run_batch_chunked
 from agrijax.core.state import Forcing, Params, State, field
 
 __all__ = [
+    "Coefficients",
     "Day",
     "EventTable",
     "Forcing",
@@ -23,9 +25,12 @@ __all__ = [
     "Params",
     "Phase",
     "Process",
+    "Provenance",
     "State",
     "WaterLedger",
     "bind",
+    "coef",
+    "coefficient_table",
     "compose",
     "field",
     "gradient_mode",

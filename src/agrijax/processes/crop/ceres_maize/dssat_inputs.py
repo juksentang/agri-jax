@@ -33,9 +33,19 @@ from agrijax.io.dssat import read_eco, read_out, read_soilwat, read_spe
 
 from ._util import daylength, twilight_daylength
 from .coefficients import BSGDD, CANHT_POT, DSSAT_COEFFICIENTS
+from .constants import YRDOY_SCALE
 from .state import CeresCultivar, CeresForcing, CeresMaizeParams, CeresSoil, CeresSpecies
 
 __all__ = ["ceres_forcing", "ceres_params", "read_inp", "spam_supply", "yrdoy_range"]
+
+# fixed-format columns of DSSAT48.INP (0-based Python slices of the lines CSM writes)
+#: ecotype code of the *CULTIVAR line
+_INP_CUL_ECO = slice(24, 30)
+#: first column and width of the six cultivar values P1, P2, P5, G2, G3, PHINT
+_INP_CUL_FIRST = 31
+_INP_CUL_WIDTH = 6
+#: soil layer line: DS (layer bottom), LL, DUL, SAT, SHF
+_INP_LAYER_COLS = (slice(1, 6), slice(13, 18), slice(19, 24), slice(25, 30), slice(31, 36))
 
 
 def _section(text: str, name: str) -> list[str]:
@@ -58,20 +68,20 @@ def read_inp(path: str) -> dict[str, object]:
     with open(path, encoding="latin-1") as fh:
         text = fh.read()
     cul = next(ln for ln in _section(text, "CULTIVAR") if ln.strip())
-    vals = [float(cul[31 + 6 * k : 37 + 6 * k]) for k in range(6)]
+    vals = [
+        float(cul[_INP_CUL_FIRST + _INP_CUL_WIDTH * k : _INP_CUL_FIRST + _INP_CUL_WIDTH * (k + 1)])
+        for k in range(6)
+    ]
     plant = next(ln for ln in _section(text, "PLANTING") if ln.strip()).split()
     soil = _section(text, "SOIL")
     surface = soil[2].split()
     body = soil[3:]
     n_layer = next((k for k, ln in enumerate(body) if not ln.strip()), len(body))
-    layers = [
-        [float(ln[1:6]), float(ln[13:18]), float(ln[19:24]), float(ln[25:30]), float(ln[31:36])]
-        for ln in body[:n_layer]
-    ]
+    layers = [[float(ln[col]) for col in _INP_LAYER_COLS] for ln in body[:n_layer]]
     arr = np.asarray(layers, dtype=float)
     return {
         "cultivar": dict(zip(("P1", "P2", "P5", "G2", "G3", "PHINT"), vals, strict=True))
-        | {"ECO": cul[24:30]},
+        | {"ECO": cul[_INP_CUL_ECO]},
         "yrplt": int(plant[0]),
         "pltpop": float(plant[3]),
         "rowspc": float(plant[6]),
@@ -171,11 +181,11 @@ def ceres_params(
 
 def yrdoy_range(first: int, last: int) -> list[int]:
     """``YYYYDDD`` integers from ``first`` to ``last`` inclusive."""
-    d0 = date(first // 1000, 1, 1) + timedelta(days=first % 1000 - 1)
-    d1 = date(last // 1000, 1, 1) + timedelta(days=last % 1000 - 1)
+    d0 = date(first // YRDOY_SCALE, 1, 1) + timedelta(days=first % YRDOY_SCALE - 1)
+    d1 = date(last // YRDOY_SCALE, 1, 1) + timedelta(days=last % YRDOY_SCALE - 1)
     n = (d1 - d0).days + 1
     days = [d0 + timedelta(days=k) for k in range(n)]
-    return [d.year * 1000 + d.timetuple().tm_yday for d in days]
+    return [d.year * YRDOY_SCALE + d.timetuple().tm_yday for d in days]
 
 
 def spam_supply(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -216,11 +226,11 @@ def ceres_forcing(
     modification replaces the daylength (``WTHMOD`` sets both to the replacement value).
     """
     days = yrdoy_range(first, last)
-    doy = np.asarray([d % 1000 for d in days], dtype=float)
+    doy = np.asarray([d % YRDOY_SCALE for d in days], dtype=float)
 
     def by_day(df: pd.DataFrame, col: str, fill: float) -> np.ndarray:
         sub = df[df["TRNO"] == trno]
-        key = np.asarray(sub["YEAR"], dtype=int) * 1000 + np.asarray(sub["DOY"], dtype=int)
+        key = np.asarray(sub["YEAR"], dtype=int) * YRDOY_SCALE + np.asarray(sub["DOY"], dtype=int)
         m = dict(zip(key.tolist(), np.asarray(sub[col], dtype=float).tolist(), strict=True))
         return np.asarray([m.get(d, fill) for d in days], dtype=float)
 

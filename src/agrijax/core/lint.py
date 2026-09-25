@@ -5,7 +5,7 @@ Scope
 * every function decorated with ``@process`` gets every rule;
 * every other function defined in a file under a ``processes/`` directory (the numerical
   kernels the processes call: ``shuttleworth_wallace``, ``theta_of_h``, private helpers, ...)
-  gets the numerical rules AJ001-AJ003 and AJ006; AJ004/AJ005 are about the process contract
+  gets the numerical rules AJ001-AJ003, AJ006 and AJ007; AJ004/AJ005 are about the process contract
   and do not apply to kernels that return NamedTuples or arrays;
 * ``--all`` applies every rule to every function in every file.
 
@@ -36,10 +36,27 @@ AJ006  error    A Python ``for`` loop or comprehension over ``range(...)`` / ``a
                 vectorise it, or write a true recurrence with
                 :func:`agrijax.core.depth_scan.depth_scan`. Loops over literal or configuration
                 counts (``range(3)``, ``range(cfg.n_iter)``) are not reported.
+AJ007  warning  A bare numeric literal in a ``@process`` function or a numerical kernel. Every
+                model coefficient is declared once, with unit, meaning and provenance, by
+                :func:`agrijax.core.coefficients.coef`; a unit conversion goes through a named
+                adapter of :mod:`agrijax.core.units` (``mm_to_cm``, ``KG_HA_PER_G_M2``), and a
+                numerical guard is a named module constant
+                (:func:`agrijax.core.coefficients.numerical_guard`). The central whitelist
+                (:data:`AJ007_TRIVIAL`, :data:`AJ007_MAX_INDEX`, :data:`AJ007_MAX_EXPONENT`,
+                :data:`AJ007_STRUCTURAL_CALLS`, :data:`AJ007_STRUCTURAL_KEYWORDS`) allows ``0``,
+                ``1`` and ``-1`` anywhere (``0.0``, ``1.0``, ``-1.0`` too); small integers used as
+                indices, slice bounds, axes, shapes, counts (a subscript, ``axis=-1``,
+                ``range(3)``, ``reshape(x, (-1, 2))``) or in a comparison with a shape query
+                (``x.ndim == 2``); and small integer-valued exponents (``x**2``,
+                ``jnp.power(x, 3)``). Anything else, including powers of ten, ``0.5`` and ``2.0``,
+                is reported. Decorators and annotations are not checked; defaults of arguments
+                are. AJ007 is a warning; ``--strict`` (what CI and pre-commit run) makes it fail
+                like every other warning, and ``--strict-aj007`` fails on AJ007 alone.
 
 Usage::
 
-    python -m agrijax.core.lint src/agrijax/processes [--all] [--strict]
+    python -m agrijax.core.lint src/agrijax/processes [--all] [--strict] [--strict-aj007]
+                                                      [--ignore AJ007] [--aj007-report]
 """
 
 from __future__ import annotations
@@ -52,12 +69,19 @@ from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
 __all__ = [
+    "AJ007_MAX_EXPONENT",
+    "AJ007_MAX_INDEX",
+    "AJ007_STRUCTURAL_CALLS",
+    "AJ007_STRUCTURAL_KEYWORDS",
+    "AJ007_TRIVIAL",
     "ALL_RULES",
     "KERNEL_RULES",
+    "NOT_STRICT_RULES",
     "RULES",
     "CheckedFunction",
     "Finding",
     "checked_functions",
+    "count_by_file",
     "lint_file",
     "lint_paths",
     "lint_source",
@@ -71,7 +95,36 @@ RULES: dict[str, tuple[str, str]] = {
     "AJ004": ("warning", "return value not built with eqx.tree_at / replace"),
     "AJ005": ("warning", "missing docstring or no 'Source:' line"),
     "AJ006": ("error", "Python loop over a shape-derived range or an array (unrolled layer loop)"),
+    "AJ007": ("warning", "bare numeric literal in process or kernel code"),
 }
+#: warnings that ``--strict`` does not turn into failures (each has its own ``--strict-<rule>``);
+#: empty since every module's coefficients are labelled and AJ007 is enforced
+NOT_STRICT_RULES: frozenset[str] = frozenset()
+
+# ---- AJ007 whitelist (the one place that says which bare numbers are allowed) ----------------
+#: values allowed as a bare literal anywhere (int or float, either sign where listed)
+AJ007_TRIVIAL: frozenset[float] = frozenset({0.0, 1.0, -1.0})
+#: largest ``|n|`` of an integer literal used as an index, slice bound, axis, shape entry or count
+AJ007_MAX_INDEX: int = 16
+#: largest ``|n|`` of an integer-valued exponent (``x**2``, ``x**-2``, ``jnp.power(x, 3)``)
+AJ007_MAX_EXPONENT: int = 4
+#: calls whose integer arguments are structure (shapes, axes, counts), not model numbers
+AJ007_STRUCTURAL_CALLS: frozenset[str] = frozenset(
+    {
+        "range", "arange", "reshape", "zeros", "ones", "empty", "full", "eye", "identity",
+        "expand_dims", "squeeze", "moveaxis", "swapaxes", "transpose", "broadcast_to",
+        "concatenate", "stack", "hstack", "vstack", "split", "take", "take_along_axis", "roll",
+        "flip", "tile", "repeat", "pad", "linspace", "index_in_dim", "slice_in_dim",
+        "dynamic_slice", "dynamic_slice_in_dim", "dynamic_update_slice", "tril", "triu", "diag",
+        "diagonal", "enumerate", "ndim", "shape",
+    }
+)  # fmt: skip
+#: keyword arguments whose integer values are structure
+AJ007_STRUCTURAL_KEYWORDS: frozenset[str] = frozenset(
+    {"axis", "axes", "ndim", "shape", "n", "k", "num", "offset", "keepdims", "unroll", "length",
+     "size", "start", "stop", "step", "indices_or_sections", "static_argnums", "in_axes",
+     "out_axes", "decimals", "ord"}
+)  # fmt: skip
 
 _RISKY_CALLS = {"log", "log2", "log10", "sqrt", "rsqrt", "power", "pow", "arccos", "arcsin", "arctanh"}
 _GUARD_CALLS = {"maximum", "clip", "clamp", "minimum", "abs", "exp", "where", "select", "square", "softplus"}
@@ -79,7 +132,7 @@ _UPDATE_CALLS = {"tree_at", "replace", "set"}
 _WHERE_CALLS = {"where", "select"}
 _PROCESS_DECORATOR = "process"
 #: rules applied to non-``@process`` functions of ``processes/`` modules (numerical kernels)
-KERNEL_RULES: frozenset[str] = frozenset({"AJ001", "AJ002", "AJ003", "AJ006"})
+KERNEL_RULES: frozenset[str] = frozenset({"AJ001", "AJ002", "AJ003", "AJ006", "AJ007"})
 ALL_RULES: frozenset[str] = frozenset(RULES)
 _KERNEL_DIR = "processes"
 _STATIC_ANNOTATIONS = {"bool", "int", "str", "float", "None", "Literal", "type"}
@@ -316,6 +369,7 @@ class _FunctionChecker:
             ("AJ004", self.check_aj004),
             ("AJ005", self.check_aj005),
             ("AJ006", self.check_aj006),
+            ("AJ007", self.check_aj007),
         ):
             if rule in self.rules:
                 check()
@@ -552,6 +606,117 @@ class _FunctionChecker:
                         f"loop over {ast.unparse(it)}; vectorise over the axis or use core.depth_scan",
                     )
 
+    # ---- AJ007 --------------------------------------------------------------------
+    def _aj007_nodes(self) -> Iterator[tuple[ast.AST, ast.AST | None]]:
+        """``(node, parent)`` of the function body and argument defaults, lambdas included,
+        nested function / class definitions, decorators and annotations excluded."""
+        args = self.fn.args
+        roots: list[ast.AST] = [
+            *self.fn.body,
+            *args.defaults,
+            *(d for d in args.kw_defaults if d is not None),
+        ]
+        stack: list[tuple[ast.AST, ast.AST | None]] = [(r, None) for r in roots]
+        while stack:
+            node, parent = stack.pop()
+            yield node, parent
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for field, child in ast.iter_fields(node):
+                if field in {"annotation", "returns"}:
+                    continue
+                children = child if isinstance(child, list) else [child]
+                for c in children:
+                    if isinstance(c, ast.AST):
+                        stack.append((c, node))
+
+    def check_aj007(self) -> None:
+        parents: dict[int, ast.AST | None] = {}
+        literals: list[tuple[ast.Constant, float, bool]] = []
+        for n, parent in self._aj007_nodes():
+            parents[id(n)] = parent
+            v = n.value if isinstance(n, ast.Constant) else None
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                assert isinstance(n, ast.Constant)
+                literals.append((n, float(v), isinstance(v, int)))
+        for lit, value, is_int in literals:
+            node: ast.AST = lit
+            parent = parents.get(id(lit))
+            if isinstance(parent, ast.UnaryOp) and isinstance(parent.op, (ast.USub, ast.UAdd)):
+                node = parent
+                value = -value if isinstance(parent.op, ast.USub) else value
+            if _aj007_allowed(node, value, is_int, parents):
+                continue
+            text = ast.unparse(node)
+            hint = "declare it with core.coefficients.coef (or as a named constant)"
+            if _is_power_of_ten(value):
+                hint += "; a unit conversion goes through a named adapter of core.units"
+            self._add("AJ007", node, f"{text}; {hint}")
+
+
+def _is_power_of_ten(value: float) -> bool:
+    import math
+
+    if value == 0.0 or not math.isfinite(value):
+        return False
+    e = math.log10(abs(value))
+    return abs(e - round(e)) < 1e-9 and round(e) != 0
+
+
+def _is_shape_query(node: ast.AST) -> bool:
+    for n in ast.walk(node):
+        if isinstance(n, ast.Attribute) and n.attr in _STATIC_ATTRS:
+            return True
+        if isinstance(n, ast.Call) and _call_name(n) in {"len", "ndim", "shape"}:
+            return True
+    return False
+
+
+def _aj007_allowed(node: ast.AST, value: float, is_int: bool, parents: dict[int, ast.AST | None]) -> bool:
+    """The AJ007 whitelist (see the module docstring)."""
+    if value in AJ007_TRIVIAL:
+        return True
+    integral = float(value).is_integer()
+    parent = parents.get(id(node))
+    # exponent: x ** 2, jnp.power(x, 3)
+    if integral and abs(value) <= AJ007_MAX_EXPONENT:
+        if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Pow) and parent.right is node:
+            return True
+        if (
+            isinstance(parent, ast.Call)
+            and _call_name(parent) in {"power", "pow"}
+            and len(parent.args) > 1
+            and parent.args[1] is node
+        ):
+            return True
+    if not (is_int and abs(value) <= AJ007_MAX_INDEX):
+        return False
+    # climb through tuples, lists, slices and unary signs to the structural context; integer
+    # arithmetic (``n - 2``) is climbed through only up to a subscript (``x[..., n - 2]``)
+    child, cur = node, parent
+    arithmetic = False
+    while cur is not None:
+        if isinstance(cur, ast.Subscript):
+            return child is cur.slice
+        if isinstance(cur, ast.keyword):
+            return not arithmetic and cur.arg in AJ007_STRUCTURAL_KEYWORDS
+        if isinstance(cur, ast.Call):
+            return (
+                not arithmetic
+                and any(a is child for a in cur.args)
+                and _call_name(cur) in AJ007_STRUCTURAL_CALLS
+            )
+        if isinstance(cur, ast.Compare):
+            return not arithmetic and any(
+                _is_shape_query(o) for o in (cur.left, *cur.comparators) if o is not child
+            )
+        if isinstance(cur, ast.BinOp):
+            arithmetic = True
+        elif not isinstance(cur, (ast.Tuple, ast.List, ast.Slice, ast.UnaryOp)):
+            return False
+        child, cur = cur, parents.get(id(cur))
+    return False
+
 
 # ---------------------------------------------------------------------------
 # public API
@@ -587,19 +752,23 @@ def _select(tree: ast.AST, path: str, all_functions: bool) -> Iterator[tuple[_Fn
                 yield node, is_proc, KERNEL_RULES
 
 
-def lint_source(source: str, path: str = "<string>", *, all_functions: bool = False) -> list[Finding]:
+def lint_source(
+    source: str, path: str = "<string>", *, all_functions: bool = False, ignore: Iterable[str] = ()
+) -> list[Finding]:
     """Lint Python source text.
 
     ``@process`` functions get every rule; other functions in a ``processes/`` directory get
-    :data:`KERNEL_RULES`; ``all_functions=True`` applies every rule to every function.
+    :data:`KERNEL_RULES`; ``all_functions=True`` applies every rule to every function. Rules in
+    ``ignore`` (e.g. ``{"AJ007"}``) are not run.
     """
     try:
         tree = ast.parse(source, filename=path)
     except SyntaxError as e:  # report as a finding instead of crashing pre-commit
         return [Finding("AJ000", "error", path, e.lineno or 0, e.offset or 0, f"syntax error: {e.msg}")]
+    skip = frozenset(ignore)
     findings: list[Finding] = []
     for node, _, rules in _select(tree, path, all_functions):
-        findings.extend(_FunctionChecker(node, path, rules).run())
+        findings.extend(_FunctionChecker(node, path, rules - skip).run())
     findings.sort(key=lambda f: (f.path, f.line, f.col, f.rule))
     return findings
 
@@ -617,9 +786,9 @@ def checked_functions(paths: Iterable[str | Path], *, all_functions: bool = Fals
     return out
 
 
-def lint_file(path: str | Path, *, all_functions: bool = False) -> list[Finding]:
+def lint_file(path: str | Path, *, all_functions: bool = False, ignore: Iterable[str] = ()) -> list[Finding]:
     p = Path(path)
-    return lint_source(p.read_text(encoding="utf-8"), str(p), all_functions=all_functions)
+    return lint_source(p.read_text(encoding="utf-8"), str(p), all_functions=all_functions, ignore=ignore)
 
 
 def _iter_py_files(paths: Iterable[str | Path]) -> Iterator[Path]:
@@ -633,33 +802,64 @@ def _iter_py_files(paths: Iterable[str | Path]) -> Iterator[Path]:
             yield p
 
 
-def lint_paths(paths: Iterable[str | Path], *, all_functions: bool = False) -> list[Finding]:
+def lint_paths(
+    paths: Iterable[str | Path], *, all_functions: bool = False, ignore: Iterable[str] = ()
+) -> list[Finding]:
+    skip = frozenset(ignore)
     out: list[Finding] = []
     for f in _iter_py_files(paths):
-        out.extend(lint_file(f, all_functions=all_functions))
+        out.extend(lint_file(f, all_functions=all_functions, ignore=skip))
     return out
+
+
+def count_by_file(findings: Iterable[Finding], rule: str) -> dict[str, int]:
+    """``{path: number of findings of rule}``, most findings first (the ``--aj007-report`` table)."""
+    counts: dict[str, int] = {}
+    for f in findings:
+        if f.rule == rule:
+            counts[f.path] = counts.get(f.path, 0) + 1
+    return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="agrijax.core.lint", description=(__doc__ or "").split("\n\n")[0])
     ap.add_argument("paths", nargs="+", help="files or directories")
     ap.add_argument("--all", action="store_true", help="check every function, not only @process ones")
-    ap.add_argument("--strict", action="store_true", help="treat warnings as errors")
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="treat warnings as errors (AJ007 included)",
+    )
+    ap.add_argument(
+        "--strict-aj007", action="store_true", help="treat AJ007 (bare numeric literals) as errors"
+    )
+    ap.add_argument(
+        "--ignore", action="append", default=[], metavar="RULE", help="do not run RULE (repeatable)"
+    )
+    ap.add_argument("--aj007-report", action="store_true", help="print the AJ007 count per file")
     ap.add_argument("--quiet", action="store_true", help="print only the summary")
     ns = ap.parse_args(argv)
-    findings = lint_paths(ns.paths, all_functions=ns.all)
+    unknown = set(ns.ignore) - set(RULES)
+    if unknown:
+        ap.error(f"unknown rule(s) {sorted(unknown)}")
+    findings = lint_paths(ns.paths, all_functions=ns.all, ignore=ns.ignore)
     visited = checked_functions(ns.paths, all_functions=ns.all)
     if not ns.quiet:
         for f in findings:
             print(f.format())
     n_err = sum(1 for f in findings if f.level == "error")
     n_warn = sum(1 for f in findings if f.level == "warning")
+    n_aj007 = sum(1 for f in findings if f.rule == "AJ007")
+    n_strict = sum(1 for f in findings if f.level == "warning" and f.rule not in NOT_STRICT_RULES)
     n_proc = sum(1 for c in visited if c.is_process)
+    if ns.aj007_report:
+        for path, n in count_by_file(findings, "AJ007").items():
+            print(f"AJ007 {n:5d}  {path}")
     print(
-        f"agrijax lint: {n_err} error(s), {n_warn} warning(s) in {len(visited)} function(s) "
-        f"({n_proc} @process, {len(visited) - n_proc} kernel)"
+        f"agrijax lint: {n_err} error(s), {n_warn} warning(s) ({n_aj007} AJ007) in {len(visited)} "
+        f"function(s) ({n_proc} @process, {len(visited) - n_proc} kernel)"
     )
-    if n_err or (ns.strict and n_warn):
+    if n_err or (ns.strict and n_strict) or (ns.strict_aj007 and n_aj007):
         return 1
     return 0
 

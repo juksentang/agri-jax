@@ -28,11 +28,10 @@ from jax.typing import ArrayLike
 from jaxtyping import Array
 
 from agrijax.core.state import field
+from agrijax.core.units import cm2_to_m2, g_m2_to_kg_ha
 
 __all__ = ["OrganQueue", "age", "aggregate", "appear", "grow", "prime", "senesce", "top"]
 
-_CM2_PER_PLANT_TO_LAI = 1e-4  # cm2/plant * plants/m2 -> m2/m2
-_G_M2_TO_KG_HA = 10.0  # g/m2 -> kg/ha
 
 _DIMS = ("n_crop", "n_cohort")
 
@@ -201,7 +200,7 @@ def aggregate(q: OrganQueue, density: ArrayLike) -> dict[str, Array]:
         return jnp.sum(jnp.where(q.alive, x, 0.0), axis=-1) * dens
 
     return {
-        "lai": total(q.area) * _CM2_PER_PLANT_TO_LAI,
-        "leaf_mass": total(q.mass) * _G_M2_TO_KG_HA,
-        "n_mass": total(q.n_mass) * _G_M2_TO_KG_HA,
+        "lai": cm2_to_m2(total(q.area)),  # cm2 plant-1 x plant m-2 -> m2 m-2
+        "leaf_mass": g_m2_to_kg_ha(total(q.mass)),
+        "n_mass": g_m2_to_kg_ha(total(q.n_mass)),
     }

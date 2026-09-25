@@ -28,6 +28,7 @@ from jaxtyping import Array
 from agrijax.core.process import process
 from agrijax.core.state import Forcing, Params, State, field
 
+from .coefficients import PET_COEFFICIENTS, PETCoefficients
 from .penman_monteith import asce_reference_et
 from .priestley_taylor import priestley_taylor
 from .shuttleworth_wallace import KM_DAY_TO_M_S, RESIDUE_RANDOMNESS, PETParams, shuttleworth_wallace
@@ -170,6 +171,15 @@ class PETSiteParams(Params):
     asce_variant: str = field(
         description="'asce' or 'rzwqm' (REF_ET.FOR constants)", static=True, default="asce"
     )
+    coefficients: PETCoefficients | None = field(
+        description="the coefficients of the PET equations (None: RZWQM2 / ASCE-EWRI 2005 / DSSAT values)",
+        default=None,
+    )
+
+    @property
+    def coeffs(self) -> PETCoefficients:
+        """The coefficients in force: :attr:`coefficients`, or :data:`~.coefficients.PET_COEFFICIENTS`."""
+        return PET_COEFFICIENTS if self.coefficients is None else self.coefficients
 
 
 class DailyWeather(Forcing):
@@ -228,6 +238,7 @@ def pet_shuttleworth_wallace(state: PETState, params: PETSiteParams, forcing_t: 
         rainfall_zone=params.rainfall_zone,
         residue_type=params.residue_type,
         residue_cover_factor=params.residue_cover_factor,
+        coefficients=params.coeffs.sw,
     )
     return eqx.tree_at(
         lambda st: (st.pet.transpiration, st.pet.soil_evaporation, st.pet.residue_evaporation),
@@ -251,9 +262,15 @@ def pet_shuttleworth_wallace(state: PETState, params: PETSiteParams, forcing_t: 
     ),
     deviates=(
         (
-            "actual vapour pressure from the daily mean RH (FAO-56 eq. 17 form), not RHmax / RHmin",
+            "actual vapour pressure from the daily mean RH (FAO-56 eq. 19 form), not RHmax / RHmin",
             "the daily forcing carries mean RH only",
             "penman_monteith.py asce_reference_et docstring",
+        ),
+        (
+            "variant 'asce' uses the FAO-56 Stefan-Boltzmann constant 4.903e-9 MJ m-2 K-4 d-1 "
+            "(FAO-56 eq. 39); ASCE-EWRI (2005) eq. 17 states 4.901e-9",
+            "kept for comparison against textbook / pyet values; variant 'rzwqm' uses 4.901e-9",
+            "penman_monteith.py asce_reference_et docstring; coefficients.ASCECoefficients.stefan_boltzmann",
         ),
         (
             "trat multiplies Cd u2 (DSSAT TRATIO CO2 hook, 1.0 at 330 ppm)",
@@ -293,6 +310,7 @@ def pet_asce_reference(state: PETState, params: PETSiteParams, forcing_t: DailyW
         wind_height=params.wind_height,
         trat=params.trat,
         variant="rzwqm" if params.asce_variant == "rzwqm" else "asce",
+        coefficients=params.coeffs.asce,
     )
     return eqx.tree_at(
         lambda st: (st.pet.reference_short, st.pet.reference_tall), state, (r.et_short, r.et_tall)
@@ -331,6 +349,11 @@ def pet_priestley_taylor(state: PETState, params: PETSiteParams, forcing_t: Dail
     Source: PETPT, dssat-csm-os SPAM/PET.for; Priestley & Taylor (1972); Ritchie (1972).
     """
     eo = priestley_taylor(
-        forcing_t.srad, forcing_t.tmax, forcing_t.tmin, state.surface.lai, params.albedo_soil
+        forcing_t.srad,
+        forcing_t.tmax,
+        forcing_t.tmin,
+        state.surface.lai,
+        params.albedo_soil,
+        params.coeffs.pt,
     )
     return eqx.tree_at(lambda st: st.pet.eo_priestley_taylor, state, eo)

@@ -20,7 +20,9 @@ Structure: :func:`thermal_time` (with :func:`growing_point_thermal_time` and
 :class:`PhenDay`. The hard-coded numbers are the fields of
 :class:`~agrijax.processes.crop.ceres_maize.coefficients.PhenolCoefficients`
 (``params.coef().phenol``); the ``XSTAGE`` scale (``1 + 0.5 SIND``, ``1.5 + 3 SUMDTT / P3``,
-``4.5 + 5.5 SUMDTT / P5``) stays literal since only the nitrogen module reads it.
+``4.5 + 5.5 SUMDTT / P5``) is :class:`~.constants.XstageCoefficients` (not calibrated: only the
+nitrogen module reads it), and the stage and crop-status codes are the named constants of
+:mod:`~.constants`.
 
 Source: DSSAT-CSM v4.8.6.0 ``Plant/CERES-Maize/MZ_PHENOL.for`` (BSD-3, Copyright 1998-2026 DSSAT
 Foundation, University of Florida, International Fertilizer Development Center); thermal time
@@ -37,9 +39,29 @@ from jax.typing import ArrayLike
 from jaxtyping import Array
 
 from agrijax.core.process import process
+from agrijax.core.units import HOURS_PER_DAY
 
 from ._util import safe_div
 from .coefficients import DSSAT_COEFFICIENTS, PhenolCoefficients
+from .constants import (
+    CROP_STATUS_MATURE,
+    CROP_STATUS_NO_EMERGENCE,
+    CROP_STATUS_NO_GERMINATION,
+    DEN_MIN,
+    HOURS_PER_HALF_DAY,
+    ISTAGE_AFTER_MATURITY,
+    ISTAGE_EFG,
+    ISTAGE_EMERGENCE,
+    ISTAGE_END_JUVENILE,
+    ISTAGE_END_LEAF_GROWTH,
+    ISTAGE_GERMINATION,
+    ISTAGE_MATURITY,
+    ISTAGE_SOWING,
+    ISTAGE_TASSEL_INIT,
+    MG_PER_G,
+    PAIR_MEAN_DIVISOR,
+    XSTAGE_COEFFICIENTS,
+)
 from .state import CeresCultivar, CeresForcing, CeresMaizeParams, CeresMaizeState
 
 __all__ = [
@@ -96,10 +118,14 @@ def growing_point_thermal_time(
     tnsoil = jnp.maximum(c.tnsoil_tmax_w * tmax + c.tnsoil_tmin_w * tmin, tbase)
     tdsoil_c = jnp.minimum(tdsoil, dopt)
     dl = jnp.asarray(dayl)
-    tmsoil = tdsoil_c * (dl / 24.0) + tnsoil * ((24.0 - dl) / 24.0)
-    dtt_soil = jnp.where(tmsoil < tbase, (tbase + tdsoil_c) / 2.0 - tbase, (tnsoil + tdsoil_c) / 2.0 - tbase)
+    tmsoil = tdsoil_c * (dl / HOURS_PER_DAY) + tnsoil * ((HOURS_PER_DAY - dl) / HOURS_PER_DAY)
+    dtt_soil = jnp.where(
+        tmsoil < tbase,
+        (tbase + tdsoil_c) / PAIR_MEAN_DIVISOR - tbase,
+        (tnsoil + tdsoil_c) / PAIR_MEAN_DIVISOR - tbase,
+    )
     dtt_soil = jnp.where(tdsoil < tbase, 0.0, jnp.minimum(dtt_soil, dopt - tbase))
-    dtt_snow = (tempcn + tempcx) / 2.0 - tbase
+    dtt_snow = (tempcn + tempcx) / PAIR_MEAN_DIVISOR - tbase
     return jnp.where(xs > 0.0, dtt_snow, dtt_soil)
 
 
@@ -112,11 +138,11 @@ def hourly_thermal_time(
     Source: DSSAT-CSM v4.8.6.0 MZ_PHENOL.for, INTEGR, ``ELSEIF (TMIN .LT. TBASE .OR. TMAX .GT. DOPT)``
     branch.
     """
-    th = (tmax + tmin)[..., None] / 2.0 + (tmax - tmin)[..., None] / 2.0 * jnp.sin(
-        c.hourly_pi / 12.0 * _HOURS
-    )
+    th = (tmax + tmin)[..., None] / PAIR_MEAN_DIVISOR + (tmax - tmin)[
+        ..., None
+    ] / PAIR_MEAN_DIVISOR * jnp.sin(c.hourly_pi / HOURS_PER_HALF_DAY * _HOURS)
     th = jnp.minimum(jnp.maximum(th, jnp.asarray(tbase)[..., None]), jnp.asarray(dopt)[..., None])
-    return jnp.sum((th - jnp.asarray(tbase)[..., None]) / 24.0, axis=-1)
+    return jnp.sum((th - jnp.asarray(tbase)[..., None]) / HOURS_PER_DAY, axis=-1)
 
 
 def thermal_time(
@@ -144,7 +170,7 @@ def thermal_time(
     tmin = jnp.asarray(tmin)
     istage = jnp.asarray(istage)
     tbase = cul.tbase
-    dopt = jnp.where((istage > 3) & (istage <= 6), cul.ropt, cul.topt)
+    dopt = jnp.where((istage > ISTAGE_TASSEL_INIT) & (istage <= ISTAGE_MATURITY), cul.ropt, cul.topt)
     dtt_ground = growing_point_thermal_time(tmax, tmin, srad, dayl, snow, tbase, dopt, c)
     dtt_hourly = hourly_thermal_time(tmax, tmin, tbase, dopt, c)
     dtt = jnp.select(
@@ -155,7 +181,7 @@ def thermal_time(
             (tmin < tbase) | (tmax > dopt),
         ],
         [jnp.zeros_like(dtt_hourly), dopt - tbase, dtt_ground, dtt_hourly],
-        (tmax + tmin) / 2.0 - tbase,
+        (tmax + tmin) / PAIR_MEAN_DIVISOR - tbase,
     )
     return jnp.maximum(dtt, 0.0)
 
@@ -213,7 +239,7 @@ def _advance(v: PhenDay, done: Array, new_stage: int) -> PhenDay:
 def _seed_failure(v: PhenDay, fail: Array, yrdoy: Array, status: int) -> PhenDay:
     """Germination / emergence failure: stage 6, no plants, ``GPP = 1``, ``MDATE = YRDOY``."""
     return v._replace(
-        istage=jnp.where(fail, 6, v.istage),
+        istage=jnp.where(fail, ISTAGE_MATURITY, v.istage),
         pltpop=jnp.where(fail, 0.0, v.pltpop),
         gpp=jnp.where(fail, 1.0, v.gpp),
         mdate=jnp.where(fail, yrdoy, v.mdate),
@@ -228,7 +254,9 @@ def sowing_block(v: PhenDay, m: Array, params: CeresMaizeParams) -> PhenDay:
     """
     wat = params.iswwat  # static switch: without a water balance the seed layer is never needed
     one = jnp.ones_like(v.sumdtt)
-    v = _advance(v, m, 8)._replace(ndas=jnp.where(m, 0.0, v.ndas), sumdtt=jnp.where(m, 0.0, v.sumdtt))
+    v = _advance(v, m, ISTAGE_GERMINATION)._replace(
+        ndas=jnp.where(m, 0.0, v.ndas), sumdtt=jnp.where(m, 0.0, v.sumdtt)
+    )
     layer = _layer_of_depth(params.sdepth * one, params.soil.dlayr)
     return v._replace(seed_layer=jnp.where(m & wat, layer, v.seed_layer))
 
@@ -252,9 +280,9 @@ def germination_block(
     swsd = (sw0 - ll0) * c.swsd_w_seed + (_pick(sw, l1) - _pick(soil.ll, l1)) * c.swsd_w_below
     v = v._replace(ndas=jnp.where(m & dry, v.ndas + 1.0, v.ndas))
     fail = m & dry & (v.ndas >= spe.dsgt)
-    v = _seed_failure(v, fail, yrdoy, 12)
+    v = _seed_failure(v, fail, yrdoy, CROP_STATUS_NO_GERMINATION)
     germinate = m & ~fail & ~(dry & (swsd < spe.swcg))
-    v = _advance(v, germinate, 9)
+    v = _advance(v, germinate, ISTAGE_EMERGENCE)
     return v._replace(
         cumdtt=jnp.where(germinate, 0.0, v.cumdtt),
         sumdtt=jnp.where(germinate, 0.0, v.sumdtt),
@@ -272,7 +300,7 @@ def emergence_block(
     v = _count_day(v, m)
     reached = m & (v.sumdtt >= v.p9)
     fail = reached & (v.p9 > params.species.dget)
-    v = _seed_failure(v, fail, yrdoy, 13)
+    v = _seed_failure(v, fail, yrdoy, CROP_STATUS_NO_EMERGENCE)
     emerge = reached & ~fail
     v = _advance(v, emerge, 1)
     return v._replace(
@@ -288,7 +316,7 @@ def juvenile_block(v: PhenDay, m: Array, cul: CeresCultivar) -> PhenDay:
     v = _count_day(v, m)
     v = v._replace(xstage=jnp.where(m, safe_div(v.sumdtt, cul.p1), v.xstage))
     done = m & (v.sumdtt >= cul.p1)
-    return _advance(v, done, 2)._replace(sind=jnp.where(done, 0.0, v.sind))
+    return _advance(v, done, ISTAGE_END_JUVENILE)._replace(sind=jnp.where(done, 0.0, v.sind))
 
 
 def photoperiod_rate(twilen: ArrayLike, cul: CeresCultivar) -> Array:
@@ -300,7 +328,7 @@ def photoperiod_rate(twilen: ArrayLike, cul: CeresCultivar) -> Array:
     twilen = jnp.asarray(twilen)
     return jnp.where(
         twilen > cul.p2o,
-        1.0 / jnp.maximum(cul.djti + cul.p2 * (twilen - cul.p2o), 1e-6),
+        1.0 / jnp.maximum(cul.djti + cul.p2 * (twilen - cul.p2o), DEN_MIN),
         safe_div(1.0, cul.djti),
     )
 
@@ -311,7 +339,7 @@ def leaf_number_at_ti(sumdtt: Array, phint: ArrayLike, c: PhenolCoefficients) ->
 
     Source: DSSAT-CSM v4.8.6.0 MZ_PHENOL.for, INTEGR, end of the ``ISTAGE .EQ. 2`` block.
     """
-    tlno = sumdtt / jnp.maximum(phint * c.tlno_phint_frac, 1e-6) + c.tlno_offset
+    tlno = sumdtt / jnp.maximum(phint * c.tlno_phint_frac, DEN_MIN) + c.tlno_offset
     return tlno, (tlno + c.p3_leaf_offset) * phint - sumdtt
 
 
@@ -324,11 +352,12 @@ def floral_induction_block(
     Source: DSSAT-CSM v4.8.6.0 MZ_PHENOL.for, INTEGR, ``ISTAGE .EQ. 2`` block.
     """
     v = _count_day(v, m)
-    v = v._replace(xstage=jnp.where(m, 1.0 + 0.5 * v.sind, v.xstage))
+    xs = XSTAGE_COEFFICIENTS
+    v = v._replace(xstage=jnp.where(m, xs.ti_base + xs.ti_slope * v.sind, v.xstage))
     sind = jnp.where(m, v.sind + photoperiod_rate(twilen, cul), v.sind)
     done = m & (sind >= 1.0)
     tlno_ti, p3_ti = leaf_number_at_ti(v.sumdtt, cul.phint, c)
-    return _advance(v, done, 3)._replace(
+    return _advance(v, done, ISTAGE_TASSEL_INIT)._replace(
         tlno=jnp.where(done, tlno_ti, v.tlno),
         p3=jnp.where(done, p3_ti, v.p3),
         xnti=jnp.where(done, xn, v.xnti),
@@ -343,9 +372,10 @@ def tassel_silk_block(v: PhenDay, m: Array) -> PhenDay:
     Source: DSSAT-CSM v4.8.6.0 MZ_PHENOL.for, INTEGR, ``ISTAGE .EQ. 3`` block.
     """
     v = _count_day(v, m)
-    v = v._replace(xstage=jnp.where(m, 1.5 + 3.0 * safe_div(v.sumdtt, v.p3), v.xstage))
+    xs = XSTAGE_COEFFICIENTS
+    v = v._replace(xstage=jnp.where(m, xs.silk_base + xs.silk_slope * safe_div(v.sumdtt, v.p3), v.xstage))
     done = m & (v.sumdtt >= v.p3)
-    return _advance(v, done, 4)._replace(
+    return _advance(v, done, ISTAGE_END_LEAF_GROWTH)._replace(
         sumdtt=jnp.where(done, v.sumdtt - v.p3, v.sumdtt), idurp=jnp.where(done, 0, v.idurp)
     )
 
@@ -362,12 +392,12 @@ def grain_number(
 
     Source: DSSAT-CSM v4.8.6.0 MZ_PHENOL.for, INTEGR, end of the ``ISTAGE .EQ. 4`` block.
     """
-    psker = safe_div(sump * 1000.0, idurp.astype(sump.dtype)) * c.psker_a / c.psker_b
+    psker = safe_div(sump * MG_PER_G, idurp.astype(sump.dtype)) * c.psker_a / c.psker_b
     gpp = jnp.maximum(jnp.clip(g2 * psker / c.gpp_psker + c.gpp_offset, 0.0, g2), c.gpp_min)
-    g2_low = jnp.maximum(g2 * c.ears_low_frac, 1e-6)
-    g2_barren = jnp.maximum(g2 * c.barren_gpp_frac, 1e-6)
-    ratio_low = jnp.maximum(gpp / g2_low, 1e-6)
-    ratio_barren = jnp.maximum(gpp / g2_barren, 1e-6)
+    g2_low = jnp.maximum(g2 * c.ears_low_frac, DEN_MIN)
+    g2_barren = jnp.maximum(g2 * c.barren_gpp_frac, DEN_MIN)
+    ratio_low = jnp.maximum(gpp / g2_low, DEN_MIN)
+    ratio_barren = jnp.maximum(gpp / g2_barren, DEN_MIN)
     barfac = c.barfac_coef * (1.0 - safe_div(gpp, g2)) * jnp.maximum(pltpop, 0.0) ** c.barfac_exp
     ears = jnp.where(
         gpp < g2 * c.ears_low_frac,
@@ -387,11 +417,16 @@ def silk_efg_block(v: PhenDay, m: Array, cul: CeresCultivar, sump: Array, c: Phe
     """
     v = _count_day(v, m)
     v = v._replace(idurp=jnp.where(m, v.idurp + 1, v.idurp))
-    v = v._replace(xstage=jnp.where(m, 4.5 + 5.5 * safe_div(v.sumdtt, cul.p5 * c.efg_end_frac), v.xstage))
+    xs = XSTAGE_COEFFICIENTS
+    v = v._replace(
+        xstage=jnp.where(
+            m, xs.efg_base + xs.efg_slope * safe_div(v.sumdtt, cul.p5 * c.efg_end_frac), v.xstage
+        )
+    )
     done = m & (v.sumdtt >= cul.dsgft)
     gpp, ears = grain_number(sump, v.idurp, cul.g2, v.pltpop, c)
     v = v._replace(gpp=jnp.where(done, gpp, v.gpp), ears=jnp.where(done, ears, v.ears))
-    return _advance(v, done, 5)
+    return _advance(v, done, ISTAGE_EFG)
 
 
 def grain_fill_block(v: PhenDay, m: Array, cul: CeresCultivar, c: PhenolCoefficients) -> PhenDay:
@@ -400,8 +435,9 @@ def grain_fill_block(v: PhenDay, m: Array, cul: CeresCultivar, c: PhenolCoeffici
     Source: DSSAT-CSM v4.8.6.0 MZ_PHENOL.for, INTEGR, ``ISTAGE .EQ. 5`` block.
     """
     v = _count_day(v, m)
-    v = v._replace(xstage=jnp.where(m, 4.5 + 5.5 * safe_div(v.sumdtt, cul.p5), v.xstage))
-    return _advance(v, m & (v.sumdtt >= cul.p5 * c.efg_end_frac), 6)
+    xs = XSTAGE_COEFFICIENTS
+    v = v._replace(xstage=jnp.where(m, xs.efg_base + xs.efg_slope * safe_div(v.sumdtt, cul.p5), v.xstage))
+    return _advance(v, m & (v.sumdtt >= cul.p5 * c.efg_end_frac), ISTAGE_MATURITY)
 
 
 def maturity_block(v: PhenDay, m: Array, cul: CeresCultivar, yrdoy: Array, c: PhenolCoefficients) -> PhenDay:
@@ -412,11 +448,11 @@ def maturity_block(v: PhenDay, m: Array, cul: CeresCultivar, yrdoy: Array, c: Ph
     """
     sumdtt = jnp.where(m & (v.dtt < c.dtt_maturity), cul.p5 * jnp.ones_like(v.sumdtt), v.sumdtt)
     done = m & (sumdtt >= cul.p5)
-    v = _advance(v, done, 10)
+    v = _advance(v, done, ISTAGE_AFTER_MATURITY)
     return v._replace(
         sumdtt=sumdtt,
         mdate=jnp.where(done, yrdoy, v.mdate),
-        status=jnp.where(done, 1, v.status),
+        status=jnp.where(done, CROP_STATUS_MATURE, v.status),
         cumdtt=jnp.where(done, 0.0, v.cumdtt),
         dtt=jnp.where(done, 0.0, v.dtt),
         gpp=jnp.where(done & (v.pltpop != 0.0) & (v.gpp <= 0.0), 1.0, v.gpp),
@@ -475,7 +511,7 @@ def ceres_phenology(
     f = forcing_t
     yrdoy = jnp.asarray(f.yrdoy)
     s = ph.istage
-    active = (yrdoy == params.yrplt) | (s != 7)
+    active = (yrdoy == params.yrplt) | (s != ISTAGE_SOWING)
 
     dtt_raw = thermal_time(f.tmax, f.tmin, f.srad, f.dayl, f.snow, g.leafno, s, cul, c)
     # start from "nothing changes" and let each stage block change its crops (masks disjoint)

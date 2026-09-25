@@ -20,14 +20,22 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
-__all__ = ["priestley_taylor"]
+from .coefficients import DSSAT_PT, PTCoefficients
 
-LANGLEY_PER_MJ_M2 = 23.923  # SLANG = SRAD * 23.923
-EO_FLOOR_MM = 0.0001
+__all__ = ["DSSAT_PT", "PTCoefficients", "priestley_taylor"]
+
+LANGLEY_PER_MJ_M2 = 23.923  # SLANG = SRAD * 23.923 (unit conversion, as DSSAT writes it)
+#: read-only alias of the default EO floor (:class:`~.coefficients.PTCoefficients`)
+EO_FLOOR_MM = DSSAT_PT.eo_floor
 
 
 def priestley_taylor(
-    srad: ArrayLike, tmax: ArrayLike, tmin: ArrayLike, lai: ArrayLike, albedo_soil: ArrayLike
+    srad: ArrayLike,
+    tmax: ArrayLike,
+    tmin: ArrayLike,
+    lai: ArrayLike,
+    albedo_soil: ArrayLike,
+    coefficients: PTCoefficients = DSSAT_PT,
 ) -> Array:
     """DSSAT-CSM Priestley-Taylor potential ET [mm d-1] (``PETPT``).
 
@@ -38,7 +46,8 @@ def priestley_taylor(
     (the reference model's ``MAX(EO, 0.0001)``).
 
     Known deviations: none (the branches are the reference model's; DSSAT single precision is
-    not reproduced).
+    not reproduced). ``coefficients`` (:class:`~.coefficients.PTCoefficients`, default
+    :data:`~.coefficients.DSSAT_PT`) holds every coefficient; array leaves make them differentiable.
 
     Source: PETPT, dssat-csm-os ``SPAM/PET.for`` (subroutine at the ``SUBROUTINE PETPT`` block,
     lines 871-918 of the 4.8 source used here).
@@ -49,11 +58,16 @@ def priestley_taylor(
     lai = jnp.asarray(lai, dtype=float)
     msalb = jnp.asarray(albedo_soil, dtype=float)
 
-    td = 0.6 * tmax + 0.4 * tmin
-    albedo = jnp.where(lai <= 0.0, msalb, 0.23 - (0.23 - msalb) * jnp.exp(-0.75 * lai))
+    c = coefficients
+    td = c.td_tmax_weight * tmax + c.td_tmin_weight * tmin
+    albedo = jnp.where(
+        lai <= 0.0, msalb, c.canopy_albedo - (c.canopy_albedo - msalb) * jnp.exp(-c.albedo_lai_decay * lai)
+    )
     slang = srad * LANGLEY_PER_MJ_M2
-    eeq = slang * (2.04e-4 - 1.83e-4 * albedo) * (td + 29.0)
-    eo = eeq * 1.1
-    eo = jnp.where(tmax > 35.0, eeq * ((tmax - 35.0) * 0.05 + 1.1), eo)
-    eo = jnp.where(tmax < 5.0, eeq * 0.01 * jnp.exp(0.18 * (tmax + 20.0)), eo)
-    return jnp.maximum(eo, EO_FLOOR_MM)
+    eeq = slang * (c.eeq_a - c.eeq_b * albedo) * (td + c.eeq_t_offset)
+    eo = eeq * c.alpha
+    eo = jnp.where(tmax > c.hot_threshold, eeq * ((tmax - c.hot_threshold) * c.hot_slope + c.alpha), eo)
+    eo = jnp.where(
+        tmax < c.cold_threshold, eeq * c.cold_factor * jnp.exp(c.cold_exp * (tmax + c.cold_offset)), eo
+    )
+    return jnp.maximum(eo, c.eo_floor)

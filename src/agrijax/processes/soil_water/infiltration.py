@@ -41,6 +41,13 @@ the flux through the saturated layers above the front in series (Darcy with the
 wetting-front suction as the head at the front; Green & Ampt 1911, layered form as in
 Ahuja et al. 2000 ch. 3); ``r_c = 2`` is RZWQM2's reduction factor ``VRCF``.
 
+Coefficients and settings: the numbers RZWQM2 hard-codes in the event (``VRCF``, the offset and
+the 1-cm lower limit of the suction integral) are calibratable coefficients,
+:class:`~agrijax.processes.soil_water.coefficients.GreenAmptCoefficients`
+(``GreenAmptParams.coefficients``, ``None`` for the RZWQM2 values); the slice thickness, the
+shortest front step, the rain-intensity floor and the saturation tolerance are RZWQM2
+numerical settings (:data:`~agrijax.processes.soil_water.coefficients.SETTINGS`).
+
 Recurrence over the slices (:func:`agrijax.core.depth_scan.depth_scan`)
 -----------------------------------------------------------------------
 The front advances one unsaturated slice per step: the step fills ``dq = (theta_a - theta) ds``
@@ -85,14 +92,17 @@ from jax import lax
 from jax.core import Tracer
 from jaxtyping import Array
 
+from agrijax.core.coefficients import numerical_guard
 from agrijax.core.depth_scan import depth_scan
 from agrijax.core.dims import register_dim
 from agrijax.core.state import Forcing, Params, field
 
+from .coefficients import RZWQM2_GREEN_AMPT, GreenAmptCoefficients, numerical_setting, rzwqm2
 from .hydraulics import SoilHydraulicParams, c2_of_params, h_of_theta, k_of_h
 
 __all__ = [
     "GAResult",
+    "GreenAmptCoefficients",
     "GreenAmptConfig",
     "GreenAmptParams",
     "StormForcing",
@@ -105,11 +115,61 @@ __all__ = [
 
 register_dim("n_bp", "breakpoint intervals of one day's storm segment (padded with zeros)")
 
-#: RZWQM2 constants of the event (documented values of the reference model)
-VRCF: float = 2.0  # reduction factor of the Green-Ampt capacity
-DT_MIN: float = 1.0e-5  # [h] shortest front step
-RR_MIN: float = 1.0e-2  # [cm h-1] floor of the rain intensity
-_SAT_TOL: float = 1.0e-12  # [cm3 cm-3] a slice within this of theta_s*AEF is saturated
+#: reduction factor of the Green-Ampt capacity (the coefficient ``GreenAmptCoefficients.vrcf``)
+VRCF: float = RZWQM2_GREEN_AMPT.vrcf
+#: RZWQM2 numerical settings of the event (conventions of the reference model)
+DT_MIN: float = numerical_setting(
+    "green_ampt.dt_min",
+    1.0e-5,
+    "h",
+    "shortest front step: a slice that would fill faster is filled at the rate dq / dt_min",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/RZTEST.for:1284", "INFIL", note="DTMIN; applied at RZTEST.for:1394"),
+)
+RR_MIN: float = numerical_setting(
+    "green_ampt.rr_min",
+    1.0e-2,
+    "cm h-1",
+    "floor of the breakpoint rain intensity the front advances at (keeps dt = dq / v finite)",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/RZTEST.for:1384", "INFIL"),
+)
+_SAT_TOL: float = numerical_setting(
+    "green_ampt.sat_tol",
+    1.0e-12,
+    "cm3 cm-3",
+    "a slice within this of the available porosity theta_s*AEF counts as saturated (skipped)",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/RZTEST.for:1348", "INFIL"),
+)
+SLICE_DS: float = numerical_setting(
+    "green_ampt.ds",
+    1.0,
+    "cm",
+    "thickness of the infiltration slices the front fills one by one",
+    origin="rzwqm2-4.6",
+    provenance=rzwqm2("RZWQM/RZTEST.for:4090", "NTRPTR", note="the infiltration grid of 1-cm layers"),
+)
+#: centre of a slice as a fraction of its thickness (slice j spans [j ds, (j + 1) ds])
+_SLICE_CENTRE: float = numerical_setting(
+    "green_ampt.slice_centre",
+    0.5,
+    "-",
+    "position of the front within a slice, as a fraction of its thickness (the centre)",
+    origin="agrijax",
+    basis="infiltration.py module docstring (slice j belongs to the node whose cell contains its centre)",
+)
+_P_NEAR_ONE = numerical_guard(
+    "green_ampt.p_near_one",
+    1.0e-6,
+    "|1 - p| below which int s^-p ds is taken in its logarithmic form (both forms finite)",
+)
+_GRID_ATOL = numerical_guard(
+    "green_ampt.grid_atol", 1.0e-9, "absolute tolerance of 'cell boundary is a multiple of ds' (file check)"
+)
+_SPAN_RTOL = numerical_guard(
+    "green_ampt.span_rtol", 1.0e-6, "relative tolerance of 'the slices span the grid depth' (config check)"
+)
 
 
 def _require(ok: bool, message: str) -> None:
@@ -118,25 +178,39 @@ def _require(ok: bool, message: str) -> None:
 
 
 class GreenAmptConfig(eqx.Module):
-    """Static settings of the event: slice count ``n_slice`` and thickness ``ds`` [cm], constants."""
+    """Static numerical settings of the event: slice count ``n_slice`` and thickness ``ds`` [cm],
+    the shortest front step ``dt_min`` [h] and the rain-intensity floor ``rr_min`` [cm h-1]
+    (RZWQM2 conventions, :data:`~agrijax.processes.soil_water.coefficients.SETTINGS`). The
+    capacity reduction factor is a model coefficient (:class:`GreenAmptCoefficients`)."""
 
-    n_slice: int = eqx.field(static=True)
-    ds: float = eqx.field(static=True, default=1.0)
-    vrcf: float = eqx.field(static=True, default=VRCF)
-    dt_min: float = eqx.field(static=True, default=DT_MIN)
-    rr_min: float = eqx.field(static=True, default=RR_MIN)
+    n_slice: int = eqx.field(static=True, metadata={"unit": "-", "description": "number of slices"})
+    ds: float = eqx.field(
+        static=True,
+        default=SLICE_DS,
+        metadata={"unit": "cm", "description": "slice thickness", "setting": "green_ampt.ds"},
+    )
+    dt_min: float = eqx.field(
+        static=True,
+        default=DT_MIN,
+        metadata={"unit": "h", "description": "shortest front step", "setting": "green_ampt.dt_min"},
+    )
+    rr_min: float = eqx.field(
+        static=True,
+        default=RR_MIN,
+        metadata={"unit": "cm h-1", "description": "rain-intensity floor", "setting": "green_ampt.rr_min"},
+    )
 
     def __check_init__(self) -> None:
-        if self.n_slice < 1 or self.ds <= 0.0 or self.vrcf <= 0.0 or self.dt_min <= 0.0 or self.rr_min <= 0.0:
-            raise ValueError("n_slice >= 1 and ds, vrcf, dt_min, rr_min > 0 are required")
+        if self.n_slice < 1 or self.ds <= 0.0 or self.dt_min <= 0.0 or self.rr_min <= 0.0:
+            raise ValueError("n_slice >= 1 and ds, dt_min, rr_min > 0 are required")
 
     @classmethod
-    def for_grid(cls, tl: Any, ds: float = 1.0, **kw: Any) -> GreenAmptConfig:
+    def for_grid(cls, tl: Any, ds: float = SLICE_DS, **kw: Any) -> GreenAmptConfig:
         """Slices of ``ds`` [cm] over the cells ``tl``; every cell boundary must be a multiple of ``ds``."""
         tlt = np.cumsum(np.asarray(tl, dtype=float))
         k = tlt / ds
         _require(
-            bool(np.allclose(k, np.round(k), atol=1e-9, rtol=0.0)),
+            bool(np.allclose(k, np.round(k), atol=_GRID_ATOL, rtol=0.0)),
             f"cell boundaries {tlt} are not multiples of the slice thickness {ds}",
         )
         return cls(n_slice=round(float(k[-1])), ds=float(ds), **kw)
@@ -152,7 +226,7 @@ class GreenAmptConfig(eqx.Module):
         depth = np.sum(np.asarray(tl, dtype=float), axis=-1)
         span = self.n_slice * self.ds
         _require(
-            bool(np.all(np.abs(depth - span) <= 1e-6 * max(1.0, span))),
+            bool(np.all(np.abs(depth - span) <= _SPAN_RTOL * max(1.0, span))),
             f"Green-Ampt slices span {span} cm but the grid is {depth} cm deep; "
             "build the config with GreenAmptConfig.for_grid(tl)",
         )
@@ -165,10 +239,19 @@ class GreenAmptParams(Params):
     aef: Array = field(
         dims=(),
         unit="-",
-        description="field-saturation fraction: available porosity = theta_s * aef",
+        description="field-saturation fraction: available porosity = theta_s * aef (rzwqm.dat Richards "
+        "control record; 0.9 at CA-TPA)",
         fortran_name="AEF",
         default=0.9,
     )
+    coefficients: GreenAmptCoefficients | None = field(
+        description="the coefficients RZWQM2 hard-codes in the event (None: the RZWQM2 4.6 values)",
+        default=None,
+    )
+
+    def coef(self) -> GreenAmptCoefficients:
+        """The event coefficients in force: :attr:`coefficients`, or the RZWQM2 values."""
+        return RZWQM2_GREEN_AMPT if self.coefficients is None else self.coefficients
 
 
 class StormForcing(Forcing):
@@ -214,7 +297,7 @@ def _where_min(a: Array, b: Array) -> Array:
 def _int_pow(a: Array, b: Array, p: Array) -> Array:
     """``int_a^b s^-p ds`` for ``b >= a >= 1``; at ``p = 1`` the logarithm (both branches finite)."""
     q = 1.0 - p
-    near = jnp.abs(q) < 1.0e-6
+    near = jnp.abs(q) < _P_NEAR_ONE
     q_safe = jnp.where(near, 1.0, q)
     a_safe = jnp.where(a > 1.0, a, 1.0)
     b_safe = jnp.where(b > a_safe, b, a_safe)
@@ -224,26 +307,32 @@ def _int_pow(a: Array, b: Array, p: Array) -> Array:
 
 
 def wetting_front_suction(
-    theta: Array, soil: SoilHydraulicParams, theta_avail: Array, pond: Array | float = 0.0
+    theta: Array,
+    soil: SoilHydraulicParams,
+    theta_avail: Array,
+    pond: Array | float = 0.0,
+    coefs: GreenAmptCoefficients = RZWQM2_GREEN_AMPT,
 ) -> Array:
     """Wetting-front suction ``S_f`` [cm] per node from the initial water content (Mein & Larson 1973).
 
     ``S_f = 1 + int_1^{s_i} K(-s)/K_s ds + pond`` with ``s_i = -h(min(theta, theta_avail))``; the
     integral is closed-form on the two power-law segments of ``K`` (``K_s s^-n1`` up to
     ``hb_k``, ``C2 s^-eps`` beyond) and is 1 for ``s_i <= 1`` (RZWQM2 convention). ``soil`` on
-    the node axis.
+    the node axis. The offset, the lower limit (1 cm) and the value below it are the
+    ``coefs`` (:class:`GreenAmptCoefficients`).
 
     Source: Mein & Larson (1973); Ahuja et al. (2000) ch. 3; RZWQM2 ``EVNTRO`` (conventions).
     """
+    lower = coefs.suction_lower
     w_init = _where_min(theta, theta_avail)
     s_i = -h_of_theta(w_init, soil)
-    hbk = jnp.where(soil.hb_k > 1.0, soil.hb_k, 1.0)
-    s_wet = jnp.clip(s_i, 1.0, hbk)
+    hbk = jnp.where(soil.hb_k > lower, soil.hb_k, lower)
+    s_wet = jnp.clip(s_i, lower, hbk)
     s_dry = jnp.where(s_i > hbk, s_i, hbk)
-    wet = _int_pow(jnp.ones_like(s_wet), s_wet, soil.n1)
+    wet = _int_pow(jnp.full_like(s_wet, lower), s_wet, soil.n1)
     dry = c2_of_params(soil) / soil.ksat * _int_pow(hbk, s_dry, soil.eps)
-    integral = jnp.where(s_i > 1.0, wet + dry, 1.0)
-    return integral + pond + 1.0
+    integral = jnp.where(s_i > lower, wet + dry, coefs.suction_dry_limit)
+    return integral + pond + coefs.suction_offset
 
 
 def front_conductance(soil: SoilHydraulicParams) -> Array:
@@ -263,18 +352,25 @@ def front_conductance(soil: SoilHydraulicParams) -> Array:
 def slice_nodes(tl: Array, cfg: GreenAmptConfig) -> tuple[Array, Array]:
     """``(node_of_slice[n_slice], slice_centre_depth[n_slice])``: the cell that contains each slice centre."""
     tlt = jnp.cumsum(tl)
-    zc = (jnp.arange(cfg.n_slice, dtype=tl.dtype) + 0.5) * cfg.ds
+    zc = (jnp.arange(cfg.n_slice, dtype=tl.dtype) + _SLICE_CENTRE) * cfg.ds
     idx = jnp.searchsorted(tlt, zc, side="left")
     return jnp.clip(idx, 0, tl.shape[-1] - 1), zc
 
 
 def green_ampt_capacity(
-    tl: Array, conductance: Array, suction: Array, node: Array, z_front: Array, cfg: GreenAmptConfig
+    tl: Array,
+    conductance: Array,
+    suction: Array,
+    node: Array,
+    z_front: Array,
+    cfg: GreenAmptConfig,
+    coefs: GreenAmptCoefficients = RZWQM2_GREEN_AMPT,
 ) -> Array:
     """Layered Green-Ampt capacity ``V_j`` [cm h-1], front at depth ``z_front[j]`` in node ``node[j]``.
 
     ``V = C_i (S_f,i + z_f) / (C_i P_i + z_f - z_i) / r_c`` with ``P_i = sum_{m<i} tl_m / C_m``
-    and ``z_i`` the top of cell ``i`` (Green & Ampt 1911, series form).
+    and ``z_i`` the top of cell ``i`` (Green & Ampt 1911, series form); ``r_c`` is
+    ``coefs.vrcf``. ``cfg`` is kept for the call signature (the slices are in ``z_front``).
 
     Source: Green & Ampt (1911); Ahuja et al. (2000) ch. 3; RZWQM2 ``INFIL`` (conventions).
     """
@@ -282,7 +378,7 @@ def green_ampt_capacity(
     top = jnp.cumsum(tl) - tl
     c = conductance[node]
     below_top = z_front - top[node]
-    return c * (suction[node] + z_front) / (c * resist[node] + below_top) / cfg.vrcf
+    return c * (suction[node] + z_front) / (c * resist[node] + below_top) / coefs.vrcf
 
 
 # ---------------------------------------------------------------------------
@@ -305,17 +401,20 @@ def green_ampt_event(
     duration: Array,
     depth: Array,
     cfg: GreenAmptConfig,
+    coefs: GreenAmptCoefficients | None = None,
 ) -> GAResult:
     """Fill the profile with one storm (RZWQM2 conventions); the identity when ``depth.sum() == 0``.
 
     ``theta``, ``h`` on the nodes, ``soil`` on the node axis, ``tl`` the cell thicknesses,
     ``duration``/``depth`` the breakpoint intervals [h]/[cm]. Nodes that receive water get
-    ``h = h(theta)``; the others keep their head and water content bit for bit.
+    ``h = h(theta)``; the others keep their head and water content bit for bit. ``coefs`` are
+    the event coefficients (``None``: the RZWQM2 values, :data:`RZWQM2_GREEN_AMPT`).
 
     Source: Green & Ampt (1911); Mein & Larson (1973); Ahuja et al. (2000) ch. 3; RZWQM2
     ``EVNTRO``/``INFIL``/``UNSATFLO``/``MIXRUNOFF`` (conventions).
     """
     cfg.check_grid(tl)
+    coefs = RZWQM2_GREEN_AMPT if coefs is None else coefs
     dtype = theta.dtype
     n = tl.shape[-1]
     theta_avail = soil.theta_s * aef
@@ -324,9 +423,9 @@ def green_ampt_event(
     active = deficit > _SAT_TOL
     dq = jnp.where(active, deficit, 0.0) * cfg.ds
 
-    suction = wetting_front_suction(theta, soil, theta_avail)
+    suction = wetting_front_suction(theta, soil, theta_avail, coefs=coefs)
     cond = front_conductance(soil)
-    cap = green_ampt_capacity(tl, cond, suction, node, zc, cfg)
+    cap = green_ampt_capacity(tl, cond, suction, node, zc, cfg, coefs)
 
     depth = jnp.asarray(depth, dtype)
     dur = jnp.asarray(duration, dtype)
@@ -372,7 +471,7 @@ def green_ampt_event(
     added = jax.ops.segment_sum(fill, node, num_segments=n)
     theta_new = theta + added / tl
     h_new = jnp.where(added > 0.0, h_of_theta(theta_new, soil), h)
-    deepest = jnp.max(jnp.where(fill > 0.0, zc + 0.5 * cfg.ds, 0.0))
+    deepest = jnp.max(jnp.where(fill > 0.0, zc + _SLICE_CENTRE * cfg.ds, 0.0))
     return GAResult(
         theta=theta_new,
         h=h_new,

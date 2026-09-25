@@ -57,6 +57,7 @@ from jaxtyping import Array
 from agrijax.core.process import check_enabled, process
 from agrijax.core.state import Forcing, Params, field
 
+from .coefficients import setting_field
 from .infiltration import GAResult, GreenAmptParams, StormForcing, green_ampt_event
 from .richards import (
     HOURS_PER_DAY,
@@ -88,11 +89,34 @@ class DayConfig(eqx.Module):
     """Static schedule of the day: ``n_pre`` / ``n_post`` sub-steps before / after the event.
 
     ``post_grading`` ``>= 1`` grades the post-event sub-steps towards the event on event days.
+    Numerical settings of this implementation (``soil_water.coefficients.SETTINGS``).
     """
 
-    n_pre: int = eqx.field(static=True, default=12)
-    n_post: int = eqx.field(static=True, default=12)
-    post_grading: float = eqx.field(static=True, default=2.0)
+    n_pre: int = setting_field(
+        "soil_water_day.n_pre",
+        12,
+        "-",
+        "Richards sub-steps before the day's event (0 places every event at t = 0)",
+        origin="agrijax",
+        basis="plan 19 A6 (private design note); tests/unit/test_infiltration_day.py",
+    )
+    n_post: int = setting_field(
+        "soil_water_day.n_post",
+        12,
+        "-",
+        "Richards sub-steps after the day's event (12 + 12 = the 24-sub-step M1 baseline)",
+        origin="agrijax",
+        basis="plan 19 A6 (private design note); tests/integration/test_infiltration_catpa.py",
+    )
+    post_grading: float = setting_field(
+        "soil_water_day.post_grading",
+        2.0,
+        "-",
+        "exponent p of the post-event edges ts0 + (24 - ts0) u^p on event days (1 = uniform); "
+        "RZWQM2 restarts from its smallest time step after an event",
+        origin="agrijax",
+        basis="plan 19 A6 (private design note); day.py module docstring",
+    )
 
     def __check_init__(self) -> None:
         if self.n_pre < 0 or self.n_post < 1 or self.post_grading < 1.0:
@@ -173,6 +197,7 @@ def soil_water_day_kernel(
         storm.duration,
         depth,
         params.infiltration.config,
+        params.infiltration.coef(),
     )
     w_ev = w_pre.replace(theta=ev.theta, h=ev.h)
     w_post, tot_post = richards_substeps(w_ev, rp, t_post, supply, evaporation, uptake, alphas[cfg.n_pre :])
@@ -353,6 +378,7 @@ def infiltration_ga(
         forcing_t.storm.duration,
         forcing_t.storm.depth,
         params.infiltration.config,
+        params.infiltration.coef(),
     )
     flux = w.flux.replace(
         rain=ev.rain, event_infiltration=ev.infiltration, event_runoff=ev.runoff, seepage=ev.seepage

@@ -21,12 +21,18 @@ Checks:
    crop layers ``SOILPROP%DS``, the node -> layer map of the soil water (``SW`` at ROOTWU entry
    from the end-of-physics node ``THETA``) and the layer -> node map of the uptake ``qsr``;
 5. (with the local ``dscsm048``) the root record CERES publishes on day ``d - 1`` is the record
-   ROOTWU reads on day ``d``, and our chain crop record -> ROOTWU gives DSSAT's ``TRWUP``.
+   ROOTWU reads on day ``d``, and our chain crop record -> ROOTWU gives DSSAT's ``TRWUP``;
+6. (with the local DSSAT-CSM v4.8.6.0 source tree) every declared coefficient of ROOTWU, LYRSET
+   and the crop's water-stress interface stands, with its quoted statement, on the line it cites,
+   and (with the local RZWQM2 source tree) RZWQM2's embedded-crop layers use the same LYRSET
+   numbers (values only: no RZWQM2 statement is quoted).
 """
 
 from __future__ import annotations
 
 import math
+import os
+import re
 from pathlib import Path
 
 import jax
@@ -34,9 +40,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agrijax.core.grids import SoilGrid, remap_intensive, rzwqm_lyrset, rzwqm_nodes
+from agrijax.core.coefficients import coefficient_table
+from agrijax.core.grids import LyrsetCoefficients, SoilGrid, remap_intensive, rzwqm_lyrset, rzwqm_nodes
 from agrijax.port import dumps
-from agrijax.processes.soil_water.uptake import RootRecord, SoilView, rootwu_estimate
+from agrijax.processes.crop.ceres_maize.growth import WaterStressCoefficients
+from agrijax.processes.soil_water.uptake import RootRecord, RootwuCoefficients, SoilView, rootwu_estimate
 
 pytestmark = [
     pytest.mark.allow_skip(reason="the ROOTWU dumps are private data"),
@@ -306,3 +314,57 @@ def test_crop_root_record_is_what_rootwu_reads(
     # float32 level (median 5e-8); one RLV truncation quantum apart moves a day by <= 1.5e-4 (IUAF9901)
     assert np.median(rel) < 1e-6 and rel.max() < 1e-3, (np.median(rel), rel.max())
     np.testing.assert_array_equal(np.asarray(tss)[0], ro.values["TSS"][-1, :nl])
+
+
+# ------------------------------------------------------------------ 6. coefficients vs the source
+DSSAT_SOURCE = (
+    Path(os.environ.get("AGRI_JAX_DSSAT", "~/AFSoil/Formal_Analysis/02_DSSAT/dssat_engine")).expanduser()
+    / "source"
+)
+RZWQM_SOURCE = (
+    Path(
+        os.environ.get("AGRI_JAX_RZWQM_SRC", "~/agri_jax_data/narval_mirror/RZWQM_Linux_Ver45/src")
+    ).expanduser()
+    / "RZWQM"
+)
+_NUM = re.compile(r"(?<![A-Za-z_0-9])(\d+\.\d*(?:[eE][+-]?\d+)?|\.\d+|\d+(?:[eE][+-]?\d+)?)")
+COEF_ROWS = [
+    *(dict(r, group="rootwu") for r in coefficient_table(RootwuCoefficients)),
+    *(dict(r, group="lyrset") for r in coefficient_table(LyrsetCoefficients)),
+    *(dict(r, group="water_stress") for r in coefficient_table(WaterStressCoefficients)),
+]
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", "", text).upper()
+
+
+@pytest.mark.parametrize("row", COEF_ROWS, ids=[f"{r['group']}.{r['path']}" for r in COEF_ROWS])
+def test_coefficient_stands_on_its_cited_dssat_line(row: dict) -> None:
+    path = DSSAT_SOURCE / row["file"]
+    if not path.is_file():
+        pytest.skip(f"DSSAT-CSM v4.8.6.0 source not found at {path}")
+    assert row["ref_version"] == "dssat-4.8.6.0"
+    line = path.read_text(errors="replace").splitlines()[row["line"] - 1]
+    assert line[:1] not in "!cC*", f"{row['file']}:{row['line']} is a comment line: {line!r}"
+    code = line.split("!")[0]
+    assert _norm(row["statement"].split("!")[0]) in _norm(code), (row["statement"], line)
+    assert float(row["value"]) in [float(x) for x in _NUM.findall(code)], (row["value"], line)
+
+
+def test_rzwqm2_embedded_crop_layers_use_the_lyrset_numbers() -> None:
+    """RZWQM2 4.6 ``DSSATDRV`` sets the same fixed bottoms, the +30 cm step and 20 layers (values
+    compared on the lines, no statement quoted)."""
+    path = RZWQM_SOURCE / "DSSATDRV.for"
+    if not path.is_file():
+        pytest.skip(f"RZWQM2 source not found at {path}")
+    lines = path.read_text(errors="replace").splitlines()
+    c = LyrsetCoefficients()
+
+    def nums(lineno: int) -> list[float]:
+        return [float(x) for x in _NUM.findall(lines[lineno - 1].split("!")[0])]
+
+    for k, (lineno, want) in enumerate(zip(range(557, 562), c.fixed, strict=True)):
+        assert nums(lineno) == [k + 1, want], (lineno, lines[lineno - 1])
+    assert c.step in nums(563) and "DS(I - 1)" in lines[562].upper().replace("  ", " ")
+    assert 20 in nums(69) and c.n_max == 20

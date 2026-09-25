@@ -160,7 +160,7 @@ def test_reference_versions_and_builds() -> None:
     for p in list_processes(ref_version="dssat-4.8.6.0"):
         assert p.info is not None and p.info.provenance == "translated_bsd3" and p.info.ref_build
     for p in list_processes(ref_version="rzwqm2-4.6"):
-        # RZWQM2 has no licence text: its source is read for conventions only, never translated
+        # RZWQM2 source has no licence file: it is read for conventions only, never translated
         assert p.info is not None and p.info.provenance == "reference_only_conventions" and p.info.ref_build
     for p in list_processes(ref_version="none"):
         assert p.info is not None and p.info.variant != FAITHFUL

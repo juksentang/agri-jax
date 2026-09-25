@@ -1,8 +1,20 @@
 """Potential evapotranspiration: Shuttleworth-Wallace (RZWQM2), ASCE Penman-Monteith, Priestley-Taylor.
 
 All functions are pure, ``vmap``-able and differentiable; see each module for units and sources.
+Every coefficient of the equations is declared once, with unit, meaning and provenance, in
+:mod:`.coefficients`.
 """
 
+from .coefficients import (
+    ASCE_2005,
+    DSSAT_PT,
+    PET_COEFFICIENTS,
+    RZWQM_SW,
+    ASCECoefficients,
+    PETCoefficients,
+    PTCoefficients,
+    SWCoefficients,
+)
 from .daily import (
     DailyWeather,
     PETFluxes,
@@ -35,18 +47,26 @@ from .shuttleworth_wallace import (
 )
 
 __all__ = [
+    "ASCE_2005",
     "ASCE_SHORT",
     "ASCE_TALL",
+    "DSSAT_PT",
+    "PET_COEFFICIENTS",
+    "RZWQM_SW",
+    "ASCECoefficients",
     "AerodynamicResistances",
     "ClearSkyRadiation",
     "DailyWeather",
     "EnergyConstants",
     "NetRadiation",
+    "PETCoefficients",
     "PETFluxes",
     "PETParams",
     "PETSiteParams",
     "PETState",
+    "PTCoefficients",
     "ReferenceET",
+    "SWCoefficients",
     "SWResult",
     "SurfaceState",
     "WindAdjustment",

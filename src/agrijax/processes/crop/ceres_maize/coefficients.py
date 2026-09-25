@@ -7,7 +7,10 @@ other number of the maize equations is a literal in ``MZ_GROSUB``, ``MZ_PHENOL``
 meaning and where it stands in DSSAT-CSM v4.8.6.0: ``source`` is ``<file>:<line>`` and
 ``fortran`` the Fortran statement (whitespace aside) that holds the value, so that
 ``tests/integration/test_ceres_coefficients_source.py`` can check every default against the
-reference source.
+reference source. The fields are declared with :func:`agrijax.core.coefficients.coef` (unit
+checked by :func:`agrijax.core.units.parse_unit`, structured
+:class:`~agrijax.core.coefficients.Provenance` with ``ref_version = "dssat-4.8.6.0"``, the file,
+line, routine and statement).
 
 Defaults are Python floats, so a run with :data:`DSSAT_COEFFICIENTS` traces exactly the literals
 the equations had before they were named (same values, same operation order). To calibrate or
@@ -31,14 +34,12 @@ re-implementation of its published equations.
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Any
 
 import equinox as eqx
-import jax
-import jax.numpy as jnp
 
-from agrijax.core.state import Params
+from agrijax.core.coefficients import Coefficients, Provenance, coef
+from agrijax.core.coefficients import coefficient_table as _coefficient_table
 
 __all__ = [
     "BSGDD",
@@ -52,17 +53,20 @@ __all__ = [
 ]
 
 
+#: the reference of every coefficient below (the process registry's ``@dssat-4.8.6.0``)
+REF_VERSION = "dssat-4.8.6.0"
+_DIR = "Plant/CERES-Maize"
+#: the routine each cited file holds (``MZ_ROOTS.for`` holds ``MZ_ROOTGR``)
+_ROUTINE = {"MZ_GROSUB.for": "MZ_GROSUB", "MZ_PHENOL.for": "MZ_PHENOL", "MZ_ROOTS.for": "MZ_ROOTGR"}
+
+
 def _c(value: float, unit: str, description: str, source: str, fortran: str, *, static: bool = False) -> Any:
-    """A coefficient field: default ``value``, its unit and meaning, and its DSSAT-CSM origin."""
-    meta = {
-        "unit": unit,
-        "description": description,
-        "fortran_name": "",
-        "dims": (),
-        "source": f"DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/{source}",
-        "fortran": fortran,
-    }
-    return eqx.field(default=value, static=static, metadata=meta)
+    """A coefficient field (:func:`agrijax.core.coefficients.coef`): default ``value``, its unit and
+    meaning, and its DSSAT-CSM origin ``source`` (``<file>:<line>``) and ``fortran`` statement."""
+    prov = Provenance.at(
+        REF_VERSION, f"{_DIR}/{source}", routine=_ROUTINE[source.split(":")[0]], statement=fortran
+    )
+    return coef(value, unit, description, prov, static=static)
 
 
 # constants MZ_GROSUB sets in SEASINIT and passes on as species parameters (CeresSpecies)
@@ -73,7 +77,7 @@ BSGDD = 250.0
 MZ_GROSUB.for:656, SEASINIT, J. I. Lizaso 2006)."""
 
 
-class GrosubCoefficients(Params):
+class GrosubCoefficients(Coefficients):
     """Literals of ``MZ_GROSUB`` (``DYNAMIC = INTEGR``): growth, partitioning and senescence."""
 
     # ---- stage-date initialisations
@@ -555,7 +559,7 @@ class GrosubCoefficients(Params):
     )
 
 
-class PhenolCoefficients(Params):
+class PhenolCoefficients(Coefficients):
     """Literals of ``MZ_PHENOL`` (``DYNAMIC = INTEGR``): thermal time and the stage machine."""
 
     # ---- thermal time
@@ -760,7 +764,7 @@ class PhenolCoefficients(Params):
     )
 
 
-class RootgrCoefficients(Params):
+class RootgrCoefficients(Coefficients):
     """Literals of ``MZ_ROOTGR`` (``DYNAMIC = INTEGR``): root front and root length density."""
 
     rtdep_emerg: float = _c(
@@ -852,16 +856,12 @@ class RootgrCoefficients(Params):
     )
 
 
-class CeresCoefficients(Params):
+class CeresCoefficients(Coefficients):
     """All hard-coded CERES-Maize coefficients (``CeresMaizeParams.coefficients``)."""
 
     grosub: GrosubCoefficients = eqx.field(default_factory=GrosubCoefficients)
     phenol: PhenolCoefficients = eqx.field(default_factory=PhenolCoefficients)
     roots: RootgrCoefficients = eqx.field(default_factory=RootgrCoefficients)
-
-    def as_arrays(self, dtype: Any = None) -> CeresCoefficients:
-        """The same coefficients with every (non-static) leaf a JAX array, for ``jax.grad``."""
-        return jax.tree_util.tree_map(lambda x: jnp.asarray(x, dtype=dtype), self)
 
 
 DSSAT_COEFFICIENTS = CeresCoefficients()
@@ -870,20 +870,7 @@ DSSAT_COEFFICIENTS = CeresCoefficients()
 
 def coefficient_table() -> list[dict[str, Any]]:
     """One row per coefficient: ``path``, ``value``, ``unit``, ``description``, ``source``,
-    ``fortran`` and ``static``, in field order (``grosub.*``, ``phenol.*``, ``roots.*``)."""
-    rows = []
-    for group in dataclasses.fields(CeresCoefficients):
-        inst = getattr(DSSAT_COEFFICIENTS, group.name)
-        for f in dataclasses.fields(inst):
-            rows.append(
-                {
-                    "path": f"{group.name}.{f.name}",
-                    "value": getattr(inst, f.name),
-                    "unit": f.metadata["unit"],
-                    "description": f.metadata["description"],
-                    "source": f.metadata["source"],
-                    "fortran": f.metadata["fortran"],
-                    "static": bool(f.metadata.get("static", False)),
-                }
-            )
-    return rows
+    ``fortran`` and ``static`` (plus the :class:`~agrijax.core.coefficients.Provenance` fields and
+    ``calibratable``, see :func:`agrijax.core.coefficients.coefficient_table`), in field order
+    (``grosub.*``, ``phenol.*``, ``roots.*``)."""
+    return _coefficient_table(DSSAT_COEFFICIENTS)

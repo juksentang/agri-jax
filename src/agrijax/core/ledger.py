@@ -33,6 +33,7 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array
 
+from agrijax.core.coefficients import numerical_guard
 from agrijax.core.process import Process, check_enabled, process
 from agrijax.core.state import State, field, get_path, set_path
 
@@ -46,6 +47,12 @@ __all__ = [
 
 #: a channel's daily amount: a dotted state path, or ``f(state, params, forcing_t) -> Array`` [cm d-1]
 Channel = str | Callable[[Any, Any, Any], Any]
+
+#: default closure tolerances under ``AGRI_JAX_CHECK=1``: ``|residual| <= atol + rtol * scale``
+_ATOL_F64: float = numerical_guard("ledger.atol_f64", 1e-10, "absolute closure tolerance in float64 [cm]")
+_RTOL_F64: float = numerical_guard("ledger.rtol_f64", 1e-12, "relative closure tolerance in float64")
+_ATOL_F32: float = numerical_guard("ledger.atol_f32", 1e-5, "absolute closure tolerance in float32 [cm]")
+_RTOL_F32: float = numerical_guard("ledger.rtol_f32", 1e-6, "relative closure tolerance in float32")
 
 
 def ledger_dtype() -> Any:
@@ -203,8 +210,8 @@ def water_ledger(
         residual = (s_new - led.storage) - (day_in - day_out)
         if check_enabled():
             eps64 = dt == jnp.float64
-            a = (1e-10 if eps64 else 1e-5) if atol is None else atol
-            r = (1e-12 if eps64 else 1e-6) if rtol is None else rtol
+            a = (_ATOL_F64 if eps64 else _ATOL_F32) if atol is None else atol
+            r = (_RTOL_F64 if eps64 else _RTOL_F32) if rtol is None else rtol
             gross = sum((jnp.sum(jnp.abs(v)) for v in (*d_in.values(), *d_out.values())), zero)
             scale = jnp.abs(s_new) + gross
             residual = eqx.error_if(

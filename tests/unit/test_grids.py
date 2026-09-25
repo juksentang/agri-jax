@@ -24,7 +24,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from agrijax.core.coefficients import coefficient_table
 from agrijax.core.grids import (
+    LYRSET_COEFFICIENTS,
+    LYRSET_FIXED,
+    LYRSET_MERGE_BELOW,
+    LYRSET_N_MAX,
+    LYRSET_STEP,
+    LyrsetCoefficients,
     SoilGrid,
     lyrset,
     overlap,
@@ -217,3 +224,21 @@ def test_grid_validation_and_reserved_surface_cell() -> None:
     assert g.bottom == (5.0, 15.0, 30.0) and hash(g) == hash(SoilGrid("t", (5, 15, 30)))
     with pytest.raises(ValueError, match="cells on its last axis"):
         remap(jnp.ones(4), g, g)
+
+
+# ------------------------------------------------------------------ the LYRSET coefficients
+def test_lyrset_numbers_are_declared_static_coefficients() -> None:
+    """Every number of LYRSET is a coefficient with unit, meaning and its DSSAT-CSM statement
+    (checked against the source in tests/integration/test_rootwu_dssat.py); grid geometry is
+    static (not a pytree leaf, never calibrated)."""
+    rows = {r["path"]: r for r in coefficient_table(LyrsetCoefficients)}
+    assert set(rows) == {"ds1", "ds2", "ds3", "ds4", "ds5", "step", "merge_below", "merge_divisor", "n_max"}
+    for r in rows.values():
+        assert r["static"] and not r["calibratable"]
+        assert r["ref_version"] == "dssat-4.8.6.0" and r["file"] and r["line"] and r["statement"]
+        assert r["unit"] and r["description"]
+    assert jax.tree_util.tree_leaves(LYRSET_COEFFICIENTS) == []
+    assert LYRSET_COEFFICIENTS.calibratable_paths() == []
+    assert LYRSET_FIXED == (5.0, 15.0, 30.0, 45.0, 60.0) == LYRSET_COEFFICIENTS.fixed
+    assert (LYRSET_STEP, LYRSET_MERGE_BELOW, LYRSET_N_MAX) == (30.0, 15.0, 20)
+    assert isinstance(LYRSET_N_MAX, int)

@@ -42,6 +42,8 @@ import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array
 
+from agrijax.core.units import HOURS_PER_DAY
+
 __all__ = [
     "SINK_CHANNELS",
     "SINK_LEDGER_OUTFLOWS",
@@ -80,7 +82,7 @@ class SinkChannel(eqx.Module):
         """
         out = jnp.zeros_like(theta)
         if self.daily is not None:
-            out = jnp.asarray(self.daily, theta.dtype) / (24.0 * tl)
+            out = jnp.asarray(self.daily, theta.dtype) / (HOURS_PER_DAY * tl)
         if self.rate is not None:
             out = out + jnp.asarray(self.rate(t0, dt, theta, h), theta.dtype) / tl
         return out

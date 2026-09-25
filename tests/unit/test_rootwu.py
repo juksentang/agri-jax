@@ -22,6 +22,7 @@ treatments and of RZWQM2 4.6 at CA-TPA) is ``tests/integration/test_rootwu_dssat
 from __future__ import annotations
 
 import math
+import re
 
 import jax
 import jax.numpy as jnp
@@ -29,12 +30,17 @@ import numpy as np
 import pytest
 
 from agrijax.core import bind, compose, registry
+from agrijax.core.coefficients import coefficient_table
 from agrijax.core.ports import Binding
 from agrijax.core.process import CHECK_ENV
 from agrijax.core.state import get_path
 from agrijax.processes.soil_water.uptake import (
+    ROOTWU_COEFFICIENTS,
+    RWU_SWCON1,
+    RWU_SWCON3,
     CropWaterIn,
     RootRecord,
+    RootwuCoefficients,
     RootwuParams,
     RootwuState,
     SoilView,
@@ -295,3 +301,71 @@ def test_process_bound_to_interface_paths(monkeypatch: pytest.MonkeyPatch) -> No
         strict=True,
     ):
         assert np.asarray(a_).tobytes() == np.asarray(b_).tobytes()  # the input port is unchanged
+
+
+# ------------------------------------------------------------------ the coefficients
+_NUM = re.compile(r"(?<![A-Za-z_0-9])(\d+\.\d*(?:[eE][+-]?\d+)?|\.\d+|\d+(?:[eE][+-]?\d+)?)")
+
+
+def test_every_rootwu_number_is_a_declared_coefficient() -> None:
+    """Each ROOTWU coefficient: unit, meaning, the registry's reference, file:line, routine and
+    the statement that holds its default (checked against the source in
+    tests/integration/test_rootwu_dssat.py)."""
+    rows = {r["path"]: r for r in coefficient_table(RootwuCoefficients)}
+    assert set(rows) == {
+        "swcon1", "swcon3", "swcon2_base", "swcon2_slope", "swcon2_ll_max", "swcon2_high_ll",
+        "rlv_min", "exp_max", "pormin_flood", "tss_days",
+    }  # fmt: skip
+    key = registry["rootwu_supply"].key
+    assert key is not None
+    ref = key.split("@")[1].split(":")[0]
+    for r in rows.values():
+        assert r["ref_version"] == ref == "dssat-4.8.6.0"
+        assert r["file"] == "SPAM/ROOTWU.for" and r["routine"] == "ROOTWU" and r["line"]
+        assert r["unit"] and r["description"] and r["paper"]
+        assert r["value"] in [float(x) for x in _NUM.findall(r["statement"])], r
+    assert ROOTWU_COEFFICIENTS.calibratable_paths() == [
+        "swcon1", "swcon3", "swcon2_base", "swcon2_slope", "swcon2_ll_max", "swcon2_high_ll",
+        "rlv_min", "tss_days",
+    ]  # fmt: skip
+    assert (RWU_SWCON1, RWU_SWCON3) == (1.32e-3, 7.01)
+    assert RootwuParams(dlayr=jnp.ones(1), ll=jnp.ones(1), sat=jnp.ones(1)).coef() is ROOTWU_COEFFICIENTS
+
+
+def test_coefficients_as_arrays_reproduce_the_defaults_and_are_differentiable() -> None:
+    c = random_state(np.random.default_rng(11), 3)
+    root, soil = _records(c)
+    tss = jnp.asarray(c["tss"])
+    arr = RootwuCoefficients().as_arrays()
+    base = _EST(root, soil, tss)
+    got = jax.jit(rootwu_estimate)(root, soil, tss, arr)
+    np.testing.assert_allclose(np.asarray(got.rwu), np.asarray(base.rwu), rtol=REL, atol=ABS)
+    np.testing.assert_array_equal(np.asarray(got.tss), np.asarray(base.tss))
+
+    paths, vec = arr.to_vector()
+
+    def total(v):
+        return jnp.sum(rootwu_estimate(root, soil, tss, arr.from_vector(v, paths)).trwup)
+
+    g = dict(zip(paths, np.asarray(jax.grad(total)(vec)), strict=True))
+    assert all(np.isfinite(x) for x in g.values())
+    assert g["swcon1"] > 0.0 and g["swcon2_base"] > 0.0  # more uptake where not capped by RWUMX
+    # SWCON1 scales the uncapped uptake linearly
+    one = rootwu_estimate(root, soil, tss, RootwuCoefficients(swcon1=RWU_SWCON1 * 0.5))
+    assert float(jnp.sum(one.trwup)) < float(jnp.sum(base.trwup))
+
+
+def test_the_process_takes_its_coefficients_from_the_params() -> None:
+    c = random_state(np.random.default_rng(12), 2)
+    c["xhlai"][:] = 1.0
+    st, params = _producer(c)
+    low = RootwuCoefficients(swcon1=RWU_SWCON1 * 0.25)
+    out = rootwu_supply(st, params.replace(coefficients=low), None)
+    soil = SoilView(dlayr=params.dlayr, ll=params.ll, sat=params.sat, sw=st.water.sw)
+    want = rootwu_estimate(st.root, soil, st.tss, low)
+    assert np.asarray(out.water.trwup).tobytes() == np.asarray(want.trwup).tobytes()
+    default = rootwu_supply(st, params, None)
+    assert (
+        np.asarray(default.water.trwup).tobytes()
+        == np.asarray(rootwu_estimate(st.root, soil, st.tss).trwup).tobytes()
+    )
