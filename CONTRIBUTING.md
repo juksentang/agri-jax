@@ -28,7 +28,7 @@ def leaf_growth(state, params, forcing_t):
 2. **Branch with `jnp.where` / `jnp.select`, never with Python `if` on state, params or forcing.** Both branches must stay finite (guard `log`, `sqrt`, `/` with `jnp.maximum` / `jnp.clip`).
 3. **Never write a loop.** Time and samples are handled by the runtime (`lax.scan`, `vmap`); soil layers are an array axis.
 
-`python -m agrijax.core.lint <paths>` enforces these as AJ001-AJ005. Set `AGRI_JAX_CHECK=1` to make every process call verify at runtime that only the declared `writes` changed.
+`python -m agrijax.core.lint <paths>` enforces these as AJ001-AJ006 (AJ006: a Python loop over a shape-derived range or an array, i.e. an unrolled layer loop; a true recurrence over depth goes through `agrijax.core.depth_scan.depth_scan`). Set `AGRI_JAX_CHECK=1` to make every process call verify at runtime that only the declared `writes` changed.
 
 ## Commands
 

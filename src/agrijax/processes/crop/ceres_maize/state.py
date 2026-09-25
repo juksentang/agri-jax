@@ -2,8 +2,10 @@
 
 Every crop field carries a leading ``n_crop`` axis (handover section 4); soil-layer fields of the
 crop (root length density, days saturated) are ``[n_crop, n_layer]``; the soil itself (layer
-thickness and limits in :class:`CeresSoil`, water content in the forcing) is shared by the crops,
-``[n_layer]``. The single lumped leaf pool of CERES-Maize lives in slot 0 of an
+thickness and limits in :class:`CeresSoil`, water content in the ``water_in`` port) is shared by the crops,
+``[n_layer]``. The crop reads its soil water, ``EOP`` and ``TRWUP`` from its ``water_in`` port and
+publishes its root record into ``root_out`` (:mod:`agrijax.processes.soil_water.uptake`). The
+single lumped leaf pool of CERES-Maize lives in slot 0 of an
 :class:`~agrijax.core.organs.OrganQueue` with ``n_cohort = 1``: ``leaf.area[:, 0]`` is the plant
 leaf area ``PLA`` [cm2 plant-1] and ``leaf.mass[:, 0]`` the leaf weight ``LFWT`` [g plant-1].
 
@@ -28,7 +30,9 @@ import jax.numpy as jnp
 from jaxtyping import Array
 
 from agrijax.core.organs import OrganQueue
+from agrijax.core.ports import port
 from agrijax.core.state import Forcing, Params, State, field
+from agrijax.processes.soil_water.uptake import CropWaterIn, RootRecord
 
 from .coefficients import DSSAT_COEFFICIENTS, CeresCoefficients
 
@@ -179,6 +183,12 @@ class CeresSpecies(Params):
     pormin: Array = field(
         dims=(), unit="cm3 cm-3", description="minimum air-filled porosity for roots", fortran_name="PORMIN"
     )
+    rwumx: Array = field(
+        dims=(),
+        unit="cm3 cm-1 d-1",
+        description="maximum water uptake per unit root length (SPE RWMX; published for ROOTWU)",
+        fortran_name="RWUMX",
+    )
     rlwr: Array = field(
         dims=(), unit="cm g-1 x 1e4", description="root length to weight ratio", fortran_name="RLWR"
     )
@@ -241,8 +251,15 @@ class CeresMaizeParams(Params):
 
 # --------------------------------------------------------------------------------------- forcing
 class CeresForcing(Forcing):
-    """Daily inputs of the crop (time axis first). Soil water and the water-stress factors come
-    from the soil-water / transpiration modules (in isolation: from the reference run)."""
+    """Daily inputs of the crop (time axis first): weather, and the replay drivers of the crop's
+    water port.
+
+    ``sw``, ``eop`` and ``trwup`` are read only by
+    :func:`~agrijax.processes.crop.ceres_maize.model.ceres_water_replay`, which writes them into the
+    ``water_in`` port (:class:`~agrijax.processes.soil_water.uptake.CropWaterIn`) when the crop runs
+    on its own; in a coupled assembly the port is written by the soil-water and
+    uptake producers instead and these fields are unused. The crop computes its water-stress
+    factors from ``eop`` and ``trwup`` itself (``MZ_GROSUB``); there are no stress fields here."""
 
     yrdoy: Array = field(unit="YYYYDDD", description="date", fortran_name="YRDOY", dims="T")
     tmax: Array = field(unit="degC", description="maximum air temperature", fortran_name="TMAX", dims="T")
@@ -256,18 +273,18 @@ class CeresForcing(Forcing):
     snow: Array = field(unit="mm", description="snow depth", fortran_name="SNOW", dims="T")
     sw: Array = field(
         unit="cm3 cm-3",
-        description="soil water content after today's soil update",
+        description="replay: soil water content after today's soil update",
         fortran_name="SW",
         dims=("T", "n_layer"),
     )
-    swfac: Array = field(
-        unit="-",
-        description="water stress on photosynthesis (TRWUP / EP1, capped at 1)",
-        fortran_name="SWFAC",
-        dims="T",
+    eop: Array = field(
+        unit="mm d-1", description="replay: potential transpiration (SPAM EOP)", fortran_name="EOP", dims="T"
     )
-    turfac: Array = field(
-        unit="-", description="water stress on expansion (truncated to 1e-3)", fortran_name="TURFAC", dims="T"
+    trwup: Array = field(
+        unit="cm d-1",
+        description="replay: potential root water uptake (SPAM / ROOTWU TRWUP)",
+        fortran_name="TRWUP",
+        dims="T",
     )
 
 
@@ -407,12 +424,20 @@ class CeresRootState(State):
 
 
 class CeresMaizeState(State):
-    """The whole CERES-Maize state."""
+    """The whole CERES-Maize state, with its two ports (plan 19 A2, A4).
+
+    ``water_in`` is read (soil water of the crop layers, ``EOP``, ``TRWUP``); ``root_out`` is
+    published at the end of each crop day (``RLV, RTDEP, RWUMX, PORMIN, XHLAI``). Run on its own
+    the crop holds both records here; in an assembly they are bound to ``iface.*`` paths
+    (:func:`agrijax.core.ports.bind`) and are ``None`` in the crop's own subtree.
+    """
 
     phen: CeresPhenologyState
     stress: CeresStressState
     growth: CeresGrowthState
     roots: CeresRootState
+    water_in: CropWaterIn = port(description="soil water, EOP and TRWUP the crop reads each day")
+    root_out: RootRecord = port(description="root record the crop publishes each day (for ROOTWU)")
 
     @classmethod
     def initial(cls, params: CeresMaizeParams, n_crop: int = 1, dtype: Any = None) -> CeresMaizeState:
@@ -475,4 +500,11 @@ class CeresMaizeState(State):
             rstage=i,
         )
         roots = CeresRootState(rtdep=f, rlv=fl)
-        return cls(phen=phen, stress=stress, growth=growth, roots=roots)
+        return cls(
+            phen=phen,
+            stress=stress,
+            growth=growth,
+            roots=roots,
+            water_in=CropWaterIn.zeros(n_crop, n_layer, dtype=f.dtype),
+            root_out=RootRecord.zeros(n_crop, n_layer, dtype=f.dtype),
+        )

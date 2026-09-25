@@ -2,12 +2,12 @@
 
 Scope
 -----
-* every function decorated with ``@process`` gets all five rules;
+* every function decorated with ``@process`` gets every rule;
 * every other function defined in a file under a ``processes/`` directory (the numerical
   kernels the processes call: ``shuttleworth_wallace``, ``theta_of_h``, private helpers, ...)
-  gets the numerical rules AJ001-AJ003; AJ004/AJ005 are about the process contract and do
-  not apply to kernels that return NamedTuples or arrays;
-* ``--all`` applies all five rules to every function in every file.
+  gets the numerical rules AJ001-AJ003 and AJ006; AJ004/AJ005 are about the process contract
+  and do not apply to kernels that return NamedTuples or arrays;
+* ``--all`` applies every rule to every function in every file.
 
 Arguments that are static by convention are not traced: ``self``/``cls``, and arguments
 annotated ``bool``, ``int``, ``str``, ``float`` or ``Literal[...]`` (optionally ``| None``);
@@ -27,6 +27,15 @@ AJ003  warning  In ``jnp.where(c, a, b)`` / ``jnp.select``, a branch contains ``
                 ``sqrt`` or ``/`` whose operand is not guarded by ``maximum``/``clip``.
 AJ004  warning  A ``return`` value that is not obtained via ``eqx.tree_at`` / ``replace``.
 AJ005  warning  Missing docstring, or docstring without a ``Source:`` line.
+AJ006  error    A Python ``for`` loop or comprehension over ``range(...)`` / ``arange(...)`` whose
+                bound is shape-derived: ``x.shape``, ``x.size``, ``np.shape(x)``, a grid size
+                attribute (``n_node``, ``n_layer``, ``n_slice``, ...), ``len(<traced name>)``, or a
+                name assigned from one of these; or directly over an array of traced values
+                (``for t in state.theta``, ``enumerate(grid.tl)``, a local from array arithmetic
+                or a ``jnp`` call). Such a loop unrolls over layers at trace time;
+                vectorise it, or write a true recurrence with
+                :func:`agrijax.core.depth_scan.depth_scan`. Loops over literal or configuration
+                counts (``range(3)``, ``range(cfg.n_iter)``) are not reported.
 
 Usage::
 
@@ -61,6 +70,7 @@ RULES: dict[str, tuple[str, str]] = {
     "AJ003": ("warning", "unguarded log/sqrt/division inside a where/select branch"),
     "AJ004": ("warning", "return value not built with eqx.tree_at / replace"),
     "AJ005": ("warning", "missing docstring or no 'Source:' line"),
+    "AJ006": ("error", "Python loop over a shape-derived range or an array (unrolled layer loop)"),
 }
 
 _RISKY_CALLS = {"log", "log2", "log10", "sqrt", "rsqrt", "power", "pow", "arccos", "arcsin", "arctanh"}
@@ -69,12 +79,15 @@ _UPDATE_CALLS = {"tree_at", "replace", "set"}
 _WHERE_CALLS = {"where", "select"}
 _PROCESS_DECORATOR = "process"
 #: rules applied to non-``@process`` functions of ``processes/`` modules (numerical kernels)
-KERNEL_RULES: frozenset[str] = frozenset({"AJ001", "AJ002", "AJ003"})
+KERNEL_RULES: frozenset[str] = frozenset({"AJ001", "AJ002", "AJ003", "AJ006"})
 ALL_RULES: frozenset[str] = frozenset(RULES)
 _KERNEL_DIR = "processes"
 _STATIC_ANNOTATIONS = {"bool", "int", "str", "float", "None", "Literal", "type"}
 _STATIC_ATTRS = {"shape", "ndim", "dtype", "size"}
 _STATIC_CALLS = {"ndim", "shape", "len", "isinstance", "hasattr", "callable", "type", "issubclass"}
+_RANGE_CALLS = {"range", "arange"}
+#: attributes that hold the size of a grid axis (AJ006)
+_GRID_SIZE_ATTRS = {"n_node", "n_layer", "n_slice", "n_horizon", "n_lyr", "nlayr", "n_cell", "n_depth"}
 
 
 @dataclass(frozen=True)
@@ -302,6 +315,7 @@ class _FunctionChecker:
             ("AJ003", self.check_aj003),
             ("AJ004", self.check_aj004),
             ("AJ005", self.check_aj005),
+            ("AJ006", self.check_aj006),
         ):
             if rule in self.rules:
                 check()
@@ -468,6 +482,75 @@ class _FunctionChecker:
             return
         if not any(line.strip().lower().startswith("source:") for line in doc.splitlines()):
             self._add("AJ005", self.fn, f"{self.fn.name} docstring has no 'Source:' line")
+
+    def _shape_derived(self, expr: ast.AST, depth: int = 0) -> bool:
+        """True when ``expr`` contains a shape query, a grid size or ``len`` of an argument (AJ006)."""
+        if depth > 8:
+            return False
+        for n in ast.walk(expr):
+            if isinstance(n, ast.Attribute) and n.attr in ({"shape", "size"} | _GRID_SIZE_ATTRS):
+                return True
+            if isinstance(n, ast.Call):
+                name = _call_name(n)
+                if name in {"shape", "size"}:
+                    return True
+                if name == "len" and n.args and _names_in(n.args[0]) & self.tainted:
+                    return True
+            if isinstance(n, ast.Name) and n.id in self.assigned:
+                src = self.assigned[n.id]
+                if src is not expr and self._shape_derived(src, depth + 1):
+                    return True
+        return False
+
+    def _range_over_shape(self, it: ast.AST) -> bool:
+        return (
+            isinstance(it, ast.Call)
+            and _call_name(it) in _RANGE_CALLS
+            and any(self._shape_derived(a) for a in it.args)
+        )
+
+    def _array_valued(self, expr: ast.AST, depth: int = 0) -> bool:
+        """True when ``expr`` is visibly an array of traced values (AJ006, direct iteration).
+
+        An attribute of a traced argument (``state.theta``, ``grid.tl``), array arithmetic on
+        traced names, a ``jnp``/``np`` call on traced names, or a name assigned from one of these.
+        A bare argument is not enough (it may be a tuple of names or pytrees).
+        """
+        if depth > 8:
+            return False
+        if isinstance(expr, ast.Attribute):
+            return expr.attr not in _STATIC_ATTRS and bool(_names_in(expr.value) & self.tainted)
+        if isinstance(expr, (ast.BinOp, ast.UnaryOp)):
+            return bool(_names_in(expr) & self.tainted)
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute):
+            mod = expr.func.value
+            if isinstance(mod, ast.Name) and mod.id in {"jnp", "np", "numpy", "lax"}:
+                return bool(_names_in(expr) & self.tainted)
+            return False
+        if isinstance(expr, ast.Name) and expr.id in self.assigned and expr.id in self.tainted:
+            src = self.assigned[expr.id]
+            return src is not expr and self._array_valued(src, depth + 1)
+        return False
+
+    def _loops_over_array(self, it: ast.AST) -> bool:
+        if isinstance(it, ast.Call) and _call_name(it) in {"enumerate", "zip", "reversed"}:
+            return any(self._array_valued(a) or self._range_over_shape(a) for a in it.args)
+        return self._array_valued(it)
+
+    def check_aj006(self) -> None:
+        for node in _iter_own_nodes(self.fn):
+            iters: list[ast.AST] = []
+            if isinstance(node, (ast.For, ast.AsyncFor)):
+                iters.append(node.iter)
+            elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+                iters.extend(g.iter for g in node.generators)
+            for it in iters:
+                if self._range_over_shape(it) or self._loops_over_array(it):
+                    self._add(
+                        "AJ006",
+                        it,
+                        f"loop over {ast.unparse(it)}; vectorise over the axis or use core.depth_scan",
+                    )
 
 
 # ---------------------------------------------------------------------------

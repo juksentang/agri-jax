@@ -1,26 +1,45 @@
-"""The CERES-Maize day as an :class:`agrijax.core.Model`, and the daily outputs of ``PlantGro.OUT``.
+"""The CERES-Maize day as an :class:`agrijax.core.Model`, its two port processes, and the daily
+outputs of ``PlantGro.OUT``.
 
 Order within a day follows ``MZ_CERES`` (``DYNAMIC = INTEGR``): phenology, the stress block and
-growth of ``MZ_GROSUB``, then roots. Soil water and the water-stress factors are forcing, so the
-crop can be driven by any soil-water model or, for validation, by the reference run itself.
+growth of ``MZ_GROSUB``, then roots; then :func:`ceres_publish` writes the root record the uptake
+producers read on the next call (DSSAT PLANT outputs ``RLV, RWUMX, PORMIN, XHLAI`` for SPAM).
+The crop reads its soil water, ``EOP`` and ``TRWUP`` from its ``water_in`` port and computes its
+water-stress factors itself (plan 19 A3). Run on its own (:func:`ceres_maize_model`), the port is
+written first by :func:`ceres_water_replay` from the forcing, so the crop can be driven by any
+soil-water model or, for validation, by the reference run itself; in a coupled assembly the same
+processes are bound to ``iface.*`` paths and the port is written by the producers.
 
-Source: DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_CERES.for and MZ_OPGROW.for (BSD-3).
+Source: DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_CERES.for and MZ_OPGROW.for, CSM_Main/LAND.for
+(BSD-3).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import equinox as eqx
+import jax.numpy as jnp
 from jaxtyping import Array
 
 from agrijax.core.model import Model
+from agrijax.core.process import process
+from agrijax.processes.soil_water.uptake import CropWaterIn, RootRecord
 
 from .growth import ceres_growth, ceres_stress
 from .phenology import ceres_phenology
 from .roots import ceres_roots
 from .state import CeresForcing, CeresMaizeParams, CeresMaizeState
 
-__all__ = ["OUTPUT_UNITS", "ceres_maize_model", "plantgro_outputs", "yield_kg_ha"]
+__all__ = [
+    "CROP_PROCESSES",
+    "OUTPUT_UNITS",
+    "ceres_maize_model",
+    "ceres_publish",
+    "ceres_water_replay",
+    "plantgro_outputs",
+    "yield_kg_ha",
+]
 
 _KG_HA = 10.0  # g m-2 -> kg ha-1 (MZ_OPGROW: NINT(WTLF*10.), ...)
 _CM_TO_M = 100.0  # cm -> m (MZ_OPGROW: RDPD = RTDEP/100.)
@@ -82,11 +101,89 @@ def plantgro_outputs(
     }
 
 
+@process(
+    reads=(),
+    writes=("water_in",),
+    source="replay of a reference run's crop water drivers (plan 19 A2, A3)",
+    fortran_name="",
+    key="water_supply/forcing_replay@none:replay",
+    provenance="equations_only",
+    grid="dssat_layers",
+    sources=(
+        (
+            "crop water record SW, EOP, TRWUP copied from the forcing",
+            "plan 19 A3: DSSAT SPAM EOP / TRWUP dumps and SoilWat.OUT SW of the reference run",
+        ),
+    ),
+    deviates=(),
+)
+def ceres_water_replay(
+    state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing
+) -> CeresMaizeState:
+    """Write the crop's ``water_in`` port from the forcing (the replay binding of plan 19 A2).
+
+    ``sw`` [n_layer] is today's soil water after the soil update, ``eop`` and ``trwup`` today's
+    potential transpiration and root water uptake, the same for every crop of the sample.
+
+    Source: plan 19 A3 (replay of the reference run's SPAM EOP / TRWUP and soil water).
+    """
+    w = state.water_in
+    dt = w.trwup.dtype
+    rec = CropWaterIn(
+        sw=jnp.asarray(forcing_t.sw, dtype=w.sw.dtype) * jnp.ones_like(w.sw),
+        eop=jnp.asarray(forcing_t.eop, dtype=dt) * jnp.ones_like(w.eop),
+        trwup=jnp.asarray(forcing_t.trwup, dtype=dt) * jnp.ones_like(w.trwup),
+    )
+    return eqx.tree_at(lambda x: x.water_in, state, rec)
+
+
+@process(
+    reads=("roots", "growth.lai"),
+    writes=("root_out",),
+    source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_CERES.for, MZ_GROSUB.for; CSM_Main/LAND.for (BSD-3)",
+    fortran_name="MZ_CERES",
+    key="crop/ceres_maize.publish@dssat-4.8.6.0:faithful",
+    provenance="translated_bsd3",
+    grid="dssat_layers",
+    ref_build="dscsm048 v4.8.6.0 (build486)",
+    sources=(
+        ("PLANT outputs RLV, RWUMX, PORMIN, XHLAI read by SPAM", "CSM_Main/LAND.for, PLANT / SPAM arguments"),
+        ("XHLAI = LAI", "MZ_GROSUB.for, INTEGR totals ('Used in WATBAL')"),
+        ("RWUMX, PORMIN from the species file *ROOT section", "MZ_GROSUB.for, SEASINIT reads"),
+    ),
+    deviates=(),
+)
+def ceres_publish(
+    state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing
+) -> CeresMaizeState:
+    """Publish the root record of the day (plan 19 A4): today's ``RLV`` and ``RTDEP`` after root
+    growth, ``XHLAI = LAI`` after growth, and the species ``RWUMX``, ``PORMIN`` as state.
+
+    Source: DSSAT-CSM v4.8.6.0 MZ_CERES.for outputs and CSM_Main/LAND.for (BSD-3).
+    """
+    lai = state.growth.lai
+    one = jnp.ones_like(lai)
+    rec = RootRecord(
+        rlv=state.roots.rlv,
+        rtdep=state.roots.rtdep,
+        rwumx=jnp.asarray(params.species.rwumx, dtype=lai.dtype) * one,
+        pormin=jnp.asarray(params.species.pormin, dtype=lai.dtype) * one,
+        xhlai=lai,
+    )
+    return eqx.tree_at(lambda x: x.root_out, state, rec)
+
+
+#: the crop day, in the ``MZ_CERES`` order, without the replay producer (bind these in an assembly)
+CROP_PROCESSES = (ceres_phenology, ceres_stress, ceres_growth, ceres_roots, ceres_publish)
+
+
 def ceres_maize_model(*, outputs: Any = plantgro_outputs) -> Model:
-    """CERES-Maize as a :class:`~agrijax.core.Model` (phenology, stress, growth, roots)."""
+    """CERES-Maize on its own as a :class:`~agrijax.core.Model`: :func:`ceres_water_replay`
+    (the ``water_in`` port from the forcing), then phenology, stress, growth, roots and
+    :func:`ceres_publish`."""
     return Model(
         CeresMaizeState,
-        [ceres_phenology, ceres_stress, ceres_growth, ceres_roots],
+        [ceres_water_replay, *CROP_PROCESSES],
         outputs=outputs,
         name="ceres_maize",
     )

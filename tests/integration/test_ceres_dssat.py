@@ -3,9 +3,14 @@
 The reference model runs with nitrogen off (``NITRO = N`` in the FileX options) through
 :func:`agrijax.port.run_fortran.run_dscsm` (batch mode, one treatment per run so the
 ``DSSAT48.INP`` holds that treatment's cultivar, planting and soil). The crop is driven by the
-reference run itself: weather and CO2 from ``Weather.OUT``, soil water from ``SoilWat.OUT`` and
-the water-stress factors ``SWFAC = 1 - WSPD``, ``TURFAC = 1 - WSGD`` from ``PlantGro.OUT``; so only
-the crop (phenology, growth, roots and the saturation factor) is compared.
+reference run itself: weather and CO2 from ``Weather.OUT``, soil water from ``SoilWat.OUT``, and
+SPAM's potential transpiration ``EOP`` and potential root water uptake ``TRWUP`` of every day
+(plan 19 A3), which DSSAT does not print at full precision: they come from the A12 SPAM dump
+tables ``<data-dir>/dumps/tables/dssat486/<EXP>_t<NN>_spam.npz`` (a gfortran build of the BSD-3
+source instrumented at SPAM exit, whose printed outputs equal build486's for all 58 treatments,
+``tests/diff/test_a12_dssat.py``). The crop's water port replays these, and the crop computes
+``SWFAC`` and ``TURFAC`` itself (``MZ_GROSUB`` with ``RWUEP1``); so the crop (phenology, the
+stress factors, growth, roots and the saturation factor) is compared.
 
 M2: daily LAI and above-ground biomass within 1 % where the printed value is at least 100 print
 units (LAI >= 1.00, CWAD >= 100 kg/ha; below that the print rounding alone exceeds 0.5 %), within
@@ -20,6 +25,7 @@ states agree to float32 accuracy (relative 1e-4 or better).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -34,7 +40,12 @@ from agrijax.core import run
 from agrijax.io.dssat import read_out, read_plantgro, read_summary, read_wth
 from agrijax.port.run_fortran import dscsm_paths
 from agrijax.processes.crop.ceres_maize import CeresMaizeState, ceres_maize_model
-from agrijax.processes.crop.ceres_maize.dssat_inputs import ceres_forcing, ceres_params, yrdoy_range
+from agrijax.processes.crop.ceres_maize.dssat_inputs import (
+    ceres_forcing,
+    ceres_params,
+    spam_supply,
+    yrdoy_range,
+)
 
 DSSAT_ENGINE = Path(
     os.environ.get("AGRI_JAX_DSSAT", "~/AFSoil/Formal_Analysis/02_DSSAT/dssat_engine")
@@ -48,6 +59,8 @@ MAIZE = DSSAT_ENGINE / "example_data" / "Maize"
 WEATHER = DSSAT_ENGINE / "example_data" / "Weather"
 DSCSM, _ENGINE_DATA = dscsm_paths(DSSAT_ENGINE)  # the v4.8.6.0 build486 and source/Data when present
 GENOTYPE = _ENGINE_DATA / "Genotype"
+#: A12 SPAM dump tables (EOP, TRWUP of every day); ``--data-dir`` overrides via :func:`set_tables`
+TABLES = Path(os.environ.get("AGRI_JAX_DATA", "~/agri_jax_data")).expanduser() / "dumps/tables/dssat486"
 
 #: PlantGro column -> (model output, print unit)
 COLUMNS = {
@@ -121,15 +134,42 @@ def run_reference(
     return out
 
 
-def simulate(out: Path, trno: int, *, water: bool = True, daylength_from_output: bool = False):
-    """Parameters from the run's INP / ECO / SPE, forcing from its outputs; run the model."""
+def supply_table(exp: str, trno: int, tables: Path | None = None) -> Path:
+    """Path of the A12 SPAM dump table of one treatment."""
+    return (TABLES if tables is None else Path(tables)) / f"{exp}_t{trno:02d}_spam.npz"
+
+
+def load_supply(exp: str, trno: int, tables: Path | None = None):
+    """``(yrdoy, eop, trwup)`` of the treatment from its SPAM dump table (checked to belong to it)."""
+    path = supply_table(exp, trno, tables)
+    with np.load(path, allow_pickle=False) as z:
+        meta = json.loads(str(z["meta.json"]))
+    assert meta["experiment"] == exp and int(meta["trno"]) == trno, (path, meta)
+    assert meta["version"] == "4.8.6.0" and meta["outputs_identical_to_reference"], meta
+    return spam_supply(str(path))
+
+
+def simulate(
+    out: Path,
+    trno: int,
+    *,
+    water: bool = True,
+    daylength_from_output: bool = False,
+    exp: str | None = None,
+    tables: Path | None = None,
+):
+    """Parameters from the run's INP / ECO / SPE, forcing from its outputs and SPAM dumps; run the
+    model. ``exp`` defaults to the experiment named in the run's INP."""
     inp = out / "DSSAT48.INP"
     p = ceres_params(str(inp), str(GENOTYPE / "MZCER048.ECO"), str(GENOTYPE / "MZCER048.SPE"), iswwat=water)
     summ = read_summary(out / "Summary.OUT")
     row = summ[summ["TRNO"] == trno].iloc[0]
-    wname = next(ln.split()[1] for ln in inp.read_text().splitlines() if ln.startswith("WEATHERW"))
+    text = inp.read_text(errors="replace").splitlines()
+    wname = next(ln.split()[1] for ln in text if ln.startswith("WEATHERW"))
     lat = float(read_wth(WEATHER / wname).attrs["site"]["LAT"])
     last = int(np.nanmax([row["MDAT"], row["HDAT"]]))
+    if exp is None:
+        exp = next(ln.split()[1] for ln in text if ln.startswith("FILEX")).split(".")[0]
     f = ceres_forcing(
         str(out),
         trno,
@@ -139,6 +179,7 @@ def simulate(out: Path, trno: int, *, water: bool = True, daylength_from_output:
         lat,
         water=water,
         daylength_from_output=daylength_from_output,
+        supply=load_supply(exp, trno, tables) if water else None,
     )
     res = _RUNNER(p, f, CeresMaizeState.initial(p, 1))
     return p, f, {k: np.asarray(v) for k, v in res.items()}, row
@@ -198,9 +239,13 @@ def check_m2(out: Path, trno: int, p, f, res, row, *, units: float = 1.0):
 
 # ------------------------------------------------------------------------------ fixtures
 @pytest.fixture(scope="module")
-def ref_dir(tmp_path_factory: pytest.TempPathFactory):
+def ref_dir(tmp_path_factory: pytest.TempPathFactory, data_dir: Path):
+    global TABLES
     if not DSCSM.is_file() or not MAIZE.is_dir():
         pytest.skip(f"dscsm048 / DSSAT example data not found under {DSSAT_ENGINE}")
+    TABLES = data_dir / "dumps" / "tables" / "dssat486"
+    if not (TABLES / "UFGA8201_t01_spam.npz").is_file():
+        pytest.skip(f"A12 SPAM dump tables (EOP, TRWUP) not found under {TABLES}")
     cache: dict[tuple, Path] = {}
 
     def get(exp: str, trno: int, water: str | None = None) -> Path:
@@ -217,7 +262,7 @@ def ref_dir(tmp_path_factory: pytest.TempPathFactory):
 def test_ufga8201_m2(ref_dir, trno):
     """Rainfed (1), irrigated (3) and vegetative-stress (5) treatments, nitrogen off."""
     out = ref_dir("UFGA8201", trno)
-    p, f, res, row = simulate(out, trno)
+    p, f, res, row = simulate(out, trno, exp="UFGA8201")
     errs = check_m2(out, trno, p, f, res, row)
     assert errs["RDPD"]["max_units"] <= 0.51 and errs["EWSD"]["max_units"] == 0.0, errs
 
@@ -226,7 +271,7 @@ def test_ufga8201_without_water_balance(ref_dir):
     """``WATER = N``: no stress, no roots (``MZ_ROOTGR`` is not called); equals the irrigated run."""
     out = ref_dir("UFGA8201", 3, water="N")
     assert not (out / "SoilWat.OUT").exists()
-    p, f, res, row = simulate(out, 3, water=False)
+    p, f, res, row = simulate(out, 3, water=False, exp="UFGA8201")
     check_m2(out, 3, p, f, res, row)
     assert np.all(res["rdpd"] == 0.0) and np.all(res["rlv"] == 0.0)
 
@@ -235,7 +280,7 @@ def test_ufga8201_forcing_chain(ref_dir):
     """The weather the forcing takes from Weather.OUT is the .WTH weather; DAYLEN / TWILIGHT
     reproduce the printed DAYLD / TWLD (0.1 h); the INP cultivar is the CUL rounded to its F6.2."""
     out = ref_dir("UFGA8201", 1)
-    _, f, _, _ = simulate(out, 1)
+    _, f, _, _ = simulate(out, 1, exp="UFGA8201")
     wth = read_wth(WEATHER / "UFGA8201.WTH")
     wkey = {d.year * 1000 + d.timetuple().tm_yday: i for i, d in enumerate(wth["date"])}
     rows = [wkey[int(d)] for d in np.asarray(f.yrdoy)]
@@ -255,7 +300,7 @@ def test_ufga8201_forcing_chain(ref_dir):
 def test_iuaf9901_m2(ref_dir, trno):
     """Ames, Iowa 1999 (42 N): 4.7 and 7.5 plants/m2, cold spring, waterlogging days (SATFAC > 0)."""
     out = ref_dir("IUAF9901", trno)
-    p, f, res, row = simulate(out, trno)
+    p, f, res, row = simulate(out, trno, exp="IUAF9901")
     errs = check_m2(out, trno, p, f, res, row)
     assert np.max(res["ewsd"]) > 0.0
     # SATFAC follows the printed SW (3 decimals) through (SAT - SW) / PORMIN: 1 % of the factor
@@ -266,7 +311,7 @@ def test_iuaf9901_m2(ref_dir, trno):
 def test_gagr0201_environment_modification(ref_dir, trno):
     """Growth chamber: daylength replaced by 16 h, 35/25 or 25/15 degC, CO2 400 / 800 ppm."""
     out = ref_dir("GAGR0201", trno)
-    _, f, res, row = simulate(out, trno, daylength_from_output=True)
+    _, f, res, row = simulate(out, trno, daylength_from_output=True, exp="GAGR0201")
     # the modification starts on the planting day; the simulation starts a month earlier
     grown = np.asarray(f.yrdoy) >= int(row["PDAT"])
     assert set(np.unique(np.asarray(f.dayl)[grown]).tolist()) == {16.0}
@@ -289,7 +334,7 @@ def test_every_maize_example_experiment(ref_dir, tmp_path_factory):
         trts = [int(ln[:3]) for ln in sec.splitlines() if ln[:3].strip().isdigit()]
         for t in trts:
             out = ref_dir(x.stem, t)
-            _, f, res, row = simulate(out, t, daylength_from_output=x.stem == "GAGR0201")
+            _, f, res, row = simulate(out, t, daylength_from_output=x.stem == "GAGR0201", exp=x.stem)
             errs = daily_errors(out, t, f, res)
             for col in ("LAID", "CWAD"):
                 assert errs[col]["max_rel_big"] < 0.01, (x.stem, t, col, errs[col])
@@ -364,24 +409,25 @@ def test_full_precision_drivers_give_float32_agreement(dump_engine, tmp_path, ex
         assert strip((base / name).read_text(errors="replace")) == strip(
             (out / name).read_text(errors="replace")
         ), name
-    p, f, _, row = simulate(out, trno)
+    p, f, _, row = simulate(out, trno, exp=exp)
     nl = int(p.soil.dlayr.shape[0])
     dump = np.loadtxt(out / "CERESDUMP.OUT", ndmin=2)
     col = {n: dump[:, i] for i, n in enumerate(DUMP_NAMES)}
     k = len(DUMP_NAMES)
     days = np.asarray(f.yrdoy)
     idx = np.searchsorted(days, col["YRDOY"].astype(int))
+    # the replayed EOP / TRWUP (A12 SPAM dumps) are the ones MZ_GROSUB received (printed %g, 6-7 digits)
+    np.testing.assert_allclose(np.asarray(f.eop)[idx], col["EOP"], rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(np.asarray(f.trwup)[idx], col["TRWUP"], rtol=1e-5, atol=1e-7)
     sw = np.asarray(f.sw).copy()
     sw[idx] = dump[:, k : k + nl]
-    swfac = np.asarray(f.swfac).copy()
-    swfac[idx] = col["SWFAC"]
-    turfac = np.asarray(f.turfac).copy()
-    turfac[idx] = col["TURFAC"]
-    f = eqx.tree_at(
-        lambda x: (x.sw, x.swfac, x.turfac), f, (jnp.asarray(sw), jnp.asarray(swfac), jnp.asarray(turfac))
-    )
+    f = eqx.tree_at(lambda x: x.sw, f, jnp.asarray(sw))
     res = {kk: np.asarray(v) for kk, v in _RUNNER(p, f, CeresMaizeState.initial(p, 1)).items()}
     np.testing.assert_array_equal(res["istage"][idx, 0], col["ISTAGE"].astype(int))
+    # the stress factors the crop computes from EOP, TRWUP and RWUEP1 are MZ_GROSUB's
+    grow = (col["ISTAGE"] >= 1) & (col["ISTAGE"] <= 5)
+    np.testing.assert_allclose((1.0 - res["wspd"][idx, 0])[grow], col["SWFAC"][grow], rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose((1.0 - res["wsgd"][idx, 0])[grow], col["TURFAC"][grow], rtol=0, atol=1.001e-3)
     for name, (key, scale) in DUMP_TO_OUTPUT.items():
         sim = res[key][idx, 0] * scale
         ref = col[name]

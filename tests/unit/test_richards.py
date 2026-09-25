@@ -135,6 +135,7 @@ def step_args(h, theta, soil, grid, q_demand, dt=1.0, alpha=1.0, sink=None):
         dt=jnp.asarray(dt),
         alpha=jnp.asarray(alpha),
         h_min=jnp.asarray(-15000.0),
+        h_hi=10.0 + grid.node_depth(),
     )
 
 
@@ -179,6 +180,8 @@ def test_config_validation() -> None:
     ):
         with pytest.raises(ValueError):
             RichardsConfig(**kw)
+    with pytest.raises(ValueError):
+        RichardsConfig(c_floor=-1.0)
 
 
 def test_transformed_variable_round_trip_and_c1() -> None:
@@ -344,29 +347,77 @@ def test_supply_limited_evaporation() -> None:
 
 
 def test_ponding_and_runoff() -> None:
-    """Supply above the infiltration capacity runs off (pond_max = 0) or is stored and infiltrates later."""
+    """Supply above the infiltration capacity runs off (pond_max = 0) or is stored and infiltrates later.
+
+    The storm saturates the whole profile; the layered saturated profile then carries positive
+    heads up to ~24 cm (above the old fixed clamp of +10 cm, which made the solve diverge on
+    some machines), and after the storm the saturated surface drains across the air-entry kink.
+    """
     grid, soil = catpa_grid(), catpa_soil()
     storm = np.zeros(24)
     storm[:1] = 40.0  # 40 cm in one hour on a nearly saturated profile
     w = SoilWater.from_head(jnp.full(37, -16.0), soil)
-    # 20 iterations: the pond-emptying sub-step sits on the flux / ponded-head switch, where Newton
-    # needs more than 8 iterations to settle (measured: 8 leave -0.034 cm, 20 close to 1e-12)
-    cfg = RichardsConfig(n_sub=96, n_iter=20)
-    f = richards_day(
-        w, RichardsParams(soil=soil, grid=grid, config=cfg), jnp.asarray(storm), jnp.zeros(24), jnp.zeros(37)
-    )
     tol = 1e-9 if X64 else 1e-3
-    assert float(f.flux.runoff) > 10.0
-    assert float(f.pond) == 0.0
-    assert float(f.flux.infiltration) + float(f.flux.runoff) == pytest.approx(40.0, abs=tol)
-    assert abs(float(f.flux.balance_error)) < tol
-    # with a 5 cm pond the excess of the storm hour is held and infiltrates in the following hours
-    pp = RichardsParams(soil=soil, grid=grid, pond_max=5.0, config=cfg)
-    g = richards_day(w, pp, jnp.asarray(storm), jnp.zeros(24), jnp.zeros(37))
-    assert float(g.flux.infiltration) + float(g.flux.runoff) + float(g.pond) == pytest.approx(40.0, abs=tol)
-    assert float(g.flux.infiltration) - float(f.flux.infiltration) == pytest.approx(5.0, abs=0.05)
-    assert float(g.pond) == pytest.approx(0.0, abs=tol)
-    assert abs(float(g.flux.balance_error)) < tol
+    for n_iter, tol_iter in ((20, tol), (8, 1e-4 if X64 else 1e-3)):
+        cfg = RichardsConfig(n_sub=96, n_iter=n_iter)
+        f = richards_day(
+            w,
+            RichardsParams(soil=soil, grid=grid, config=cfg),
+            jnp.asarray(storm),
+            jnp.zeros(24),
+            jnp.zeros(37),
+        )
+        assert float(f.flux.runoff) > 10.0
+        assert float(f.pond) == 0.0
+        assert float(f.flux.infiltration) + float(f.flux.runoff) == pytest.approx(40.0, abs=tol)
+        assert abs(float(f.flux.balance_error)) < tol_iter, (n_iter, float(f.flux.balance_error))
+        assert float(f.flux.n_clamp) == 0.0
+        # with a 5 cm pond the excess of the storm hour is held and infiltrates in the following hours;
+        # the pond-emptying sub-step drains a saturated surface across the air-entry kink (measured: 8
+        # iterations leave 3e-6 cm with the kink chop, 0.015 cm without it)
+        pp = RichardsParams(soil=soil, grid=grid, pond_max=5.0, config=cfg)
+        g = richards_day(w, pp, jnp.asarray(storm), jnp.zeros(24), jnp.zeros(37))
+        assert float(g.flux.infiltration) + float(g.flux.runoff) + float(g.pond) == pytest.approx(
+            40.0, abs=tol
+        )
+        assert float(g.flux.infiltration) - float(f.flux.infiltration) == pytest.approx(5.0, abs=0.05)
+        assert float(g.pond) == pytest.approx(0.0, abs=tol)
+        assert abs(float(g.flux.balance_error)) < tol_iter, (n_iter, float(g.flux.balance_error))
+    if X64:
+        no_chop = RichardsParams(
+            soil=soil, grid=grid, pond_max=5.0, config=RichardsConfig(n_sub=96, n_iter=8, chop=False)
+        )
+        g = richards_day(w, no_chop, jnp.asarray(storm), jnp.zeros(24), jnp.zeros(37))
+        assert abs(float(g.flux.balance_error)) > 1e-3  # the failure the chop removes
+
+
+@pytest.mark.allow_skip(reason="the 1e-8 cm comparison with the linear march needs float64")
+def test_saturated_layered_steady_state_has_positive_heads() -> None:
+    """Ponded, fully saturated CA-TPA profile at steady state against the linear march of Darcy's law.
+
+    Saturated (``h >= -hb_k``, ``n1 = 0``) every node has ``K = K_s`` of its horizon, so the steady
+    flux is the bottom one, ``q = K_s,bottom`` (unit gradient), and the heads follow from the top:
+    ``h_0 = dz_top (1 - q / K_s,0)`` (ghost head 0), ``h_{i+1} = h_i + delz_i (1 - q / K_face,i)``
+    with the geometric-mean face conductances. The deepest heads are ~24 cm, above +10 cm.
+    """
+    if not X64:
+        pytest.skip("needs float64")
+    grid = catpa_grid()
+    soil = nodes(catpa_soil(), 37)
+    ks = np.asarray(soil.ksat)
+    q = ks[-1]
+    h_ref = np.empty(37)
+    h_ref[0] = float(grid.dz_top) * (1.0 - q / ks[0])
+    k_face = np.sqrt(ks[:-1] * ks[1:])
+    h_ref[1:] = h_ref[0] + np.cumsum(np.asarray(grid.delz) * (1.0 - q / k_face))
+    assert h_ref.max() > 20.0 and np.all(h_ref > -np.asarray(soil.hb_k))
+    h = jnp.zeros(37)
+    r = R.richards_step(h, theta_of_h(h, soil), jnp.asarray(0.0), soil, grid, jnp.asarray(1e3), jnp.asarray(0.0),
+                        jnp.zeros(37), jnp.asarray(1e6), jnp.asarray(1.0), jnp.asarray(-15000.0), jnp.asarray(0.0),
+                        RichardsConfig(n_iter=30))  # fmt: skip
+    np.testing.assert_allclose(r.h, h_ref, rtol=0, atol=1e-8)
+    assert float(r.n_clamp) == 0.0
+    assert float(r.drainage) / 1e6 == pytest.approx(q, rel=1e-10)
 
 
 def test_uptake_is_capped_at_h_min() -> None:

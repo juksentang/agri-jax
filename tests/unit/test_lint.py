@@ -1,4 +1,4 @@
-"""agrijax.core.lint: each rule AJ001-AJ005 fires on a violating fixture and a clean process passes."""
+"""agrijax.core.lint: each rule AJ001-AJ005 fires on a violating fixture and a clean process passes (AJ006: test_depth_scan.py)."""
 
 from __future__ import annotations
 

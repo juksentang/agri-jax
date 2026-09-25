@@ -8,6 +8,7 @@ agrijax.port.dumps. They skip when gfortran is not installed.
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -182,6 +183,71 @@ def test_plan_variables_kinds_extents_and_skips() -> None:
     assert "CB" not in by  # COMMON member neither read nor written
 
 
+def test_only_and_extra_narrow_and_widen_the_plan() -> None:
+    src = """      SUBROUTINE STEP(X, N, IDAY, S)
+      DIMENSION X(N)
+      COMMON /BLK/ CSUM, NCALL
+      S = X(1)
+      END
+"""
+    lines = src.splitlines(keepends=True)
+    unit = ins.find_unit(ins.scan_statements(lines), "STEP")
+    req = ins.RoutineRequest("STEP", only=["s", "CSUM", "NOPE"], extra={"x1": "X(1)"})
+    specs, notes = ins.plan_variables(STEP_ENTRY, unit, req)
+    assert [(v.name, v.expr, v.kind) for v in specs] == [
+        ("S", "S", "arg"),
+        ("CSUM", "CSUM", "common"),
+        ("X1", "X(1)", "extra"),
+    ]
+    assert notes == ["NOPE: requested by 'only' but not in the plan"]
+    with pytest.raises(ins.InstrumentError, match="already dumped"):
+        ins.plan_variables(STEP_ENTRY, unit, ins.RoutineRequest("STEP", extra={"S": "S"}))
+    specs, _ = ins.plan_variables(
+        STEP_ENTRY, unit, ins.RoutineRequest("STEP", skip=["X"], extra={"X": "X(1:N)"})
+    )
+    assert [v.name for v in specs if v.kind == "extra"] == ["X"]
+
+
+def test_cli_only_skip_extra(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "toy.f").write_text(TOY)
+    idx = {"files": [str(src / "toy.f")], "subroutines": [{**STEP_ENTRY, "file": str(src / "toy.f")}]}
+    (tmp_path / "idx.json").write_text(json.dumps(idx))
+    out = tmp_path / "out"
+    rc = ins.main(
+        [
+            "tree",
+            "--index",
+            str(tmp_path / "idx.json"),
+            "--src",
+            str(src),
+            "--out",
+            str(out),
+            "--index-root",
+            str(src),
+            "--routine",
+            "STEP@IDAY",
+            "--only",
+            "STEP:X,S,ACC",
+            "--skip",
+            "STEP:ACC",
+            "--extra",
+            "STEP:XSUM=SUM(X(1:N))",
+        ]
+    )
+    assert rc == 0
+    man = json.loads((out / "_patches" / "manifest.json").read_text())
+    assert [v["name"] for v in man["routines"][0]["variables"]] == ["X", "S", "XSUM"]
+    assert man["routines"][0]["request"] == {
+        "date_expr": "IDAY",
+        "only": ["X", "S", "ACC"],
+        "skip": ["ACC"],
+        "extra": {"XSUM": "SUM(X(1:N))"},
+    }
+    assert "CALL AJD_PUT('XSUM',SUM(X(1:N)))" in (out / "toy.f").read_text()
+
+
 def test_derived_type_components_are_expanded() -> None:
     types = ins.parse_type_definitions(
         [
@@ -249,10 +315,14 @@ def test_select_dates_is_deterministic_and_grouped() -> None:
 
 def test_write_config(tmp_path: Path) -> None:
     p = ins.write_config(
-        tmp_path / "ajdump.cfg", dates=[3, 1, 2, 2], routines={"step": (2, 1, 10)}, default=(0, 1, 0)
+        tmp_path / "ajdump.cfg",
+        dates=[3, 1, 2, 2],
+        routines={"step": (2, 1, 10), "evntro": (5, 1, 100, True), "f2": (1, 1, 1, False)},
+        default=(0, 1, 0),
     )
     txt = p.read_text().splitlines()
     assert "ROUTINE STEP 2 1 10" in txt and "DEFAULT 0 1 0" in txt
+    assert "ROUTINE EVNTRO 5 1 100 1" in txt and "ROUTINE F2 1 1 1" in txt
     assert txt[txt.index("DATES 3") + 1] == "1 2 3"
 
 
@@ -524,3 +594,39 @@ def test_gfortran_free_form_derived_type(tmp_path: Path) -> None:
         np.testing.assert_array_equal(c.exit["ST%W"], w)
         assert int(c.exit["ST%N"]) == i and bool(c.exit["ST%WET"]) == (rain > 0)
         assert int(c.exit["NWET"]) == nwet
+
+
+@pytest.mark.allow_skip(reason="end-to-end instrumentation needs gfortran")
+@pytest.mark.skipif(GFORTRAN is None, reason="gfortran not installed")
+def test_gfortran_sequence_all_dates_and_extra(tmp_path: Path) -> None:
+    """Version-2 ``seq`` orders records across routines; the all-dates flag bypasses ``DATES``;
+    an ``extra`` expression is dumped at entry and exit."""
+    plain = tmp_path / "toy.f"
+    plain.write_text(TOY)
+    req = ins.RoutineRequest("STEP", date_expr="IDAY", only=["X", "S"], extra={"XSUM": "SUM(X(1:N))"})
+    new, res = ins.instrument_routine(TOY, STEP_ENTRY, 1, request=req)
+    assert [v.name for v in res.variables] == ["X", "S", "XSUM"]
+    new, _ = ins.instrument_routine(new, {"name": "F2", "args": ["S"]}, 2)
+    inst = tmp_path / "toy_i.f"
+    inst.write_text(new)
+    (tmp_path / "ajdump.f90").write_text(ins.ajdump_module_source())
+    exe = _build(tmp_path, "inst", [tmp_path / "ajdump.f90", inst])
+    assert _run(exe, tmp_path) == _run(_build(tmp_path, "plain", [plain]), tmp_path)
+    run = tmp_path / "r"
+    run.mkdir()
+    ins.write_config(run / "ajdump.cfg", dates=[2], routines={"STEP": (1, 1, 100), "F2": (1, 1, 100, True)})
+    _run(exe, run)
+    step = dumps.pair_records(dumps.read_dump(run / "ajdump_STEP.bin", strict=True))
+    f2 = dumps.pair_records(dumps.read_dump(run / "ajdump_F2.bin", strict=True))
+    assert [c.date for c in step] == [2]  # DATES applies to STEP
+    assert [c.date for c in f2] == [1, 2, 3, 4, 5, 6]  # F2 is dumped on every date
+    for c in step:
+        assert float(c.entry["XSUM"]) == float(np.sum(c.entry["X"]))
+        assert float(c.exit["XSUM"]) == float(np.sum(c.exit["X"]))
+        assert set(c.entry) == {"X", "S", "XSUM"}
+    # F2 of day d is called after the three STEP calls of day d: the merged order shows it
+    order = dumps.event_order([run / "ajdump_STEP.bin", run / "ajdump_F2.bin"])
+    assert list(order["seq"]) == list(range(1, len(order) + 1))
+    seq = [(str(r["routine"]), int(r["phase"]), int(r["date"])) for r in order]
+    assert seq[:4] == [("F2", 0, 1), ("F2", 1, 1), ("STEP", 0, 2), ("STEP", 1, 2)]
+    assert seq[4:6] == [("F2", 0, 2), ("F2", 1, 2)]

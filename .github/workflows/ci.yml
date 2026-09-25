@@ -25,9 +25,10 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
-      # @process functions get AJ001-AJ005, every other function under processes/ (the numerical
-      # kernels) AJ001-AJ003; the summary line prints how many functions were visited, and
-      # tests/unit/test_lint.py fails if the process code is not covered
+      # @process functions get AJ001-AJ006, every other function under processes/ (the numerical
+      # kernels) AJ001-AJ003 and AJ006 (AJ006: a Python loop over a shape-derived range or an
+      # array, i.e. an unrolled layer loop; use depth_scan); the summary line prints how many
+      # functions were visited, and tests/unit/test_lint.py fails if the process code is not covered
       - run: uv run python -m agrijax.core.lint src/agrijax --strict
 
   unit:

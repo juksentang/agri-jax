@@ -32,8 +32,10 @@ from agrijax.processes.crop.ceres_maize import (
     ceres_growth,
     ceres_maize_model,
     ceres_phenology,
+    ceres_publish,
     ceres_roots,
     ceres_stress,
+    ceres_water_replay,
     saturation_factor,
     water_stress_factors,
 )
@@ -138,13 +140,14 @@ def season_forcing(
     w = season(seed, **kw)
     n = len(w["yrdoy"])
     rng = np.random.default_rng(seed + 1000)
-    swfac = np.ones(n)
-    turfac = np.ones(n)
+    # potential transpiration EOP [mm d-1] every day; TRWUP [cm d-1] ample (TRWUP / EP1 = 2 >
+    # RWUEP1: no stress) unless ``stress``, when dry spells have TRWUP / EP1 in [0.05, 0.9]
+    eop = rng.uniform(2.0, 6.0, n)
+    trwup = 2.0 * 0.1 * eop
     sw = w["sw"].copy()
     if stress:
         dry = (np.arange(n) % 37) > 22
-        swfac = np.where(dry, rng.uniform(0.05, 0.9, n), 1.0)
-        turfac = np.floor(np.where(dry, rng.uniform(0.0, 0.9, n), 1.0) * 1000) / 1000
+        trwup = np.where(dry, rng.uniform(0.05, 0.9, n) * 0.1 * eop, trwup)
     if stress if waterlog is None else waterlog:
         wet = (np.arange(n) % 29) < 5
         sw[wet, :3] = 0.225  # near saturation in the top layers
@@ -158,8 +161,8 @@ def season_forcing(
         co2=a(np.full(n, 380.0)),
         snow=a(w["snow"]),
         sw=a(sw),
-        swfac=a(swfac),
-        turfac=a(turfac),
+        eop=a(eop),
+        trwup=a(trwup),
     )
     return f, w
 
@@ -296,7 +299,7 @@ def test_declared_writes_hold_under_agri_jax_check(monkeypatch):
     f, w = season_forcing(18, stress=True, n=150)
     p = make_params(yrplt=int(w["yrdoy"][2]))
     s = CeresMaizeState.initial(p, 2)
-    procs = [ceres_phenology, ceres_stress, ceres_growth, ceres_roots]
+    procs = [ceres_water_replay, ceres_phenology, ceres_stress, ceres_growth, ceres_roots, ceres_publish]
     for t in range(60):  # eager calls: the writes check compares concrete values
         ft = jax.tree_util.tree_map(lambda x, t=t: x[t], f)
         for proc in procs:
@@ -323,9 +326,8 @@ def test_cold_failure_and_drought_failure_paths():
     )
     s = _states(p, cold)
     assert 32 in set(np.asarray(s.phen.crop_status[:, 0]).tolist())
-    dry = f.replace(
-        swfac=jnp.where(jnp.arange(120) > 12, 0.05, 1.0), turfac=jnp.where(jnp.arange(120) > 12, 0.0, 1.0)
-    )
+    # TRWUP / EP1 = 0.05 from day 13 on: SWFAC = 0.05, TURFAC = 0.033
+    dry = f.replace(eop=jnp.full(120, 5.0), trwup=jnp.where(jnp.arange(120) > 12, 0.05 * 0.5, 1.0))
     s2 = _states(p, dry)
     assert 33 in set(np.asarray(s2.phen.crop_status[:, 0]).tolist())
     for leaf in jax.tree_util.tree_leaves((s, s2)):

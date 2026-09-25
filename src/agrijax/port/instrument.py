@@ -29,20 +29,33 @@ Rewrite rules (fixed or free source form)
 * Optionally ``CALL AJD_SETDATE(expr)`` is inserted before the entry block (``date_expr``), or in
   another routine as a date hook (:func:`insert_date_hook`), so records carry the simulation date.
 
+Which variables are dumped is the index plan (arguments, saved variables, used ``COMMON``
+members, function result), narrowed by :attr:`RoutineRequest.only` / :attr:`RoutineRequest.skip`
+and widened by :attr:`RoutineRequest.extra` (any Fortran expression valid at the entry and exit
+points, e.g. a local that ``-save`` keeps, or a member of a module the routine uses).
+
 The instrumented code only reads the dumped variables (they are passed to ``INTENT(IN)``
 dummies), so a correct instrumentation leaves the outputs of the model unchanged; that is checked
 per build by comparing the model outputs of the instrumented and the uninstrumented build.
 
 Which calls are written is decided at run time by ``ajdump.cfg`` in the working directory (or the
 file named by the environment variable ``AJDUMP_CFG``), see :func:`write_config`. Without a
-configuration file the first 100 calls of each routine are written.
+configuration file the first 100 calls of each routine are written. A routine line may carry a
+fifth field ``1`` that exempts the routine from the ``DATES`` filter (it is dumped on every
+date), so one run can write, for example, every storm event but only sampled days of the
+per-step solver.
 
 Stream record format (native byte order, ``ACCESS='STREAM'``)::
 
     record   = 'AJDR' int32 version  char(32) routine  int32 phase (0 entry, 1 exit)
-               int64 call_index  int32 date  int32 day_call  { variable }  'AJDE'
+               int64 call_index  int32 date  int32 day_call  int64 seq  { variable }  'AJDE'
     variable = 'AJDV' char(64) name  int32 type_code  int32 rank  int32 itemsize
                int32 shape[rank]  data (itemsize * prod(shape) bytes, column-major)
+
+``seq`` (version 2) is a counter shared by all instrumented routines of the executable: it
+increases by one for every record written, so merging the streams of several routines by ``seq``
+gives the order in which the dumped entries and exits happened in the run (version 1 streams
+have no ``seq``; :mod:`agrijax.port.dumps` reads both).
 
 Type codes are listed in :data:`TYPE_CODES`. Reals are written with their own kind (no floating
 point conversion happens in the dump code, so signalling values and FP traps are not an issue);
@@ -51,7 +64,8 @@ logicals are written as int32 0/1; characters as their bytes.
 CLI::
 
     python -m agrijax.port.instrument tree --index idx.json --src SRC --out OUT \\
-        --routine RICHRD --hook 'PHYSCL=IYYY*1000+JDAY' [--copy-tree] [--line-length 72]
+        --routine RICHRD --hook 'PHYSCL=IYYY*1000+JDAY' [--copy-tree] [--line-length 72] \\
+        [--only 'RICHRD:DELT,QS,NN'] [--skip 'PHYSCL:WRKNUM'] [--extra 'DSSATDRV:SW=SW']
     python -m agrijax.port.instrument module OUT/ajdump.f90
 """
 
@@ -92,7 +106,7 @@ __all__ = [
     "write_config",
 ]
 
-DUMP_VERSION = 1
+DUMP_VERSION = 2
 EXIT_LABEL = 99971
 """Preferred label of the exit block (the next free one is used if the routine already has it)."""
 
@@ -826,7 +840,7 @@ class VarSpec:
 
     name: str
     expr: str
-    kind: str  # 'arg' | 'save' | 'save_all' | 'data_init' | 'implicit_save' | 'common' | 'result'
+    kind: str  # 'arg' | 'save' | 'save_all' | 'data_init' | 'implicit_save' | 'common' | 'result' | 'extra'
     intent: str | None = None
     block: str | None = None
     exit_only: bool = False
@@ -843,6 +857,13 @@ class RoutineRequest:
     skip: list[str] = field(default_factory=list)
     include_common: bool = True
     include_saved: bool = True
+    only: list[str] | None = None
+    """Keep only these names of the plan (a derived-type name keeps all its components); names
+    that are not in the plan are reported in the notes. ``None`` keeps the whole plan."""
+    extra: dict[str, str] = field(default_factory=dict)
+    """Additional quantities ``{record name: Fortran expression}`` dumped at entry and exit, after
+    the planned ones (kind ``'extra'``). The expression must be valid at both points: typically a
+    local the build keeps static (``-save``), an array section, or a module variable."""
 
 
 @dataclass
@@ -914,6 +935,19 @@ def plan_variables(
             specs.extend(_expand_derived(v, d.derived, types, notes, depth=0))
             continue
         specs.append(v)
+    if req.only is not None:
+        keep = [o.upper() for o in req.only]
+        kept = [s for s in specs if s.name in keep or s.name.split("%", 1)[0] in keep]
+        have = {s.name for s in kept} | {s.name.split("%", 1)[0] for s in kept}
+        notes += [f"{o}: requested by 'only' but not in the plan" for o in keep if o not in have]
+        specs = kept
+    names = {s.name for s in specs}
+    for nm, ex in req.extra.items():
+        nm = nm.upper()
+        if nm in names:
+            raise InstrumentError(f"extra quantity {nm} of {req.name} is already dumped")
+        names.add(nm)
+        specs.append(VarSpec(nm, ex, "extra"))
     return specs, notes
 
 
@@ -1201,6 +1235,8 @@ module ajdump
   integer(int64), save :: nday(maxr) = 0, dumped_day(maxr) = 0
   integer(int32), save :: last_date(maxr) = -huge(1_int32), act_date(maxr) = 0, act_dcall(maxr) = 0
   integer(int64), save :: perday(maxr) = 0, every(maxr) = 1, maxtot(maxr) = 0
+  integer(int64), save :: seqno = 0
+  logical, save :: alldates(maxr) = .false.
   logical, save :: active(maxr) = .false.
   integer, save :: unit(maxr) = 0
   logical, save :: opened(maxr) = .false.
@@ -1211,6 +1247,7 @@ module ajdump
   integer, save :: ncfg = 0
   character(len=32), save :: cfg_name(maxcfg) = ' '
   integer(int64), save :: cfg_perday(maxcfg) = 0, cfg_every(maxcfg) = 1, cfg_maxtot(maxcfg) = 0
+  logical, save :: cfg_alld(maxcfg) = .false.
 
   interface ajd_put
 {iface}
@@ -1230,8 +1267,8 @@ contains
   subroutine init()
     character(len=1024) :: fname, line, kw
     character(len=32) :: nm
-    integer :: u, ios, n, i
-    integer(int64) :: a, b, c
+    integer :: u, ios, n, i, ios2
+    integer(int64) :: a, b, c, d, a2, b2, c2
     logical :: ex
     inited = .true.
     fname = 'ajdump.cfg'
@@ -1261,10 +1298,13 @@ contains
       case ('ROUTINE')
         read(line(8:), *, iostat=ios) nm, a, b, c
         if (ios == 0 .and. ncfg < maxcfg) then
+          d = 0
+          read(line(8:), *, iostat=ios2) nm, a2, b2, c2, d
+          if (ios2 /= 0) d = 0
           call upcase(nm)
           ncfg = ncfg + 1
           cfg_name(ncfg) = nm; cfg_perday(ncfg) = a; cfg_every(ncfg) = max(1_int64, b)
-          cfg_maxtot(ncfg) = c
+          cfg_maxtot(ncfg) = c; cfg_alld(ncfg) = d /= 0
         end if
       case ('DATES')
         read(line(6:), *, iostat=ios) n
@@ -1313,6 +1353,7 @@ contains
     do i = 1, ncfg
       if (cfg_name(i) == nm) then
         perday(id) = cfg_perday(i); every(id) = cfg_every(i); maxtot(id) = cfg_maxtot(i)
+        alldates(id) = cfg_alld(i)
       end if
     end do
     open(newunit=unit(id), file=trim(outdir)//'/ajdump_'//trim(nm)//'.bin', access='stream', &
@@ -1333,7 +1374,8 @@ contains
       last_date(id) = cur_date; nday(id) = 0; dumped_day(id) = 0
     end if
     nday(id) = nday(id) + 1
-    if (.not. opened(id) .or. .not. day_ok) return
+    if (.not. opened(id)) return
+    if (.not. (day_ok .or. alldates(id))) return
     if (ndumped(id) >= maxtot(id)) return
     if (mod(nday(id) - 1, every(id)) /= 0) return
     if (dumped_day(id) >= perday(id)) return
@@ -1359,8 +1401,9 @@ contains
     integer, intent(in) :: id, phase
     curu = unit(id)
     writing = .true.
+    seqno = seqno + 1
     write(curu) 'AJDR', int({DUMP_VERSION}, int32), rname(id), int(phase, int32), act_call(id), &
-                act_date(id), act_dcall(id)
+                act_date(id), act_dcall(id), seqno
   end subroutine rhead
 
   subroutine ajd_end()
@@ -1392,7 +1435,7 @@ def write_config(
     path: str | Path,
     *,
     dates: Sequence[int] | None = None,
-    routines: Mapping[str, tuple[int, int, int]] | None = None,
+    routines: Mapping[str, tuple[int, int, int] | tuple[int, int, int, bool]] | None = None,
     default: tuple[int, int, int] | None = None,
     out_dir: str | None = None,
 ) -> Path:
@@ -1401,15 +1444,18 @@ def write_config(
     ``dates``: simulation dates (as produced by the date expression, e.g. ``YYYYDDD``) on which
     calls are dumped; ``None`` = every date. ``routines``: ``{NAME: (per_day, every, max_total)}``
     -- at most ``per_day`` dumps per date, only every ``every``-th call of the date (counting from
-    the first), at most ``max_total`` in the run. ``default`` applies to unlisted routines.
+    the first), at most ``max_total`` in the run. A fourth element ``True`` dumps the routine on
+    every date, whatever ``dates`` says. ``default`` applies to unlisted routines.
     """
     lines = ["# ajdump configuration (agrijax.port.instrument)"]
     if out_dir:
         lines.append(f"DIR {out_dir}")
     if default is not None:
         lines.append("DEFAULT {} {} {}".format(*default))
-    for nm, (pd, ev, mx) in (routines or {}).items():
-        lines.append(f"ROUTINE {nm.upper()} {pd} {ev} {mx}")
+    for nm, spec in (routines or {}).items():
+        pd, ev, mx = spec[:3]
+        alld = len(spec) > 3 and bool(spec[3])
+        lines.append(f"ROUTINE {nm.upper()} {pd} {ev} {mx}" + (" 1" if alld else ""))
     if dates is not None:
         ds = sorted({int(d) for d in dates})
         lines.append(f"DATES {len(ds)}")
@@ -1567,6 +1613,7 @@ def instrument_tree(
         texts[rel] = new
         results.append(res)
     results.sort(key=lambda r: r.routine_id)
+    by_id = {rid: req for rid, req, _, _ in jobs}
     for h in hooks:
         if h.file is not None:
             rel = Path(h.file)
@@ -1608,6 +1655,12 @@ def instrument_tree(
                 "exit_label": r.exit_label,
                 "n_returns": r.n_returns,
                 "notes": r.notes,
+                "request": {
+                    "date_expr": by_id[r.routine_id].date_expr,
+                    "only": by_id[r.routine_id].only,
+                    "skip": list(by_id[r.routine_id].skip),
+                    "extra": dict(by_id[r.routine_id].extra),
+                },
                 "variables": [asdict(v) for v in r.variables],
             }
             for r in results
@@ -1641,6 +1694,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     t.add_argument("--routine", action="append", default=[], help="NAME or NAME@date_expr (repeatable)")
     t.add_argument("--hook", action="append", default=[], help="ROUTINE=expr[@file] date hook (repeatable)")
     t.add_argument("--extent", action="append", default=[], help="ROUTINE:VAR=expr for assumed-size dummies")
+    t.add_argument("--only", action="append", default=[], help="ROUTINE:A,B,... keep only these (repeatable)")
+    t.add_argument("--skip", action="append", default=[], help="ROUTINE:A,B,... drop these (repeatable)")
+    t.add_argument("--extra", action="append", default=[], help="ROUTINE:NAME=expr extra quantity")
     t.add_argument("--copy-tree", action="store_true", help="copy the whole source tree first")
     t.add_argument("--line-length", default="72", help="fixed-form line length, or 'none'")
     t.add_argument("--type-source", action="append", default=[], help="file with derived-type definitions")
@@ -1657,6 +1713,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         rn, _, rest = x.partition(":")
         var, _, expr = rest.partition("=")
         by[rn.upper()].extents[var.upper()] = expr
+    for x in a.only:
+        rn, _, rest = x.partition(":")
+        req = by[rn.upper()]
+        req.only = [*(req.only or []), *(n.strip().upper() for n in rest.split(",") if n.strip())]
+    for x in a.skip:
+        rn, _, rest = x.partition(":")
+        by[rn.upper()].skip += [n.strip().upper() for n in rest.split(",") if n.strip()]
+    for x in a.extra:
+        rn, _, rest = x.partition(":")
+        var, _, expr = rest.partition("=")
+        by[rn.upper()].extra[var.strip().upper()] = expr.strip() or var.strip()
     hooks: list[DateHook] = []
     for h in a.hook:
         rn, _, rest = h.partition("=")

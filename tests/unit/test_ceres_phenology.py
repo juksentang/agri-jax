@@ -26,6 +26,7 @@ from agrijax.processes.crop.ceres_maize import (
     CeresSoil,
     CeresSpecies,
     ceres_phenology,
+    ceres_water_replay,
     thermal_time,
 )
 from agrijax.processes.crop.ceres_maize._util import daylength, twilight_daylength
@@ -72,6 +73,7 @@ SPE: dict[str, Any] = dict(
     leafnoe=1.0,
     plae=1.0,
     pormin=0.05,
+    rwumx=0.03,
     rlwr=0.98,
     rwuep1=1.5,
     canht_pot=1.6,
@@ -393,12 +395,13 @@ def forcing_day(w: dict, t: int) -> CeresForcing:
         co2=a(380.0),
         snow=a(w["snow"][t]),
         sw=a(w["sw"][t]),
-        swfac=a(1.0),
-        turfac=a(1.0),
+        eop=a(0.0),
+        trwup=a(0.0),
     )
 
 
-_STEP = jax.jit(ceres_phenology)
+# the phenology reads the soil water of the crop's water port, which the replay fills from the forcing
+_STEP = jax.jit(lambda s, p, f: ceres_phenology(ceres_water_replay(s, p, f), p, f))
 
 
 def run_both(

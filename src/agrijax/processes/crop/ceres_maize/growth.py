@@ -6,8 +6,10 @@ PSTRES2 = KSTRES = 1``, no pest damage):
 
 * :func:`ceres_stress` - the water-stress block (``SWFAC``, ``TURFAC``) and the excess-water
   factor ``SATFAC`` with its per-layer saturation-day counters ``TSS``. The water-stress factors
-  are read from the forcing (the transpiration module's ``TRWUP`` / ``EP1`` ratio, see
-  :func:`water_stress_factors`), which isolates the crop from the soil-water model.
+  are computed here, as in DSSAT, from the potential transpiration ``EOP`` and the potential root
+  water uptake ``TRWUP`` of the crop's ``water_in`` port with the species parameter ``RWUEP1``
+  (:func:`water_stress_factors`); who produces ``EOP`` and ``TRWUP`` (a replay of the reference
+  run, DSSAT ``ROOTWU``, an RZWQM2 sink) is a binding choice outside the crop (plan 19 A3).
 * :func:`ceres_growth` - stage-date initialisations, daily assimilation ``CARBO`` (intercepted
   PAR x RUE x CO2 x temperature / water stress x ``SLPF``), leaf appearance, the per-stage leaf,
   stem, ear, grain and root growth, leaf senescence, cold / drought crop failure and the state
@@ -139,7 +141,7 @@ def saturation_factor(
 
 
 @process(
-    reads=("phen.istage", "phen.mdate", "stress", "roots.rlv"),
+    reads=("phen.istage", "phen.mdate", "stress", "roots.rlv", "water_in"),
     writes=("stress",),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for, MZ_CERES.for (BSD-3)",
     fortran_name="MZ_GROSUB",
@@ -149,7 +151,7 @@ def saturation_factor(
     ref_build="dscsm048 v4.8.6.0 (build486)",
     sources=(
         (
-            "water-stress factors SWFAC, TURFAC",
+            "water-stress factors SWFAC, TURFAC from EOP, TRWUP and RWUEP1",
             "MZ_GROSUB.for, Compute Water Stress Factors; MZ_CERES.for reset",
         ),
         (
@@ -158,11 +160,6 @@ def saturation_factor(
         ),
     ),
     deviates=(
-        (
-            "SWFAC and TURFAC are read from the forcing (the transpiration module's TRWUP / EP1 ratio)",
-            "isolates the crop from the soil-water model until the coupling (M3)",
-            "growth.py module docstring",
-        ),
         (
             "DSSAT single precision (REAL*4) is not reproduced",
             "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
@@ -175,25 +172,29 @@ def ceres_stress(
 ) -> CeresMaizeState:
     """Water and excess-water stress factors of the day (the ``MZ_GROSUB`` stress block).
 
-    Runs when ``MZ_GROSUB`` runs (stages 1-6) and the day is not the maturity / failure day.
-    Outside stages 1-6 ``MZ_CERES`` resets ``SWFAC`` to 1. Without a water balance both
-    factors are 1. ``SATFAC`` uses yesterday's root length density (roots grow after growth).
+    ``SWFAC`` and ``TURFAC`` come from today's ``EOP`` and ``TRWUP`` in the ``water_in`` port
+    (:func:`water_stress_factors` with ``RWUEP1``). Runs when ``MZ_GROSUB`` runs (stages 1-6) and
+    the day is not the maturity / failure day. Outside stages 1-6 ``MZ_CERES`` resets ``SWFAC`` to
+    1. Without a water balance both factors are 1. ``SATFAC`` uses yesterday's root length
+    density (roots grow after growth) and the port's soil water.
 
     Source: DSSAT-CSM v4.8.6.0 MZ_GROSUB.for (INTEGR stress block) and MZ_CERES.for (BSD-3).
     """
     s = state.phen.istage
     st = state.stress
+    w = state.water_in
     yrdoy = jnp.asarray(forcing_t.yrdoy)
     called = (s >= 1) & (s <= 6)
     run = called & (state.phen.mdate != yrdoy)
     wat = params.iswwat
     one = jnp.ones_like(st.swfac)
-    sw_in = jnp.where(wat, jnp.asarray(forcing_t.swfac) * one, one)
-    tu_in = jnp.where(wat, jnp.asarray(forcing_t.turfac) * one, one)
+    sw_calc, tu_calc = water_stress_factors(w.eop, w.trwup, params.species.rwuep1)
+    sw_in = jnp.where(wat, sw_calc * one, one)
+    tu_in = jnp.where(wat, tu_calc * one, one)
     swfac = jnp.where(run, sw_in, jnp.where(called, st.swfac, 1.0))
     turfac = jnp.where(run, tu_in, st.turfac)
     satfac_new, tss_new = saturation_factor(
-        forcing_t.sw,
+        w.sw,
         params.soil.sat,
         params.soil.dlayr,
         state.roots.rlv,

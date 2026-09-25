@@ -20,6 +20,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from agrijax.core.dims import check_tree_dims
+from agrijax.core.grad import current_gradient_mode
 from agrijax.core.model import Model
 from agrijax.core.process import check_enabled
 
@@ -101,8 +102,15 @@ def _batch_fn(model: Model, checkpoint: bool, in_axes: Any, jit: bool) -> Callab
     if not jit:
         return build()
     # the processes and outputs are part of the key in case the model's attributes are reassigned;
-    # the write check is decided at trace time, so its switch is part of the key too
-    key = (tuple(id(p) for p in model.processes), id(model._outputs), checkpoint, in_axes, check_enabled())
+    # the write check and the gradient mode are decided at trace time, so they are part of the key too
+    key = (
+        tuple(id(p) for p in model.processes),
+        id(model._outputs),
+        checkpoint,
+        in_axes,
+        check_enabled(),
+        current_gradient_mode(),
+    )
     try:
         hash(key)
     except TypeError:  # an unhashable in_axes pytree: no caching

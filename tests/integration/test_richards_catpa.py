@@ -19,6 +19,11 @@ against ``LAYER.PLT`` (RMSE < 0.01), drainage against ``.ana`` column 10.
 
 The convergence table (sub-steps x iterations against 96 x 8) is written to
 ``$AGRI_JAX_RICHARDS_REPORT`` (a directory) when that variable is set.
+
+Re-measured 2026-09-24 with the damped Newton iteration (Jacobian storage floor, air-entry
+chop, depth-relative upper clamp): 96 x 8 and 24 x 3 are unchanged to the printed digits (the
+damping never activates on this year), so M1 stands as recorded. The same year with our own
+Green-Ampt events instead of the replayed infiltration is ``test_infiltration_catpa.py``.
 """
 
 from __future__ import annotations
@@ -187,7 +192,7 @@ def test_m1_working_configuration(catpa: Catpa2015) -> None:
     assert _rmse(r["theta"], catpa.theta) < 0.01
     assert np.sum(np.abs(r["balance_error"])) < 0.1
     r12 = catpa.run(n_sub=12, n_iter=2)
-    # measured: 12 x 2 storage RMSE 0.221 cm, 0.75 cm imbalance; 6 x 1 2.85 cm (see the convergence table)
+    # measured: 12 x 2 storage RMSE 0.223 cm, 0.75 cm imbalance; 6 x 1 2.85 cm (see the convergence table)
     assert 0.05 < _rmse(r12["storage"], catpa.storage) < 0.4
 
 

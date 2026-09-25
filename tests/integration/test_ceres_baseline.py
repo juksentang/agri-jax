@@ -1,18 +1,19 @@
-"""CERES-Maize reproduces its frozen ``b65f1a7`` baseline (refactoring guard).
+"""CERES-Maize reproduces its frozen baseline (refactoring guard).
 
-The snapshot ``<data-dir>/validation/ceres/baseline_b65f1a7.npz`` (written by
+The snapshot ``<data-dir>/validation/ceres/baseline_<BASELINE_ID>.npz`` (written by
 ``tests/integration/ceres_baseline.py`` from the implementation validated against dscsm048 on 58
-maize treatments) holds, per treatment, the parameters, the daily forcing, every leaf of the daily
-CERES state, every daily output, and for two treatments the reverse-mode gradients of season
-yield, maximum LAI and final above-ground biomass with respect to every cultivar and species
-field. Each test reruns dscsm048 and the current model for one treatment and requires every array
-to equal the snapshot within atol 1e-12, rtol 1e-12 (float64; integer and boolean leaves exactly).
-A failure names the earliest differing day, the first field differing on it, and every differing
-field of that treatment.
+maize treatments; ``ceres_baseline.HISTORY`` records why each snapshot was generated) holds, per
+treatment, the parameters, the daily forcing, every leaf of the daily CERES state, every daily
+output, and for two treatments the reverse-mode gradients of season yield, maximum LAI and final
+above-ground biomass with respect to every cultivar and species field. Each test reruns dscsm048
+and the current model for one treatment (with the A12 SPAM dump tables for ``EOP``/``TRWUP``)
+and requires every array to equal the snapshot within atol 1e-12, rtol 1e-12 (float64; integer
+and boolean leaves exactly). A failure names the earliest differing day, the first field
+differing on it, and every differing field of that treatment.
 
-Skips (``allow_skip``) when the snapshot or the DSSAT drivers (the local dscsm048 binary and the
-example data) are absent; slow (58 reference runs): run with ``--runslow`` or by file with
-``-m slow``.
+Skips (``allow_skip``) when the snapshot, the DSSAT drivers (the local dscsm048 binary and the
+example data) or the dump tables are absent; slow (58 reference runs): run with ``--runslow`` or
+by file with ``-m slow``.
 """
 
 from __future__ import annotations
@@ -34,6 +35,14 @@ def _needs_baseline(fn):
 
 
 @pytest.fixture(scope="module")
+def tables(data_dir: Path) -> Path:
+    d = bl.tables_dir(data_dir)
+    if not (d / "collect_report.json").is_file():
+        pytest.skip(f"A12 DSSAT dump tables not found at {d}")
+    return d
+
+
+@pytest.fixture(scope="module")
 def snapshot(data_dir: Path) -> tuple[dict[str, np.ndarray], dict]:
     path = bl.snapshot_path(data_dir)
     if not path.is_file():
@@ -50,7 +59,8 @@ def snapshot(data_dir: Path) -> tuple[dict[str, np.ndarray], dict]:
 @_needs_baseline
 def test_manifest(snapshot):
     arrays, man = snapshot
-    assert man["git_hash"] == bl.BASELINE_COMMIT
+    assert man["git_hash"] == bl.BASELINE_COMMIT and man["baseline_id"] == bl.BASELINE_ID
+    assert man["reason"] == dict(bl.HISTORY)[bl.BASELINE_ID]
     assert man["cases"] == [bl.case_id(e, t) for e, t in bl.CASES] and len(man["cases"]) == 58
     assert man["grad_cases"] == [bl.case_id(e, t) for e, t in bl.GRAD_CASES]
     assert bl.enumerate_cases(bl._drivers().MAIZE) == list(bl.CASES), "the maize example set changed"
@@ -67,9 +77,9 @@ def test_manifest(snapshot):
 
 @_needs_baseline
 @pytest.mark.parametrize(("exp", "trno"), bl.CASES, ids=[bl.case_id(e, t) for e, t in bl.CASES])
-def test_matches_baseline(snapshot, tmp_path, exp, trno):
+def test_matches_baseline(snapshot, tables, tmp_path, exp, trno):
     ref, _ = snapshot
-    got = bl.compute_case(exp, trno, tmp_path / f"{exp}_{trno}")
+    got = bl.compute_case(exp, trno, tmp_path / f"{exp}_{trno}", tables=tables)
     msg = bl.compare_case(bl.case_id(exp, trno), got, ref)
     assert msg is None, msg
     # the calibratable coefficient leaves carry exactly the DSSAT values

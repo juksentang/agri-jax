@@ -54,9 +54,16 @@ Iteration: Newton on the transformed variable ``v`` (:func:`head_of_v`: ``log(hb
 the Brooks-Corey segment, linear in ``h`` above ``-hb``), with the exact tridiagonal Jacobian
 of ``R`` (including ``dK/dh``) assembled from three JVPs with the seeds ``[i % 3 == k]``
 (each row has three non-zeros, one per colour); ``jacobian="picard"`` freezes ``K`` at the
-current iterate (RZWQM's modified Picard). Each update is limited to ``|dv| <= dv_max``
-(a factor ``e`` in ``|h|`` by default) and the iterate is clamped to ``[h_min, h_upper]``;
-clamp activations are counted (``n_clamp``) and should be zero.
+current iterate (RZWQM's modified Picard). The iteration is damped without touching the
+residual (so the converged root is unchanged): a storage floor ``c_floor`` on the Jacobian
+diagonal keeps it non-singular on a fully saturated profile (``C = 0`` and ``dK/dh = 0``);
+each update is limited to ``|dv| <= dv_max`` (a factor ``e`` in ``|h|`` by default); an update
+that leaves the saturated side across the air-entry kink ``h = -hb`` stops on the kink
+(``chop``; Wang & Tchelepi 2013 limit Newton updates at kinks of the flux function alike),
+which removes the alternation across the kink while a saturated surface drains; and the
+iterate is clamped to ``[h_min, h_upper + z_i]`` (a saturated layered profile carries
+positive heads that grow with depth, ~24 cm at CA-TPA under ponding). Clamp activations
+are counted (``n_clamp``) and should be zero.
 
 Sub-steps: ``n_sub`` per day. A fraction ``rain_fraction`` of them is placed in proportion to
 the hourly supply, the rest spread uniformly (:func:`substep_edges`); the schedule depends
@@ -87,12 +94,18 @@ always diagnosed from the final heads.
 
 Note: RZWQM2 does not use the rain as the upper boundary flux of the Richards step. Its
 ``INFIL`` routine fills the profile with a Green-Ampt wetting front and Richards only
-redistributes; this module's ``supply`` input is therefore the water that *infiltrates*
-(e.g. ``.ana`` column 5) when it is compared with RZWQM2, spread over the rain event.
+redistributes; that event is :mod:`~agrijax.processes.soil_water.infiltration`, and the day
+of redistribution / event / redistribution is :mod:`~agrijax.processes.soil_water.day`. In
+this module's own day (:func:`richards_day`, the M1 configuration) ``supply`` is the water
+that *infiltrates* (e.g. ``.ana`` column 5), spread over the rain event.
 
-Sink: an input, per-layer root water uptake [cm d-1], spread uniformly over the day. It is
-capped per sub-step by the water above ``theta(h_min)`` in the node (RZWQM: no uptake at
-``Hmin``), and the cut is reported (``uptake_cut``).
+Sink: an input, a typed record of sink channels (:mod:`~agrijax.processes.soil_water.sinks`:
+``uptake``, ``tile``, ``lateral``, ``subirrigation``, ``macropore_to_drain``), each a per-layer
+daily amount [cm d-1] spread uniformly over the day and/or a per-sub-step callable. A plain array
+is the per-layer root water uptake (the only channel of M1 and M3). Each channel is capped per
+sub-step by the water above ``theta(h_min)`` in the node (RZWQM: no uptake at ``Hmin``), the
+channels in turn, and the cut is reported (``uptake_cut``, ``sink_cut``). Each channel has its own
+daily total in :class:`SoilWaterFluxes` and its own term in ``balance_error``.
 
 Gradients: ``grad="unrolled"`` differentiates through the fixed iterations;
 ``grad="implicit"`` gives each sub-step solve an implicit-function-theorem VJP
@@ -102,13 +115,17 @@ which is exact at a converged root and independent of the iteration path.
 Source: Ahuja, L.R., Rojas, K.W., Hanson, J.D., Shaffer, M.J., Ma, L. (eds.), 2000. Root
 Zone Water Quality Model, ch. 3 (Richards equation, boundary switching, free drainage);
 Celia, M.A., Bouloutas, E.T., Zarba, R.L., 1990. A general mass-conservative numerical
-solution for the unsaturated flow equation. Water Resour. Res. 26, 1483-1496. The
+solution for the unsaturated flow equation. Water Resour. Res. 26, 1483-1496. Wang, X.,
+Tchelepi, H.A., 2013. Trust-region based solver for nonlinear transport in heterogeneous
+porous media. J. Comput. Phys. 253, 114-137 (Newton updates limited at kinks and inflection
+points). The
 corresponding RZWQM2 subroutines are ``RICHRD``, ``CHKBC``, ``NODFLX`` and ``POINTK``
 (``Rzrich.for``).
 """
 
 from __future__ import annotations
 
+import dataclasses
 from functools import partial
 from typing import Any, NamedTuple, cast
 
@@ -123,6 +140,7 @@ from agrijax.core.process import check_enabled, process
 from agrijax.core.state import Forcing, Params, State, field
 
 from .hydraulics import H_CLAMP_RZWQM, SoilHydraulicParams, h_of_theta, k_of_h, theta_of_h
+from .sinks import SINK_CHANNELS, SinkChannels, as_sink_channels
 
 __all__ = [
     "HOURS_PER_DAY",
@@ -134,11 +152,16 @@ __all__ = [
     "SoilWater",
     "SoilWaterFluxes",
     "StepResult",
+    "SubstepTotals",
+    "day_alphas",
     "head_of_v",
+    "other_sinks",
     "richards_day",
     "richards_redistribution",
     "richards_residual",
     "richards_step",
+    "richards_substeps",
+    "sink_fluxes",
     "substep_edges",
     "surface_fluxes",
     "tridiagonal_jacobian",
@@ -223,9 +246,14 @@ class RichardsConfig(eqx.Module):
     ``n_sub`` sub-steps per day x ``n_iter`` Newton iterations per sub-step; ``jacobian``
     ``"newton"`` | ``"picard"``; ``time_scheme`` ``"implicit"`` | ``"rzwqm"``; ``grad``
     ``"unrolled"`` | ``"implicit"`` (implicit-function-theorem VJP per sub-step);
-    ``h_upper`` [cm] upper clamp of the iterate; ``sink_cutoff`` [cm3 cm-3] water kept above
-    ``theta(h_min)`` by the uptake cap; ``dv_max`` largest Newton update of the transformed
-    variable; ``rain_fraction`` share of the sub-steps placed on the supply hours.
+    ``h_upper`` [cm] upper clamp of the iterate *above hydrostatic*: node ``i`` is clamped at
+    ``h_upper + z_i`` (a saturated layered profile under ponding carries positive heads that
+    grow with depth, up to ``z_i`` plus the surface head in downward flow); ``sink_cutoff``
+    [cm3 cm-3] water kept above ``theta(h_min)`` by the uptake cap; ``dv_max`` largest Newton
+    update of the transformed variable; ``c_floor`` [cm-1] storage floor added to the
+    Jacobian diagonal only (never to the residual); ``chop`` stops an update that leaves the
+    saturated side across the air-entry kink ``h = -hb`` on the kink (see :func:`_iterate`);
+    ``rain_fraction`` share of the sub-steps placed on the supply hours.
     """
 
     n_sub: int = eqx.field(static=True, default=24)
@@ -236,6 +264,8 @@ class RichardsConfig(eqx.Module):
     h_upper: float = eqx.field(static=True, default=10.0)
     sink_cutoff: float = eqx.field(static=True, default=1.0e-9)
     dv_max: float = eqx.field(static=True, default=1.0)
+    c_floor: float = eqx.field(static=True, default=1.0e-7)
+    chop: bool = eqx.field(static=True, default=True)
     rain_fraction: float = eqx.field(static=True, default=0.5)
 
     def __check_init__(self) -> None:
@@ -249,6 +279,8 @@ class RichardsConfig(eqx.Module):
             raise ValueError(f"grad must be 'unrolled' or 'implicit', got {self.grad!r}")
         if not 0.0 <= self.rain_fraction < 1.0 or self.dv_max <= 0.0:
             raise ValueError("rain_fraction must be in [0, 1) and dv_max > 0")
+        if self.c_floor < 0.0:
+            raise ValueError("c_floor must be >= 0")
 
 
 class RichardsParams(Params):
@@ -296,7 +328,7 @@ class SoilWaterFluxes(State):
     balance_error: Array = field(
         dims=(),
         unit="cm",
-        description="d(storage + pond) - (supply - evaporation - drainage - uptake - runoff)",
+        description="d(storage + pond) - (supply + rain - evaporation - drainage - sinks - runoff)",
     )
     max_theta_residual: Array = field(
         dims=(),
@@ -305,6 +337,39 @@ class SoilWaterFluxes(State):
     )
     n_clamp: Array = field(
         dims=(), unit="-", description="clamp activations of the head iterate during the day (should be 0)"
+    )
+    rain: Array = field(
+        dims=(), unit="cm d-1", description="storm rain of the day's infiltration event (0 without an event)"
+    )
+    event_infiltration: Array = field(
+        dims=(),
+        unit="cm d-1",
+        description="part of infiltration that entered through the event",
+        fortran_name="CII",
+    )
+    event_runoff: Array = field(
+        dims=(), unit="cm d-1", description="part of runoff produced by the event", fortran_name="ROI"
+    )
+    seepage: Array = field(
+        dims=(),
+        unit="cm d-1",
+        description="event rain passed through a saturated profile (part of drainage)",
+        fortran_name="CDNCI",
+    )
+    tile: Array = field(
+        dims=(), unit="cm d-1", description="sink channel: tile drainage (0 in M3)", fortran_name="TOTDRN"
+    )
+    lateral: Array = field(dims=(), unit="cm d-1", description="sink channel: lateral flow out (0 in M3)")
+    subirrigation: Array = field(
+        dims=(),
+        unit="cm d-1",
+        description="sink channel: subirrigation, negative when it adds water (0 in M3)",
+    )
+    macropore_to_drain: Array = field(
+        dims=(), unit="cm d-1", description="sink channel: macropore flow to the drains (0 in M3)"
+    )
+    sink_cut: Array = field(
+        dims=(), unit="cm d-1", description="sink of the channels other than uptake removed at h_min"
     )
 
 
@@ -362,7 +427,8 @@ class RichardsForcing(Forcing):
 
 def _zero_fluxes(dtype: Any) -> SoilWaterFluxes:
     z = jnp.zeros((), dtype)
-    return SoilWaterFluxes(z, z, z, z, z, z, z, z, z, z)
+    names = [f.name for f in dataclasses.fields(SoilWaterFluxes)]
+    return SoilWaterFluxes(**dict.fromkeys(names, z))
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +450,7 @@ class _StepArgs(NamedTuple):
     dt: Array  # [h]
     alpha: Array
     h_min: Array
+    h_hi: Array  # upper clamp of the iterate per node [cm] (h_upper + node depth)
 
 
 def _log_k(k: Array) -> Array:
@@ -466,8 +533,9 @@ def _tridiag_solve(dl: Array, d: Array, du: Array, b: Array) -> Array:
 class _SolveCfg(NamedTuple):
     n_iter: int
     jacobian: str
-    h_upper: float
     dv_max: float
+    c_floor: float
+    chop: bool
 
 
 def head_of_v(v: Array, scale: Array) -> Array:
@@ -496,26 +564,61 @@ def _residual_newton(h: Array, a: _StepArgs) -> Array:
 
 
 def _iterate(cfg: _SolveCfg, h0: Array, a: _StepArgs) -> tuple[Array, Array]:
-    """Fixed-count Newton / Picard iterations in the transformed variable; returns ``(h, n_clamp)``."""
+    """Damped fixed-count Newton / Picard iterations in the transformed variable; returns ``(h, n_clamp)``.
+
+    Each iteration solves the tridiagonal Newton system in ``v`` and damps the update in three
+    ways, none of which changes the residual (so the converged root is the same):
+
+    1. a storage floor ``tl c_floor / dt`` on the Jacobian diagonal: a saturated profile has
+       ``C = 0`` and, under a flux top and free drainage, ``dK/dh = 0`` at every node, which
+       makes the plain Jacobian singular;
+    2. the update is limited to ``|dv| <= dv_max`` per node;
+    3. an update that would carry a node from the saturated side across the air-entry kink
+       ``v = 0`` (``h = -hb``, where ``C`` jumps from ``a1`` to the Brooks-Corey value) stops
+       on the kink, and the next iteration continues from there with the Jacobian of the
+       unsaturated side (a "chop": Wang & Tchelepi 2013 limit Newton updates at the kinks
+       and inflection points of the flux function in the same way). On the saturated side
+       ``C = a1`` (0 for CA-TPA), so the step there is set by the conductances alone and
+       overshoots into the dry side;
+       without the chop the iterate alternates across the kink while a saturated surface
+       drains. Measured on a pond-emptying sub-step (``tests/unit/test_richards.py``): 8
+       iterations left a 0.015 cm imbalance without the chop and 3e-6 cm with it; chopping
+       the dry-to-wet crossing as well was worse (1.5e-5 cm), chopping each node only once
+       per solve worse still (0.03 cm).
+
+    The iterate is then clamped to ``[h_min, h_hi]`` and the clamp activations are counted.
+    """
     s = a.soil.hb
     lo = v_of_head(jnp.broadcast_to(a.h_min, h0.shape), s)
-    hi = v_of_head(jnp.full_like(h0, cfg.h_upper), s)
+    hi = v_of_head(jnp.broadcast_to(a.h_hi, h0.shape), s)
+    reg_h = a.tl * cfg.c_floor / a.dt  # storage floor in h units [cm h-1 cm-1]
+
+    def residual_v(x: Array, h_k: Array | None) -> Array:
+        hh = head_of_v(x, s)
+        return richards_residual(hh, hh if h_k is None else h_k, a)
 
     def body(_: int, carry: tuple[Array, Array]) -> tuple[Array, Array]:
         v, nclamp = carry
-        h = head_of_v(v, s)
-        if cfg.jacobian == "picard":
-            r, dl, d, du = tridiagonal_jacobian(lambda x: richards_residual(head_of_v(x, s), h, a), v)
-        else:
-            r, dl, d, du = tridiagonal_jacobian(lambda x: _residual_newton(head_of_v(x, s), a), v)
-        dv = _tridiag_solve(dl, d, du, r)
-        v_raw = v - jnp.clip(dv, -cfg.dv_max, cfg.dv_max)
+        h_k = head_of_v(v, s) if cfg.jacobian == "picard" else None
+        r, dl, d, du = tridiagonal_jacobian(lambda x: residual_v(x, h_k), v)
+        d = d + reg_h * _dh_dv(v, s)
+        dv = jnp.clip(_tridiag_solve(dl, d, du, r), -cfg.dv_max, cfg.dv_max)
+        v_raw = v - dv
+        if cfg.chop:
+            v_raw = jnp.where((v > 0.0) & (v_raw < 0.0), 0.0, v_raw)
         clamped = (v_raw < lo) | (v_raw > hi)
         v_new = jnp.clip(v_raw, lo, hi)
         return v_new, nclamp + jnp.sum(clamped).astype(h0.dtype)
 
-    v, nclamp = lax.fori_loop(0, cfg.n_iter, body, (v_of_head(h0, s), jnp.zeros((), h0.dtype)))
+    init = (v_of_head(h0, s), jnp.zeros((), h0.dtype))
+    v, nclamp = lax.fori_loop(0, cfg.n_iter, body, init)
     return head_of_v(v, s), nclamp
+
+
+def _dh_dv(v: Array, scale: Array) -> Array:
+    """Derivative of :func:`head_of_v`: ``s exp(-v)`` for ``v <= 0``, ``s`` above (both finite)."""
+    v_dry = jnp.where(v <= 0.0, v, 0.0)
+    return jnp.where(v <= 0.0, scale * jnp.exp(-v_dry), scale)
 
 
 @partial(jax.custom_vjp, nondiff_argnums=(0,))
@@ -566,6 +669,8 @@ class StepResult(NamedTuple):
     balance_error: Array
     theta_residual: Array
     n_clamp: Array
+    sinks: Array  # [n_channel] depth of each sink channel (SINK_CHANNELS order) over the sub-step
+    sinks_cut: Array  # [n_channel] part of each channel removed at h_min
 
 
 def richards_step(
@@ -585,9 +690,12 @@ def richards_step(
 ) -> StepResult:
     """Advance one sub-step of length ``dt`` [h].
 
-    ``supply`` and ``evaporation`` are rates [cm h-1] (``>= 0``); ``sink`` is the root water
-    uptake rate [h-1] per node before the ``h_min`` cut. ``soil`` must already be on the node
-    axis (``SoilHydraulicParams.at_nodes()``).
+    ``supply`` and ``evaporation`` are rates [cm h-1] (``>= 0``); ``sink`` is the sink rate
+    [h-1] per node before the ``h_min`` cut: ``[n]`` the root water uptake alone, or
+    ``[n_channel, n]`` one row per channel in the order
+    :data:`~agrijax.processes.soil_water.sinks.SINK_CHANNELS` (each row capped by the water left
+    after the rows before it). ``soil`` must already be on the node axis
+    (``SoilHydraulicParams.at_nodes()``).
 
     Source: Celia et al. (1990) mixed form; Ahuja et al. (2000) ch. 3; RZWQM2 ``RICHRD``/``CHKBC``.
     """
@@ -596,7 +704,26 @@ def richards_step(
     theta_min = theta_of_h(jnp.broadcast_to(h_min, h.shape), soil)
     avail = theta - theta_min - cfg.sink_cutoff
     s_avail = jnp.where(avail > 0.0, avail, 0.0) / dt
-    s_cut = jnp.where(sink < s_avail, sink, s_avail)
+    k_upt = SINK_CHANNELS.index("uptake")
+    zeros = jnp.zeros(len(SINK_CHANNELS), theta.dtype)
+    if sink.ndim == 1:  # static: uptake alone (M1)
+        s_cut = jnp.where(sink < s_avail, sink, s_avail)
+        uptake = jnp.sum(grid.tl * s_cut) * dt
+        uptake_cut = jnp.sum(grid.tl * (sink - s_cut)) * dt
+        sinks = zeros.at[k_upt].set(uptake)
+        sinks_cut = zeros.at[k_upt].set(uptake_cut)
+    else:
+        rows = []
+        left = s_avail
+        for k, _ in enumerate(SINK_CHANNELS):  # five named channels, in turn
+            s_k = jnp.where(sink[k] < left, sink[k], left)
+            left = left - s_k
+            rows.append(s_k)
+        s_rows = jnp.stack(rows)
+        s_cut = jnp.sum(s_rows, axis=0)
+        sinks = jnp.sum(grid.tl * s_rows, axis=1) * dt
+        sinks_cut = jnp.sum(grid.tl * (sink - s_rows), axis=1) * dt
+        uptake, uptake_cut = sinks[k_upt], sinks_cut[k_upt]
     w = supply + pond / dt
     a = _StepArgs(
         soil=soil,
@@ -610,8 +737,9 @@ def richards_step(
         dt=dt,
         alpha=alpha,
         h_min=h_min,
+        h_hi=cfg.h_upper + grid.node_depth(),
     )
-    scfg = _SolveCfg(cfg.n_iter, cfg.jacobian, cfg.h_upper, cfg.dv_max)
+    scfg = _SolveCfg(cfg.n_iter, cfg.jacobian, cfg.dv_max, cfg.c_floor, cfg.chop)
     if cfg.grad == "implicit":
         h_new, nclamp = cast(tuple[Array, Array], _solve_implicit(scfg, h, a))
     else:
@@ -631,14 +759,16 @@ def richards_step(
         infiltration=q_top * dt + evap,
         evaporation=evap,
         drainage=q[-1] * dt,
-        uptake=jnp.sum(grid.tl * s_cut) * dt,
+        uptake=uptake,
         runoff=surplus - pond_new,
         evaporation_deficit=deficit,
-        uptake_cut=jnp.sum(grid.tl * (sink - s_cut)) * dt,
+        uptake_cut=uptake_cut,
         balance_error=jnp.sum(grid.tl * (theta_new - theta))
         - dt * (q_top - q[-1] - jnp.sum(grid.tl * s_cut)),
         theta_residual=jnp.max(jnp.abs(resid) * dt / grid.tl),
         n_clamp=nclamp,
+        sinks=sinks,
+        sinks_cut=sinks_cut,
     )
 
 
@@ -668,23 +798,60 @@ def substep_edges(supply: Array, n_sub: int, rain_fraction: float) -> Array:
 
 
 def _interval_means(hourly: Array, t: Array) -> Array:
-    """Average of an hourly piecewise-constant rate over each interval ``[t[k], t[k+1]]``."""
+    """Average of an hourly piecewise-constant rate over each interval ``[t[k], t[k+1]]`` (0 if empty)."""
     cum = jnp.concatenate([jnp.zeros_like(hourly[:1]), jnp.cumsum(hourly)])
     c = jnp.interp(t, jnp.arange(25, dtype=hourly.dtype), cum)
-    return (c[1:] - c[:-1]) / (t[1:] - t[:-1])
+    width = t[1:] - t[:-1]
+    return (c[1:] - c[:-1]) / jnp.where(width > 0.0, width, 1.0)
 
 
-def richards_day(
+class SubstepTotals(NamedTuple):
+    """Totals [cm] of a run of sub-steps, and its worst residual and clamp count."""
+
+    supply: Array
+    infiltration: Array
+    evaporation: Array
+    drainage: Array
+    uptake: Array
+    runoff: Array
+    evaporation_deficit: Array
+    uptake_cut: Array
+    max_theta_residual: Array
+    n_clamp: Array
+    sinks: Array  # [n_channel] daily depth of each sink channel (SINK_CHANNELS order)
+    sinks_cut: Array  # [n_channel]
+
+
+def sink_fluxes(tot: SubstepTotals) -> dict[str, Array]:
+    """Flux fields of the sink channels other than ``uptake``, and their total ``h_min`` cut."""
+    out = {name: tot.sinks[k] for k, name in enumerate(SINK_CHANNELS) if name != "uptake"}
+    k_upt = SINK_CHANNELS.index("uptake")
+    out["sink_cut"] = jnp.sum(tot.sinks_cut) - tot.sinks_cut[k_upt]
+    return out
+
+
+def other_sinks(tot: SubstepTotals) -> Array:
+    """Total of the sink channels other than ``uptake`` [cm] (exactly 0 when they are absent)."""
+    k_upt = SINK_CHANNELS.index("uptake")
+    return jnp.sum(jnp.where(jnp.arange(len(SINK_CHANNELS)) == k_upt, 0.0, tot.sinks))
+
+
+def richards_substeps(
     water: SoilWater,
     params: RichardsParams,
+    t: Array,
     supply: Array,
     evaporation: Array,
-    uptake: Array,
-) -> SoilWater:
-    """One day of Richards redistribution: ``n_sub`` sub-steps of ``24/n_sub`` h.
+    uptake: Array | SinkChannels,
+    alphas: Array,
+) -> tuple[SoilWater, SubstepTotals]:
+    """Advance ``water`` over the sub-steps ``[t[k], t[k+1]]`` [h] of a day; empty ones are the identity.
 
-    ``supply``/``evaporation`` hourly rates ``[24]`` [cm h-1], ``uptake`` per layer [cm d-1].
-    Returns the new state with the day's totals in ``flux``.
+    ``supply``/``evaporation`` hourly rates ``[24]`` [cm h-1] (averaged over each sub-step),
+    ``uptake`` the sink channels (:class:`~agrijax.processes.soil_water.sinks.SinkChannels`) or
+    the per-layer root water uptake [cm d-1] alone (spread uniformly over the 24 h), ``alphas``
+    the time weight of each sub-step. The returned state keeps ``water.flux``; the totals are
+    separate.
 
     Source: Ahuja et al. (2000) ch. 3; Celia et al. (1990); RZWQM2 ``RICHRD`` (``Rzrich.for``).
     """
@@ -693,41 +860,58 @@ def richards_day(
     n = grid.n_node
     soil = jax.tree_util.tree_map(lambda x: jnp.broadcast_to(x, (n,)), params.soil.at_nodes())
     dtype = water.theta.dtype
-    supply = jnp.asarray(supply, dtype)
-    t = substep_edges(supply, cfg.n_sub, cfg.rain_fraction)
     dts = t[1:] - t[:-1]
-    sup = _interval_means(supply, t)
+    sup = _interval_means(jnp.asarray(supply, dtype), t)
     eva = _interval_means(jnp.asarray(evaporation, dtype), t)
-    sink = jnp.asarray(uptake, dtype) / (HOURS_PER_DAY * grid.tl)
-    a_rest = 0.5 if cfg.time_scheme == "rzwqm" else 1.0
-    alphas = jnp.where(jnp.arange(cfg.n_sub) == 0, 1.0, a_rest).astype(dtype)
+    channels = as_sink_channels(uptake)
+    daily = channels.daily_uptake_only()
+    if daily is not None:  # static: the M1/M3 sink, one daily array
+        uptake_rate = jnp.asarray(daily, dtype) / (HOURS_PER_DAY * grid.tl)
+
+        def sink_of(t0: Array, dt: Array, th: Array, h: Array) -> Array:
+            return uptake_rate
+
+    else:
+
+        def sink_of(t0: Array, dt: Array, th: Array, h: Array) -> Array:
+            return jnp.stack([c.node_rate(grid.tl, t0, dt, th, h) for c in channels.channels()])
+
     h_min = jnp.asarray(params.h_min, dtype)
     pond_max = jnp.asarray(params.pond_max, dtype)
 
-    def body(carry: tuple[Array, Array, Array], xs: tuple[Array, Array, Array, Array]) -> tuple[Any, Any]:
+    def body(
+        carry: tuple[Array, Array, Array], xs: tuple[Array, Array, Array, Array, Array]
+    ) -> tuple[Any, Any]:
         h, th, pd = carry
-        s_k, e_k, a_k, dt = xs
-        r = richards_step(h, th, pd, soil, grid, s_k, e_k, sink, dt, a_k, h_min, pond_max, cfg)
-        out = (
-            r.infiltration,
-            r.evaporation,
-            r.drainage,
-            r.uptake,
-            r.runoff,
-            r.evaporation_deficit,
-            r.uptake_cut,
-            r.theta_residual,
-            r.n_clamp,
+        s_k, e_k, a_k, dt, t0 = xs
+        live = dt > 0.0
+        dt_safe = jnp.where(live, dt, 1.0)
+        sink = sink_of(t0, dt_safe, th, h)
+        r = richards_step(h, th, pd, soil, grid, s_k, e_k, sink, dt_safe, a_k, h_min, pond_max, cfg)
+        out = tuple(
+            jnp.where(live, x, 0.0)
+            for x in (
+                r.infiltration,
+                r.evaporation,
+                r.drainage,
+                r.uptake,
+                r.runoff,
+                r.evaporation_deficit,
+                r.uptake_cut,
+                r.theta_residual,
+                r.n_clamp,
+                r.sinks,
+                r.sinks_cut,
+            )
         )
-        return (r.h, r.theta, r.pond), out
+        new = (jnp.where(live, r.h, h), jnp.where(live, r.theta, th), jnp.where(live, r.pond, pd))
+        return new, out
 
-    (h, th, pd), outs = lax.scan(body, (water.h, water.theta, water.pond), (sup, eva, alphas, dts))
-    infil, evap, drain, upt, runoff, deficit, cut, resid, nclamp = outs
-    w0 = jnp.sum(water.theta * grid.tl) + water.pond
-    w1 = jnp.sum(th * grid.tl) + pd
-    supply_total = jnp.sum(sup * dts)
-    balance = (w1 - w0) - (supply_total - jnp.sum(evap) - jnp.sum(drain) - jnp.sum(upt) - jnp.sum(runoff))
-    flux = SoilWaterFluxes(
+    xs = (sup, eva, alphas, dts, t[:-1])
+    (h, th, pd), outs = lax.scan(body, (water.h, water.theta, water.pond), xs)
+    infil, evap, drain, upt, runoff, deficit, cut, resid, nclamp, snk, snk_cut = outs
+    totals = SubstepTotals(
+        supply=jnp.sum(sup * dts),
         infiltration=jnp.sum(infil),
         evaporation=jnp.sum(evap),
         drainage=jnp.sum(drain),
@@ -735,11 +919,61 @@ def richards_day(
         runoff=jnp.sum(runoff),
         evaporation_deficit=jnp.sum(deficit),
         uptake_cut=jnp.sum(cut),
-        balance_error=balance,
-        max_theta_residual=jnp.max(resid),
+        max_theta_residual=jnp.max(resid, initial=0.0),
         n_clamp=jnp.sum(nclamp),
+        sinks=jnp.sum(snk, axis=0),
+        sinks_cut=jnp.sum(snk_cut, axis=0),
     )
-    return SoilWater(h=h, theta=th, pond=pd, flux=flux)
+    return water.replace(h=h, theta=th, pond=pd), totals
+
+
+def day_alphas(n_sub: int, cfg: RichardsConfig, dtype: Any) -> Array:
+    """Time weights of a day's sub-steps: 1 on the first, then 1 (``"implicit"``) or 1/2 (``"rzwqm"``)."""
+    a_rest = 0.5 if cfg.time_scheme == "rzwqm" else 1.0
+    return jnp.where(jnp.arange(n_sub) == 0, 1.0, a_rest).astype(dtype)
+
+
+def richards_day(
+    water: SoilWater,
+    params: RichardsParams,
+    supply: Array,
+    evaporation: Array,
+    uptake: Array | SinkChannels,
+) -> SoilWater:
+    """One day of Richards redistribution: ``n_sub`` sub-steps placed by :func:`substep_edges`.
+
+    ``supply``/``evaporation`` hourly rates ``[24]`` [cm h-1], ``uptake`` the sink channels or
+    the per-layer root water uptake [cm d-1] alone.
+    Returns the new state with the day's totals in ``flux``. This is the M1 day (the surface
+    supply is prescribed; no infiltration event).
+
+    Source: Ahuja et al. (2000) ch. 3; Celia et al. (1990); RZWQM2 ``RICHRD`` (``Rzrich.for``).
+    """
+    cfg = params.config
+    dtype = water.theta.dtype
+    supply = jnp.asarray(supply, dtype)
+    t = substep_edges(supply, cfg.n_sub, cfg.rain_fraction)
+    new, tot = richards_substeps(
+        water, params, t, supply, evaporation, uptake, day_alphas(cfg.n_sub, cfg, dtype)
+    )
+    w0 = water.storage(params.grid) + water.pond
+    w1 = new.storage(params.grid) + new.pond
+    sinks = tot.uptake + other_sinks(tot)
+    balance = (w1 - w0) - (tot.supply - tot.evaporation - tot.drainage - sinks - tot.runoff)
+    flux = _zero_fluxes(dtype).replace(
+        infiltration=tot.infiltration,
+        evaporation=tot.evaporation,
+        drainage=tot.drainage,
+        uptake=tot.uptake,
+        runoff=tot.runoff,
+        evaporation_deficit=tot.evaporation_deficit,
+        uptake_cut=tot.uptake_cut,
+        balance_error=balance,
+        max_theta_residual=tot.max_theta_residual,
+        n_clamp=tot.n_clamp,
+        **sink_fluxes(tot),
+    )
+    return new.replace(flux=flux)
 
 
 # ---------------------------------------------------------------------------
@@ -768,7 +1002,8 @@ def richards_day(
     deviates=(
         (
             "the surface supply is the water that infiltrates; the Green-Ampt INFIL step is not part of it",
-            "RZWQM2 fills the profile with INFIL and Richards only redistributes; INFIL is not ported yet",
+            "RZWQM2 fills the profile with INFIL and Richards only redistributes; the event is the separate "
+            "soil_water/infiltration_ga process, composed with this one in soil_water/day",
             "richards.py module docstring; tests/integration/test_richards_catpa.py (.ana column 5)",
         ),
         (

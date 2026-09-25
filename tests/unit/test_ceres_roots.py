@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from agrijax.processes.crop.ceres_maize import CeresForcing, CeresMaizeState, ceres_roots
+from agrijax.processes.crop.ceres_maize import CeresForcing, CeresMaizeState, ceres_roots, ceres_water_replay
 
 from .test_ceres_phenology import DLAYR, DUL, LL, a, make_params
 
@@ -152,9 +152,10 @@ def test_roots_match_reference_on_random_states(seed):
             co2=a(380.0),
             snow=a(0.0),
             sw=a(c["sw"]),
-            swfac=a(1.0),
-            turfac=a(1.0),
+            eop=a(0.0),
+            trwup=a(0.0),
         )
+        st = ceres_water_replay(st, params, f)  # the soil water reaches the crop through its port
         out = step(st, params, f)
         want = ref_roots(c, p)
         np.testing.assert_allclose(float(out.roots.rtdep[0]), want["rtdep"], rtol=ATOL, atol=ATOL)
@@ -186,9 +187,10 @@ def test_roots_do_not_run_before_sowing_or_without_water_balance():
         co2=a(380.0),
         snow=a(0.0),
         sw=a(c["sw"]),
-        swfac=a(1.0),
-        turfac=a(1.0),
+        eop=a(0.0),
+        trwup=a(0.0),
     )
+    st = ceres_water_replay(st, params, f)  # the soil water reaches the crop through its port
     out = ceres_roots(st, params, f)  # yrdoy < yrplt
     assert out.roots is st.roots or np.array_equal(np.asarray(out.roots.rlv), np.asarray(st.roots.rlv))
     params_n = params.replace(iswwat=False)
@@ -226,9 +228,10 @@ def test_emergence_profile_integrates_to_the_initial_root_length():
             co2=a(380.0),
             snow=a(0.0),
             sw=a(c["sw"]),
-            swfac=a(1.0),
-            turfac=a(1.0),
+            eop=a(0.0),
+            trwup=a(0.0),
         )
+        st = ceres_water_replay(st, params, f)  # the soil water reaches the crop through its port
         out = ceres_roots(st, params, f)
         bottom = np.cumsum(DLAYR)
         top = bottom - np.asarray(DLAYR)

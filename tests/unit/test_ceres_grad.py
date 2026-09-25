@@ -135,10 +135,17 @@ def _collect_states():
         dict(seed=43, stress=True, cold=True, yrplt=0),
         dict(seed=44, stress=False, always_dry=True, yrplt=0),  # germination failure
         dict(seed=45, stress=False, dry_days=6, yrplt=0),
+        # low light: assimilation below the leaf demand in stage 1 spends the seed reserve (the
+        # water-stress factors come from EOP / TRWUP, where TURFAC <= SWFAC, so stress alone
+        # does not reach this path)
+        dict(seed=46, stress=False, yrplt=2, dark=True),
     ]
     for sp in specs:
         yrplt = sp.pop("yrplt")
+        dark = sp.pop("dark", False)
         f, w = season_forcing(**sp)
+        if dark:
+            f = f.replace(srad=f.srad * 0.15)
         p = make_params(yrplt=int(w["yrdoy"][yrplt]))
         s0 = CeresMaizeState.initial(p, 1)
         states = runner(p, f, s0)

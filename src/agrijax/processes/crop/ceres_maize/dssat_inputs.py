@@ -8,9 +8,12 @@
 * :func:`ceres_forcing` builds the daily forcing: the weather the model used (``Weather.OUT``:
   ``TMXD``, ``TMND``, ``SRAD``, ``CO2D``, i.e. after any environment modification), daylength and
   twilight daylength from the weather-file latitude (DSSAT ``DAYLEN`` / ``TWILIGHT``), soil
-  water ``SW1D..`` from ``SoilWat.OUT`` and the water-stress factors
-  ``SWFAC = 1 - WSPD``, ``TURFAC = 1 - WSGD`` from ``PlantGro.OUT`` of the same treatment (the
-  isolation of the crop from the soil-water model). Snow is taken as 0.
+  water ``SW1D..`` from ``SoilWat.OUT`` of the same treatment, and the potential transpiration
+  ``EOP`` and potential root water uptake ``TRWUP`` of SPAM (``supply``: the reference run's
+  daily values, which DSSAT prints nowhere at full precision; the A12 SPAM dumps). These drive the
+  crop's ``water_in`` port (the isolation of the crop from the soil-water model); the crop
+  computes ``SWFAC`` and ``TURFAC`` from them. Snow is taken as 0.
+* :func:`spam_supply` reads ``(YRDOY, EOP, TRWUP)`` from a SPAM daily dump table.
 
 Every argument is a plain path / number, so nothing here is traced by JAX.
 
@@ -26,13 +29,13 @@ import jax.numpy as jnp
 import numpy as np
 import pandas as pd
 
-from agrijax.io.dssat import read_eco, read_out, read_plantgro, read_soilwat, read_spe
+from agrijax.io.dssat import read_eco, read_out, read_soilwat, read_spe
 
 from ._util import daylength, twilight_daylength
 from .coefficients import BSGDD, CANHT_POT, DSSAT_COEFFICIENTS
 from .state import CeresCultivar, CeresForcing, CeresMaizeParams, CeresSoil, CeresSpecies
 
-__all__ = ["ceres_forcing", "ceres_params", "read_inp", "yrdoy_range"]
+__all__ = ["ceres_forcing", "ceres_params", "read_inp", "spam_supply", "yrdoy_range"]
 
 
 def _section(text: str, name: str) -> list[str]:
@@ -138,6 +141,7 @@ def ceres_params(
         leafnoe=a(spe["LEAFNOE"]),
         plae=a(spe["PLAE"]),
         pormin=a(spe["PORM"]),
+        rwumx=a(spe["RWMX"]),
         rlwr=a(spe["RLWR"]),
         rwuep1=a(spe["RWUEP1"]),
         canht_pot=a(CANHT_POT),  # set in MZ_GROSUB SEASINIT, not read from the SPE file
@@ -174,6 +178,21 @@ def yrdoy_range(first: int, last: int) -> list[int]:
     return [d.year * 1000 + d.timetuple().tm_yday for d in days]
 
 
+def spam_supply(path: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(yrdoy, eop, trwup)`` of a SPAM daily dump table (``<EXP>_t<NN>_spam.npz``).
+
+    The table holds SPAM's exit values of the RATE call of every simulated day (REAL*4):
+    ``v.YRDOY``, ``v.EOP`` [mm d-1] and ``v.TRWUP`` [cm d-1]; these are what PLANT receives on
+    that day (``CSM_Main/LAND.for``).
+    """
+    with np.load(path, allow_pickle=False) as z:
+        return (
+            np.asarray(z["v.YRDOY"], dtype=np.int64),
+            np.asarray(z["v.EOP"], dtype=np.float64),
+            np.asarray(z["v.TRWUP"], dtype=np.float64),
+        )
+
+
 def ceres_forcing(
     out_dir: str,
     trno: int,
@@ -183,13 +202,16 @@ def ceres_forcing(
     latitude: float,
     water: bool = True,
     daylength_from_output: bool = False,
+    supply: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> CeresForcing:
     """Daily :class:`CeresForcing` for ``first..last`` (``YYYYDDD``) of treatment ``trno``.
 
-    ``out_dir`` holds the reference run's ``Weather.OUT``, ``SoilWat.OUT`` and ``PlantGro.OUT``.
-    Days without a PlantGro row (before sowing) get ``SWFAC = TURFAC = 1``; with ``water=False``
-    (``ISWWAT = N`` runs, no ``SoilWat.OUT``) the stresses are 1 and the soil water 0 on every day.
-    With ``daylength_from_output=True`` daylength and twilight daylength are the printed
+    ``out_dir`` holds the reference run's ``Weather.OUT`` and ``SoilWat.OUT``. ``supply`` is
+    ``(yrdoy, eop, trwup)`` of the same run (:func:`spam_supply`); it is required with
+    ``water=True``, and days it does not list get ``EOP = TRWUP = 0`` (no demand: no stress). With
+    ``water=False`` (``ISWWAT = N`` runs, no ``SoilWat.OUT``) the soil water, ``EOP`` and ``TRWUP``
+    are 0 on every day (the crop sets its stress factors to 1). With
+    ``daylength_from_output=True`` daylength and twilight daylength are the printed
     ``DAYLD`` / ``TWLD`` (0.1 h) instead of ``DAYLEN`` / ``TWILIGHT``: needed when an environment
     modification replaces the daylength (``WTHMOD`` sets both to the replacement value).
     """
@@ -210,15 +232,21 @@ def ceres_forcing(
     tmin = by_day(wo, "TMND", np.nan)
     srad = by_day(wo, "SRAD", np.nan)
     if water:
+        if supply is None:
+            raise ValueError(
+                "water=True needs supply = (yrdoy, eop, trwup) of the reference run (spam_supply)"
+            )
         sw_df = read_soilwat(f"{out_dir}/SoilWat.OUT")
         sw = np.stack([by_day(sw_df, f"SW{k + 1}D", np.nan) for k in range(n_layer)], axis=-1)
-        pg = read_plantgro(f"{out_dir}/PlantGro.OUT")
-        swfac = 1.0 - by_day(pg, "WSPD", 0.0)
-        turfac = np.round((1.0 - by_day(pg, "WSGD", 0.0)) * 1000.0) / 1000.0
+        sd, se, st = (np.asarray(x) for x in supply)
+        emap = dict(zip(sd.astype(int).tolist(), se.astype(float).tolist(), strict=True))
+        tmap = dict(zip(sd.astype(int).tolist(), st.astype(float).tolist(), strict=True))
+        eop = np.asarray([emap.get(d, 0.0) for d in days], dtype=float)
+        trwup = np.asarray([tmap.get(d, 0.0) for d in days], dtype=float)
     else:
         sw = np.zeros((len(days), n_layer))
-        swfac = np.ones(len(days))
-        turfac = np.ones(len(days))
+        eop = np.zeros(len(days))
+        trwup = np.zeros(len(days))
     return CeresForcing(
         yrdoy=jnp.asarray(np.asarray(days, dtype=np.int32)),
         tmax=jnp.asarray(tmax),
@@ -231,6 +259,6 @@ def ceres_forcing(
         co2=jnp.asarray(co2),
         snow=jnp.zeros(len(days)),
         sw=jnp.asarray(sw),
-        swfac=jnp.asarray(swfac),
-        turfac=jnp.asarray(turfac),
+        eop=jnp.asarray(eop),
+        trwup=jnp.asarray(trwup),
     )

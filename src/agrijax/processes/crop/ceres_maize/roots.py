@@ -146,6 +146,7 @@ def root_length_growth(
         "growth.pltpop",
         "stress.swfac",
         "roots",
+        "water_in.sw",
     ),
     writes=("roots",),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_ROOTS.for (BSD-3)",
@@ -202,7 +203,7 @@ def ceres_roots(state: CeresMaizeState, params: CeresMaizeParams, forcing_t: Cer
     rlnew = grort * params.species.rlwr * pltpop
     rooted = top < rtdep[..., None]
     at_l1 = jnp.arange(dlayr.shape[-1]) == _last_true(rooted)[..., None]
-    sw = jnp.asarray(forcing_t.sw)
+    sw = jnp.asarray(state.water_in.sw)
     swdf = root_water_deficit(sw, soil.ll, soil.dul, c)
     rldf = jnp.where(rooted, swdf * soil.shf * dlayr, 0.0)  # min(SWDF, RNFAC = 1) * SHF * DLAYR
     ones = jnp.ones_like(rldf)

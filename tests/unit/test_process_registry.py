@@ -30,10 +30,13 @@ from agrijax.core.process import (
 #: every module of the package that defines processes
 PROCESS_MODULES = (
     "agrijax.processes.soil_water.richards",
+    "agrijax.processes.soil_water.day",
+    "agrijax.processes.soil_water.uptake",
     "agrijax.processes.pet.daily",
     "agrijax.processes.crop.ceres_maize.phenology",
     "agrijax.processes.crop.ceres_maize.growth",
     "agrijax.processes.crop.ceres_maize.roots",
+    "agrijax.processes.crop.ceres_maize.model",
     "agrijax.models.catpa_pet_demo",
     "agrijax.models.tobacco_demo",
 )
@@ -44,6 +47,19 @@ EXPECTED = {
         "reference_only_conventions",
         "rzwqm2_nodes",
     ),
+    "soil_water/day@rzwqm2-4.6:faithful": ("soil_water_day", "reference_only_conventions", "rzwqm2_nodes"),
+    "soil_water/day@rzwqm2-4.6:replay_flux": (
+        "soil_water_day_replay",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/infiltration_ga@rzwqm2-4.6:faithful": (
+        "infiltration_ga",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "water_supply/rootwu@dssat-4.8.6.0:faithful": ("rootwu_supply", "translated_bsd3", "dssat_layers"),
+    "water_supply/forcing_replay@none:replay": ("ceres_water_replay", "equations_only", "dssat_layers"),
     "pet/shuttleworth_wallace@rzwqm2-4.6:faithful": (
         "pet_shuttleworth_wallace",
         "reference_only_conventions",
@@ -64,6 +80,7 @@ EXPECTED = {
     "crop/ceres_maize.stress@dssat-4.8.6.0:faithful": ("ceres_stress", "translated_bsd3", "dssat_layers"),
     "crop/ceres_maize.growth@dssat-4.8.6.0:faithful": ("ceres_growth", "translated_bsd3", "point"),
     "crop/ceres_maize.roots@dssat-4.8.6.0:faithful": ("ceres_roots", "translated_bsd3", "dssat_layers"),
+    "crop/ceres_maize.publish@dssat-4.8.6.0:faithful": ("ceres_publish", "translated_bsd3", "dssat_layers"),
     "diagnostic/catpa_pet_totals@none:demo": ("accumulate_totals", "equations_only", "point"),
     "crop/tobacco_demo.calendar@none:demo": ("crop_calendar", "equations_only", "point"),
     "crop/tobacco_demo.leaves@none:demo": ("leaf_appearance_growth", "equations_only", "point"),
@@ -164,6 +181,7 @@ def test_list_processes_filters() -> None:
     assert [p.info.impl for p in ceres if p.info] == [
         "ceres_maize.growth",
         "ceres_maize.phenology",
+        "ceres_maize.publish",
         "ceres_maize.roots",
         "ceres_maize.stress",
     ]
@@ -172,9 +190,35 @@ def test_list_processes_filters() -> None:
         "pet_asce_reference",
         "pet_priestley_taylor",
     }
-    assert {p.name for p in list_processes(grid="rzwqm2_nodes")} == {"richards_redistribution"}
+    assert {p.name for p in list_processes(grid="rzwqm2_nodes")} == {
+        "richards_redistribution",
+        "soil_water_day",
+        "soil_water_day_replay",
+        "infiltration_ga",
+    }
+    assert {p.name for p in list_processes(slot="soil_water", impl="day")} == {
+        "soil_water_day",
+        "soil_water_day_replay",
+    }
+    assert {p.name for p in list_processes(slot="water_supply")} == {"rootwu_supply", "ceres_water_replay"}
     keys = [str(p.key) for p in list_processes()]
     assert keys == sorted(keys) and set(EXPECTED) <= set(keys)
+
+
+def test_m3_variants_and_their_faithful_siblings() -> None:
+    """The M1 replay day is a variant of the faithful RZWQM2 day, and says how it deviates."""
+    replay = lookup("soil_water/day@rzwqm2-4.6:replay_flux")
+    faithful = lookup("soil_water/day@rzwqm2-4.6:faithful")
+    assert replay.info is not None and faithful.info is not None
+    assert replay.info.deviates and faithful.info.deviates
+    assert replay.writes == faithful.writes == ("soil_water",)
+    ga = lookup("soil_water/infiltration_ga@rzwqm2-4.6:faithful")
+    assert ga.info is not None and ga.fortran_name == "EVNTRO"
+    rootwu = lookup("water_supply/rootwu@dssat-4.8.6.0:faithful")
+    assert rootwu.info is not None and rootwu.info.ref_build and rootwu.info.deviates
+    for key in ("crop/ceres_maize.publish@dssat-4.8.6.0:faithful", "water_supply/forcing_replay@none:replay"):
+        p = lookup(key)
+        assert p.info is not None and p.writes and metadata_problems(p) == []
 
 
 def test_lookup_unknown_key_hints_at_siblings() -> None:

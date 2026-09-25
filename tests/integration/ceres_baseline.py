@@ -1,19 +1,29 @@
-"""Regression baseline of the validated CERES-Maize implementation (commit ``b65f1a7``).
+"""Regression baseline of the validated CERES-Maize implementation.
 
-The CERES-Maize module (``agrijax.processes.crop.ceres_maize``) was validated at ``b65f1a7``
-against DSSAT-CSM ``dscsm048`` v4.8.6 on 58 maize treatments (nitrogen off, crop driven by the
-reference run's weather, soil water and water-stress factors). This module freezes what that
+The CERES-Maize module (``agrijax.processes.crop.ceres_maize``) is validated against DSSAT-CSM
+``dscsm048`` v4.8.6 on 58 maize treatments (nitrogen off, crop driven by the reference run's
+weather, soil water, and SPAM's potential transpiration ``EOP`` and potential root water uptake
+``TRWUP``, from which the crop computes its water-stress factors). This module freezes what that
 implementation computes, so a refactor can be checked to change nothing:
 
 * for every one of the 58 treatments, driven exactly as ``test_ceres_dssat.py`` drives them
   (:func:`test_ceres_dssat.run_reference` + :func:`test_ceres_dssat.simulate`, the latter with
-  ``daylength_from_output`` for GAGR0201): every leaf of the parameters, of the daily forcing, of
-  the daily CERES state pytree (the state *after* each day) and of the daily ``PlantGro``
-  outputs (:func:`plantgro_outputs`);
+  ``daylength_from_output`` for GAGR0201 and the A12 SPAM dump tables for ``EOP``/``TRWUP``):
+  every leaf of the parameters, of the daily forcing, of the daily CERES state pytree (the state
+  *after* each day, ports included) and of the daily ``PlantGro`` outputs
+  (:func:`plantgro_outputs`);
 * for :data:`GRAD_CASES`: reverse-mode gradients (``jax.jacrev``) of the season yield
   (``gwad`` on the last day), the maximum LAI over the season (``max_t lai``) and the final
   above-ground biomass (``cwad`` on the last day) with respect to every field of the cultivar and
   species parameters.
+
+History (:data:`HISTORY`): ``b65f1a7`` froze the M2 implementation driven by the printed stress
+factors ``SWFAC = 1 - WSPD``, ``TURFAC = 1 - WSGD``. ``a3_eop_trwup`` (plan 19 A2-A4) replaces
+them: the crop reads ``EOP``, ``TRWUP`` and the soil water through its ``water_in`` port and
+computes ``SWFAC``/``TURFAC`` itself (``MZ_GROSUB`` with ``RWUEP1``), and publishes a root record
+``root_out``. The drivers change (full-precision ``EOP``/``TRWUP`` instead of 3-decimal printed
+factors), so the frozen trajectories change; the new implementation still meets M2 on all 58
+treatments (``m2_all_maize_a3.csv`` in the validation directory).
 
 Array keys in the snapshot (``.npz``, float leaves in float64, integer / boolean leaves in their
 own dtype, every trajectory ``[T, ...]``)::
@@ -23,15 +33,17 @@ own dtype, every trajectory ``[T, ...]``)::
     <case>/state/<path>         e.g. UFGA8201_t1/state/growth.leaf.area
     <case>/out/<name>           e.g. UFGA8201_t1/out/cwad
     <case>/grad/<target>/<path> e.g. UFGA8201_t1/grad/yield/cultivar.g3   (GRAD_CASES only)
-    __manifest__                JSON: git hash, case ids, field names, targets, versions
+    __manifest__                JSON: git hash, case ids, field names, targets, versions, reason
 
 ``<case>`` is ``<EXPERIMENT>_t<TRNO>``. A JSON sidecar ``<snapshot>.json`` repeats the manifest
 and holds the sha256 of the ``.npz``.
 
-Generate (local only: the dscsm048 binary and the DSSAT engine tree exist only locally)::
+Generate (local only: the dscsm048 binary, the DSSAT engine tree and the A12 tables exist only
+locally)::
 
-    uv run python tests/integration/ceres_baseline.py            # refuses unless HEAD == b65f1a7
+    uv run python tests/integration/ceres_baseline.py            # refuses unless HEAD == BASELINE_COMMIT
                                                                   # and src/ is unmodified
+    uv run python tests/integration/ceres_baseline.py --force    # write anyway (documented in HISTORY)
 
 DSSAT-CSM is distributed under the BSD 3-clause licence (Copyright 1998-2026 DSSAT Foundation,
 University of Florida, International Fertilizer Development Center); the model here is an
@@ -54,9 +66,37 @@ import jax.numpy as jnp
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
-BASELINE_COMMIT = "b65f1a7"
-SNAPSHOT_NAME = f"baseline_{BASELINE_COMMIT}.npz"
+#: identity of the current snapshot (file ``baseline_<id>.npz``)
+BASELINE_ID = "a3_eop_trwup"
+#: the commit the snapshot was generated on (plus the uncommitted A2-A4 / A7 working tree)
+#:
+#: Bookkeeping of the current snapshot: ``a3_eop_trwup`` was written with ``--force`` on top of
+#: ``fca3ec8`` while the plan 19 M3 minimal set (A1-A12) was still uncommitted, so its manifest
+#: records ``git_hash = "fca3ec8"``, ``git_head = 5621696`` (a docs-only commit on top of
+#: ``fca3ec8``; ``src/`` is the same in both) and ``src_dirty = true``. The snapshot is kept as it is (the
+#: tests compare to it at 1e-12 and pass). After the M3 work is committed (commit ``X``) it is
+#: regenerated clean: (1) with HEAD at ``X`` and ``src/`` clean, set ``BASELINE_COMMIT = "X"``
+#: here (a change under ``tests/`` only, which the guard does not look at); (2) run
+#: ``uv run python tests/integration/ceres_baseline.py`` without ``--force`` (it refuses unless
+#: HEAD starts with ``BASELINE_COMMIT`` and ``git status -- src`` is empty), which writes
+#: ``src_dirty = false``; (3) run ``tests/integration/test_ceres_baseline.py --runslow`` against the
+#: new file, then commit the one-line change of step (1). The id stays ``a3_eop_trwup`` when the
+#: arrays are unchanged (only the provenance is new); a changed model gets a new id and a
+#: :data:`HISTORY` entry.
+BASELINE_COMMIT = "fca3ec8"
+SNAPSHOT_NAME = f"baseline_{BASELINE_ID}.npz"
 MANIFEST_KEY = "__manifest__"
+#: why each snapshot was (re)generated, oldest first
+HISTORY: tuple[tuple[str, str], ...] = (
+    ("b65f1a7", "M2 implementation validated on 58 treatments, driven by the printed SWFAC / TURFAC"),
+    (
+        "a3_eop_trwup",
+        "plan 19 A3/A4 (2026-09-24): the crop computes SWFAC/TURFAC from SPAM's EOP and TRWUP "
+        "(A12 dump tables, full REAL precision) through its water_in port and publishes root_out; "
+        "CeresForcing has eop/trwup instead of swfac/turfac and CeresSpecies gains rwumx. The "
+        "drivers change, so every trajectory changes; M2 still holds on all 58 treatments.",
+    ),
+)
 
 #: the 58 validated treatments (``m2_all_maize.csv`` in the validation archive): every treatment of
 #: every maize example experiment except EBPL8501 (missing EBCH8401.WTH) and IUAF9902 / IUAF9903
@@ -188,19 +228,27 @@ def _grad_runner() -> Callable[..., Any]:
     return _GRAD
 
 
+def tables_dir(data_dir: Path) -> Path:
+    """The A12 DSSAT dump tables (SPAM ``EOP``/``TRWUP``) under ``data_dir``."""
+    return Path(data_dir) / "dumps" / "tables" / "dssat486"
+
+
 def compute_case(
-    exp: str, trno: int, workdir: Path, *, gradients: bool | None = None
+    exp: str, trno: int, workdir: Path, *, gradients: bool | None = None, tables: Path | None = None
 ) -> dict[str, np.ndarray]:
     """Run dscsm048 for one treatment, then the model; return the snapshot arrays of that case.
 
+    ``tables`` is the directory of the A12 SPAM dump tables (default: ``test_ceres_dssat.TABLES``).
     The model runs on the CPU backend whatever the default device (a GPU's float64
     transcendentals need not match the CPU's to 1e-12), so the snapshot and every regeneration
     compare like with like."""
     with jax.default_device(jax.devices("cpu")[0]):
-        return _compute_case(exp, trno, workdir, gradients=gradients)
+        return _compute_case(exp, trno, workdir, gradients=gradients, tables=tables)
 
 
-def _compute_case(exp: str, trno: int, workdir: Path, *, gradients: bool | None) -> dict[str, np.ndarray]:
+def _compute_case(
+    exp: str, trno: int, workdir: Path, *, gradients: bool | None, tables: Path | None
+) -> dict[str, np.ndarray]:
     from agrijax.processes.crop.ceres_maize import CeresMaizeState
 
     t = _drivers()
@@ -208,7 +256,9 @@ def _compute_case(exp: str, trno: int, workdir: Path, *, gradients: bool | None)
         raise RuntimeError("the CERES baseline is float64: enable jax_enable_x64")
     out_dir = t.run_reference(exp, trno, Path(workdir))
     # exactly the validated path: parameters, forcing and the default outputs of simulate()
-    p, f, res, _ = t.simulate(out_dir, trno, daylength_from_output=exp in DAYLENGTH_FROM_OUTPUT)
+    p, f, res, _ = t.simulate(
+        out_dir, trno, daylength_from_output=exp in DAYLENGTH_FROM_OUTPUT, exp=exp, tables=tables
+    )
     traj = _traj_runner()(p, f, CeresMaizeState.initial(p, 1))
     cid = case_id(exp, trno)
     arrays: dict[str, np.ndarray] = {}
@@ -254,9 +304,10 @@ def compare_case(
 
     Floats: ``|got - ref| <= atol + rtol |ref|`` (NaN equal to NaN); integers / booleans: exact."""
     prefix = f"{cid}/"
-    coef = f"{cid}/params/coefficients"  # calibratable coefficient leaves, added after the snapshot
+    coef = f"{cid}/params/coefficients"  # calibratable coefficient leaves (absent from b65f1a7)
     keys_ref = sorted(k for k in ref if k.startswith(prefix))
-    keys_got = sorted(k for k in got if k.startswith(prefix) and not k.startswith(coef))
+    has_coef = any(k.startswith(coef) for k in keys_ref)
+    keys_got = sorted(k for k in got if k.startswith(prefix) and (has_coef or not k.startswith(coef)))
     if keys_ref != keys_got:
         missing = sorted(set(keys_ref) - set(keys_got))
         extra = sorted(set(keys_got) - set(keys_ref))
@@ -323,7 +374,14 @@ def build_manifest(arrays: dict[str, np.ndarray], cases: tuple[tuple[str, int], 
     return {
         "git_hash": BASELINE_COMMIT,
         "git_head": _git("rev-parse", "HEAD"),
-        "model": "agrijax.processes.crop.ceres_maize (nitrogen off), driven by dscsm048 v4.8.6 outputs",
+        "src_dirty": bool(_git("status", "--porcelain", "--", "src")),
+        "baseline_id": BASELINE_ID,
+        "reason": dict(HISTORY)[BASELINE_ID],
+        "history": [list(h) for h in HISTORY],
+        "model": (
+            "agrijax.processes.crop.ceres_maize (nitrogen off), driven by dscsm048 v4.8.6 outputs and "
+            "the A12 SPAM dumps (EOP, TRWUP)"
+        ),
         "cases": [case_id(e, t) for e, t in cases],
         "n_days": {case_id(e, t): int(arrays[f"{case_id(e, t)}/forcing/yrdoy"].shape[0]) for e, t in cases},
         "grad_cases": [case_id(e, t) for e, t in GRAD_CASES],
@@ -390,10 +448,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"treatment list changed: {found}", file=sys.stderr)
         return 2
 
+    tables = tables_dir(Path(args.data_dir).expanduser())
+    if not (tables / "collect_report.json").is_file():
+        print(f"A12 DSSAT dump tables not found at {tables}", file=sys.stderr)
+        return 2
     arrays: dict[str, np.ndarray] = {}
     with tempfile.TemporaryDirectory(prefix="ceres_bl_") as tmp:
         for exp, trno in CASES:
-            arrays.update(compute_case(exp, trno, Path(tmp) / f"{exp}_{trno}"))
+            arrays.update(compute_case(exp, trno, Path(tmp) / f"{exp}_{trno}", tables=tables))
             print(
                 f"{case_id(exp, trno)}: {sum(1 for k in arrays if k.startswith(case_id(exp, trno)))} arrays"
             )

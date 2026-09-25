@@ -424,7 +424,7 @@ def maturity_block(v: PhenDay, m: Array, cul: CeresCultivar, yrdoy: Array, c: Ph
 
 
 @process(
-    reads=("phen", "growth.leafno", "growth.xn", "growth.sump", "growth.pltpop"),
+    reads=("phen", "growth.leafno", "growth.xn", "growth.sump", "growth.pltpop", "water_in.sw"),
     writes=("phen", "growth.pltpop"),
     source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_PHENOL.for (BSD-3)",
     fortran_name="MZ_PHENOL",
@@ -502,7 +502,7 @@ def ceres_phenology(
     )
     st = [active & (s == k) for k in range(11)]  # st[k]: crop in stage k at the start of the day
     v = sowing_block(v, st[7], params)
-    v = germination_block(v, st[8], params, f.sw, yrdoy, c)
+    v = germination_block(v, st[8], params, state.water_in.sw, yrdoy, c)
     v = emergence_block(v, st[9], params, yrdoy, c)
     v = juvenile_block(v, st[1], cul)
     v = floral_induction_block(v, st[2], cul, f.twilen, g.xn, c)

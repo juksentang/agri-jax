@@ -45,6 +45,7 @@ __all__ = [
 ]
 
 _T = TypeVar("_T", bound="_Base")
+_Tree = TypeVar("_Tree")  # any pytree: a State, or the nested dicts of an assembled state
 
 
 def field(
@@ -62,6 +63,7 @@ def field(
     ref: str | None = None,
     icasa: str | None = None,
     source: str | None = None,
+    port: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Declare a pytree field with physical metadata.
@@ -89,6 +91,10 @@ def field(
         the variable category, the parameter category, physical ``(low, high)`` bounds, the
         reference model and variable, the ICASA code and the literature source. Recorded only;
         required as modules need them. Omitted keys are not stored.
+    port:
+        Mark the field as a **port** of a module state (plan 19 A2): an interface record the
+        module reads from or publishes to another module. At assembly the port is bound to a
+        global state path by :func:`agrijax.core.ports.bind`; use :func:`agrijax.core.ports.port`.
     **kwargs:
         Any other :func:`dataclasses.field` keyword (``default``, ``default_factory``).
     """
@@ -113,6 +119,8 @@ def field(
         "source": source,
     }
     metadata.update({k: v for k, v in optional.items() if v is not None})
+    if port:
+        metadata["port"] = True
     if converter is not None:
         kwargs["converter"] = converter
     return eqx.field(static=static, metadata=metadata, **kwargs)
@@ -132,6 +140,7 @@ def field_metadata(cls: type, *, prefix: str = "") -> dict[str, dict[str, Any]]:
             "fortran_name": f.metadata.get("fortran_name", ""),
             "dims": f.metadata.get("dims"),
             "static": bool(f.metadata.get("static", False)),
+            "port": bool(f.metadata.get("port", False)),
             "type": f.type,
         }
         out[path] = meta
@@ -248,7 +257,7 @@ def get_path(tree: Any, path: str) -> Any:
     return node
 
 
-def set_path(tree: _T, path: str, value: Any) -> _T:
+def set_path(tree: _Tree, path: str, value: Any) -> _Tree:
     """Return ``tree`` with the node at ``path`` replaced by ``value`` (functional, via ``eqx.tree_at``)."""
     return eqx.tree_at(lambda t: get_path(t, path), tree, value)
 
