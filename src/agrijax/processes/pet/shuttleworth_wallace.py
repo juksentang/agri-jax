@@ -665,6 +665,7 @@ def shuttleworth_wallace(
     latitude: ArrayLike,
     doy: ArrayLike,
     tlai: ArrayLike | None = None,
+    srad_horizontal: ArrayLike | None = None,
     residue_mass: ArrayLike = 0.0,
     residue_age: ArrayLike = 0.0,
     residue_wet: ArrayLike = 0.0,
@@ -684,7 +685,18 @@ def shuttleworth_wallace(
 
     Parameters
     ----------
-    tmin, tmax : degC. srad : MJ m-2 d-1 (measured, horizontal). rh : percent.
+    tmin, tmax : degC. srad : daily solar radiation of the field [MJ m-2 d-1] (``RTS``; in the
+        reference model the daily sum of the hourly radiation after the direct/diffuse split,
+        Rzmain.for line 1389, printed in ``.ana`` col 88); it drives the net shortwave radiation.
+        rh : percent.
+    srad_horizontal : measured horizontal daily solar radiation of the weather file
+        [MJ m-2 d-1] (``RTH``, read by INPDAY, Rzmain.for line 1312). It enters only the
+        cloudiness ratio ``RTH / RCH`` of the net long-wave radiation and the floor
+        ``RCH >= RTH`` of the clear-sky radiation (POTEVPHR, Rzpet.for lines 1983, 1988, 1998;
+        the long-wave form is FAO-24 / Wright & Jensen 1972). Default: ``srad``. Measured on the
+        POTEVPHR dumps of 9 scenarios x 3 years: RTS and RTH differ by up to 0.11 MJ m-2 d-1,
+        and using RTS for both changes PE by up to 0.1 mm d-1 on days near the ``RN < 0`` switch
+        of :func:`net_radiation` (about 5e-3 mm d-1 on other days).
     wind_run : km d-1 at ``wind_height`` m. lai : green LAI; ``tlai`` total LAI (default = lai).
     height_cm : canopy height [cm]. params : :class:`PETParams`.
     theta_surface, wc13, wc15 : surface-layer water content and its 1/3-bar and 15-bar values.
@@ -719,7 +731,7 @@ def shuttleworth_wallace(
 
     1. wind adjusted to the reference height (:func:`wind_adjustment`);
     2. psychrometrics (:func:`energy_constants`);
-    3. clear-sky ``RCH`` (:func:`clear_sky_radiation`), ``RCH = max(RCH, srad)``;
+    3. clear-sky ``RCH`` (:func:`clear_sky_radiation`), ``RCH = max(RCH, RTH)``, RTH = ``srad_horizontal``;
     4. soil albedo (:func:`soil_albedo`), residue albedo (:func:`residue_albedo`);
     5. resistances (:func:`resistances`); ``rsc`` x 10 on the "night" test ``srad * 1e6 / 3.6e3 < 10``.
        Reference-model quirk: that is the hourly W m-2 test (MJ m-2 h-1 -> W m-2) applied to the
@@ -727,7 +739,7 @@ def shuttleworth_wallace(
        daily input. Kept as is to match the reference model (Rzpet.for line 1957); do not "fix"
        the conversion to the daily one (``/ 0.0864``) without changing the oracle comparison;
     6. canopy cover ``CCL = 1 - exp(-0.594 TLAI)``;
-    7. net long-wave ``RNL = -(a srad/RCH + b) (0.39 - 0.158 sqrt(ed)) sigma (Tmax_K^4 + Tmin_K^4)/2``
+    7. net long-wave ``RNL = -(a RTH/RCH + b) (0.39 - 0.158 sqrt(ed)) sigma (Tmax_K^4 + Tmin_K^4)/2``
        with ``(a, b)`` by rainfall zone and the ratio clipped to [0, 1];
     8. net radiation (:func:`net_radiation`);
     9. combination: with ``C1 = delta (Rn - G)``, ``C2 = 86400 rho_a c_p``, the Penman-Monteith
@@ -771,7 +783,8 @@ def shuttleworth_wallace(
     wind = wind_adjustment(wind_run, height_cm, wind_height, cf.wind)
     ec = energy_constants(tmin, tmax, rh, elevation, cf.econst)
     csr = clear_sky_radiation(doy, latitude, cf.maxsw)
-    rch = jnp.maximum(csr.total, srad)
+    srad_h = srad if srad_horizontal is None else jnp.asarray(srad_horizontal)
+    rch = jnp.maximum(csr.total, srad_h)
 
     a_soil = soil_albedo(
         theta_surface,
@@ -825,7 +838,7 @@ def shuttleworth_wallace(
     tl4 = _HALF * ((tmax + KELVIN_OFFSET) ** 4 + (tmin + KELVIN_OFFSET) ** 4)
     # sqrt floored at _EPS: d sqrt(x)/dx is infinite at x = 0 (rh = 0), the floor makes it zero
     rb0 = (pc.emissivity_a - pc.emissivity_b * jnp.sqrt(jnp.maximum(ec.ed, _EPS))) * pc.stefan_boltzmann * tl4
-    rsratio = jnp.clip(jnp.where(rch > 0.0, srad / jnp.maximum(rch, _EPS), 0.0), 0.0, 1.0)
+    rsratio = jnp.clip(jnp.where(rch > 0.0, srad_h / jnp.maximum(rch, _EPS), 0.0), 0.0, 1.0)
     rnl = -(a_lw * rsratio + b_lw) * rb0
 
     nr = net_radiation(srad, rnl, params.albedo_maturity, a_res, a_soil, ccl, cs, cf.netrad)
