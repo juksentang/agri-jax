@@ -1,6 +1,8 @@
 """Soil water: RZWQM-style implicit Richards (Brooks-Corey), Green-Ampt infiltration events, the day."""
 
 from .day import (
+    SOIL_WATER_LEDGER_INFLOWS,
+    SOIL_WATER_LEDGER_OUTFLOWS,
     DayConfig,
     SoilWaterDayForcing,
     SoilWaterDayParams,
@@ -8,6 +10,8 @@ from .day import (
     soil_water_day,
     soil_water_day_kernel,
     soil_water_day_replay,
+    soil_water_ledger,
+    soil_water_ledger_init,
 )
 from .infiltration import GreenAmptConfig, GreenAmptParams, StormForcing, green_ampt_event
 from .richards import (
@@ -27,6 +31,8 @@ from .sinks import SINK_CHANNELS, SINK_LEDGER_OUTFLOWS, SinkChannel, SinkChannel
 __all__ = [
     "SINK_CHANNELS",
     "SINK_LEDGER_OUTFLOWS",
+    "SOIL_WATER_LEDGER_INFLOWS",
+    "SOIL_WATER_LEDGER_OUTFLOWS",
     "DayConfig",
     "GreenAmptConfig",
     "GreenAmptParams",
@@ -51,4 +57,6 @@ __all__ = [
     "soil_water_day",
     "soil_water_day_kernel",
     "soil_water_day_replay",
+    "soil_water_ledger",
+    "soil_water_ledger_init",
 ]

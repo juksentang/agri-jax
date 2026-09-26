@@ -32,9 +32,20 @@ import numpy as np
 import pytest
 from jax import lax
 
+from agrijax.core import Day, Phase, State, run
+from agrijax.core.process import CHECK_ENV
 from agrijax.io.rzwqm import read_ana, read_brk, read_rzwqm_dat
 from agrijax.io.rzwqm.layers import read_layer_output
-from agrijax.processes.soil_water.day import DayConfig, SoilWaterDayParams, soil_water_day_kernel
+from agrijax.processes.soil_water.day import (
+    SOIL_WATER_LEDGER_OUTFLOWS,
+    DayConfig,
+    SoilWaterDayForcing,
+    SoilWaterDayParams,
+    soil_water_day,
+    soil_water_day_kernel,
+    soil_water_ledger,
+    soil_water_ledger_init,
+)
 from agrijax.processes.soil_water.hydraulics import SoilHydraulicParams
 from agrijax.processes.soil_water.infiltration import (
     GreenAmptConfig,
@@ -264,3 +275,60 @@ def test_level3_free_running_storage(catpa: Catpa2015Events) -> None:
     assert ga["infiltration"].sum() == pytest.approx(catpa.infiltration.sum(), abs=0.03)
     assert np.max(np.abs(ga["balance_error"])) < 1e-10
     assert ga["n_clamp"].sum() == 0.0
+
+
+class _LedgerState(State):
+    soil_water: SoilWater
+    ledger: dict
+
+
+def test_ledger_books_every_sink_channel_catpa_2015(
+    catpa: Catpa2015Events, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """H1 item 6: the free-running 2015 day through the runtime with the channel ledger as its last entry.
+
+    Every day closes to 1e-10 cm under ``AGRI_JAX_CHECK=1`` (96 sub-steps, 8 iterations, the
+    configuration whose ``balance_error`` is < 1e-10); each channel of ``SINK_LEDGER_OUTFLOWS`` is
+    booked (only ``uptake`` is non-zero at CA-TPA, the others exactly 0); the soil water is
+    bit-identical to the kernel scan without a ledger.
+    """
+    day = DayConfig(n_pre=0, n_post=96)
+    params = catpa.params(day, n_sub=96, n_iter=8)
+    sup, eva, upt, storm = catpa.forcing()
+    forcing = SoilWaterDayForcing(storm=storm, supply=sup, evaporation=eva, uptake=upt)
+    w0 = SoilWater.from_theta(jnp.full(catpa.grid.n_node, THETA_INIT), catpa.soil)
+    s0 = _LedgerState(soil_water=w0, ledger={"water": soil_water_ledger_init(w0, catpa.grid)})
+    model = Day(
+        ref="rzwqm2-4.6",
+        phases=(Phase("physcl", ("soil_water.day",)), Phase("ledger", ("ledger.close",))),
+    ).compile(
+        {"soil_water.day": soil_water_day, "ledger.close": soil_water_ledger()},
+        outputs=lambda s, p, f: (s.ledger["water"], s.soil_water.theta, s.soil_water.flux),
+    )
+    monkeypatch.setenv(CHECK_ENV, "1")
+    led, theta, flux = jax.jit(lambda f_, s_: run(model, params, f_, s_))(forcing, s0)
+    res = np.asarray(led.residual)
+    last = jax.tree_util.tree_map(lambda x: x[-1], led)
+    tout, tin = last.total_out(), last.total_in()
+    print(
+        "CA-TPA 2015 ledger: max |daily residual| =", np.max(np.abs(res)), "cm; whole-year closure =",
+        float(last.closure()), "cm; in =", {k: float(v) for k, v in tin.items()},
+        "out =", {k: float(v) for k, v in tout.items()},
+    )  # fmt: skip
+    assert res.shape == (len(catpa.days),)
+    assert np.max(np.abs(res)) < 1e-10
+    np.testing.assert_allclose(res, np.asarray(flux.balance_error), rtol=0, atol=1e-12)
+    assert abs(float(last.closure())) < 1e-10
+    for name in SOIL_WATER_LEDGER_OUTFLOWS:
+        daily = np.asarray(getattr(flux, name), np.float64)
+        assert float(tout[name]) == pytest.approx(float(np.sum(daily)), rel=1e-12, abs=1e-14), name
+    for name in ("tile", "lateral", "subirrigation", "macropore_to_drain"):
+        assert float(tout[name]) == 0.0, name
+    assert float(tout["uptake"]) > 0.0
+    assert float(tin["rain"]) == pytest.approx(float(catpa.rain[catpa.event].sum()), rel=1e-12)
+    assert float(tin["supply"]) == pytest.approx(float(catpa.supply.sum()), rel=1e-12)
+    # the ledger adds an entry and reads the day; it does not change the soil water (bit for bit)
+    ref = catpa.run(day, n_sub=96, n_iter=8)
+    np.testing.assert_array_equal(np.asarray(theta), ref["theta"])
+    for name in ("infiltration", "drainage", "runoff", "uptake", "evaporation", "balance_error"):
+        np.testing.assert_array_equal(np.asarray(getattr(flux, name)), ref[name], err_msg=name)

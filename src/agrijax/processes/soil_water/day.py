@@ -35,6 +35,14 @@ on (snowmelt on 195 days of 2015-2023, 10-25 cm per year, 80 % of it infiltratin
 has no snow yet, so the tests replay those days through ``supply``, and snow is added in the M3
 assembly.
 
+Water ledger: :func:`soil_water_ledger` is the day's ``ledger.close`` entry
+(:func:`agrijax.core.ledger.water_ledger`) and :func:`soil_water_ledger_init` its zero ledger.
+Storage is profile plus pond; the inflows are the prescribed surface supply and the event rain;
+the outflows are evaporation, drainage (seepage included), runoff (event runoff included) and
+**every sink channel** of :data:`~agrijax.processes.soil_water.sinks.SINK_LEDGER_OUTFLOWS`, each
+booked as its own cumulative channel (subirrigation as a negative outflow). The ledger residual is
+then the day's ``balance_error`` recomputed from the booked channels.
+
 Variants: ``soil_water_day`` (key ``soil_water/day@rzwqm2-4.6:faithful``, the Green-Ampt event
 with the branches CA-TPA uses) and ``soil_water_day_replay`` (``...:replay_flux``, the M1 day:
 the event is ignored and ``supply`` carries the water that infiltrates; bit-identical to
@@ -47,6 +55,7 @@ Water Quality Model, ch. 3 (event hydrology and redistribution); RZWQM2 ``PHYSCL
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import equinox as eqx
@@ -54,13 +63,15 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array
 
-from agrijax.core.process import check_enabled, process
+from agrijax.core.ledger import Channel, WaterLedger, water_ledger
+from agrijax.core.process import Process, check_enabled, process
 from agrijax.core.state import Forcing, Params, field
 
 from .coefficients import setting_field
 from .infiltration import GAResult, GreenAmptParams, StormForcing, green_ampt_event
 from .richards import (
     HOURS_PER_DAY,
+    RichardsGrid,
     RichardsParams,
     RichardsState,
     SoilWater,
@@ -71,9 +82,11 @@ from .richards import (
     richards_substeps,
     sink_fluxes,
 )
-from .sinks import SinkChannels, as_sink_channels
+from .sinks import SINK_LEDGER_OUTFLOWS, SinkChannels, as_sink_channels
 
 __all__ = [
+    "SOIL_WATER_LEDGER_INFLOWS",
+    "SOIL_WATER_LEDGER_OUTFLOWS",
     "DayConfig",
     "SoilWaterDayForcing",
     "SoilWaterDayParams",
@@ -82,6 +95,8 @@ __all__ = [
     "soil_water_day",
     "soil_water_day_kernel",
     "soil_water_day_replay",
+    "soil_water_ledger",
+    "soil_water_ledger_init",
 ]
 
 
@@ -385,3 +400,77 @@ def infiltration_ga(
     )
     new = w.replace(theta=ev.theta, h=_checked(ev.h, "infiltration_ga"), flux=flux)
     return eqx.tree_at(lambda s: s.soil_water, state, new)
+
+
+# ---------------------------------------------------------------------------
+# water ledger of the soil-water day (plan 19 A10, H1 item 6)
+# ---------------------------------------------------------------------------
+
+#: ledger inflows of the soil-water day (``supply`` from the forcing, ``rain`` the event rain)
+SOIL_WATER_LEDGER_INFLOWS: tuple[str, ...] = ("supply", "rain")
+
+#: ledger outflows: ``{name: state path of its daily total}``; the surface and bottom terms, then
+#: every sink channel of :data:`~agrijax.processes.soil_water.sinks.SINK_LEDGER_OUTFLOWS`
+SOIL_WATER_LEDGER_OUTFLOWS: dict[str, str] = {
+    "evaporation": "soil_water.flux.evaporation",
+    "drainage": "soil_water.flux.drainage",
+    "runoff": "soil_water.flux.runoff",
+    **SINK_LEDGER_OUTFLOWS,
+}
+
+
+def _day_grid(params: Any) -> RichardsGrid:
+    return params.richards.grid
+
+
+def _daily_supply(state: Any, params: Any, forcing_t: Any) -> Array:
+    """The day's prescribed surface supply [cm]: the 24 hourly rates [cm h-1] of 1 h each.
+
+    Source: plan 19 A10 (ledger inflow); SoilWaterDayForcing.supply.
+    """
+    return jnp.sum(forcing_t.supply, axis=-1)
+
+
+def soil_water_ledger(
+    *,
+    grid: Callable[[Any], RichardsGrid] = _day_grid,
+    supply: Channel = _daily_supply,
+    at: str = "ledger.water",
+    atol: float | None = None,
+    rtol: float | None = None,
+    name: str = "ledger.close",
+) -> Process:
+    """The ``ledger.close`` entry of the soil-water day, booking every sink channel separately.
+
+    ``grid(params)`` gives the node grid (default ``params.richards.grid``, for
+    :class:`SoilWaterDayParams`), ``supply`` the day's surface supply [cm] (default: the sum of
+    ``forcing_t.supply``). Storage is ``sum(theta * tl) + pond``. The channels are
+    :data:`SOIL_WATER_LEDGER_INFLOWS` and :data:`SOIL_WATER_LEDGER_OUTFLOWS`; start the ledger
+    with :func:`soil_water_ledger_init`.
+
+    Source: plan 19 A6 (sink channels) and A10 (water ledger); Ahuja et al. (2000) ch. 3 (water balance).
+    """
+
+    def storage(state: Any, params: Any, forcing_t: Any) -> Array:
+        w = state.soil_water
+        return jnp.sum(w.theta * grid(params).tl, axis=-1) + w.pond
+
+    return water_ledger(
+        storage=storage,
+        inflows={"supply": supply, "rain": "soil_water.flux.rain"},
+        outflows=SOIL_WATER_LEDGER_OUTFLOWS,
+        reads=("soil_water.theta", "soil_water.pond"),
+        at=at,
+        atol=atol,
+        rtol=rtol,
+        name=name,
+    )
+
+
+def soil_water_ledger_init(water: SoilWater, grid: RichardsGrid) -> WaterLedger:
+    """A zero ledger with the channels of :func:`soil_water_ledger`, storage from ``water``."""
+    return WaterLedger.init(
+        water.storage(grid) + water.pond,
+        inflows=SOIL_WATER_LEDGER_INFLOWS,
+        outflows=tuple(SOIL_WATER_LEDGER_OUTFLOWS),
+    )
