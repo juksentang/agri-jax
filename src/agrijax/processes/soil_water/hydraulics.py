@@ -125,8 +125,44 @@ to refresh them from the primary parameters exactly as ``SOILPR`` does.
 For ``ITYPE > 0`` (texture-class estimation, lines 4622-4835) RZWQM scales a
 reference curve so that it passes through the given ``fc13`` (or ``fc110``);
 that path is not implemented here since every scenario in the batch data
-uses ``ITYPE = 0``.  Tillage (``itill = 1``, ``Rzmain.for`` line 6398) and
-bulk-density change (``CHBD``) rescale the curves; not implemented either.
+uses ``ITYPE = 0``.  Tillage (``MATILL``, ``Rzman.for`` lines 2704-3121) and
+bulk-density change (``CHBD``) re-derive ``SOILHP`` through ``SOILPR``; that
+re-derivation is not implemented here (the new parameters are an input).
+
+Post-tillage two-segment curve (:class:`TilledSoilHydraulicParams`)
+-------------------------------------------------------------------
+
+After tillage has changed ``SOILHP`` the curves are not single-segment any
+more: tillage loosens the soil at the wet end, while the dry end, set by the
+texture, keeps the pre-tillage curve (Ahuja et al. 1998, changes of the water
+retention curve by tillage and reconsolidation; RZWQM manual, Ahuja et al.
+2000 ch. 3). RZWQM2 keeps a copy of the start-up parameters per horizon
+(``TRHYDP`` in ``WC``/``SPMOIS``/``WCH``, ``C22``/``SN22`` in ``POINTK``, saved by the
+``ISTAT = -1`` calls of ``TILADJ``, ``Rzmain.for`` lines 6436-6441, and the
+first ``SPMOIS``/``POINTK`` call per horizon) and evaluates, with ``c`` the
+current and ``o`` the original parameters and ``f = 10``:
+
+.. math::
+
+    \theta(h) = \begin{cases}
+        \theta_c(h)                                   & h \ge -f\,h_{b,c} \\
+        \theta_{r,o} + B_o\,|h|^{-\lambda_o}          & h < -f\,h_{b,c}
+    \end{cases}
+    \qquad
+    K(h) = \begin{cases}
+        K_c(h)                                        & h > -f\,h_{bk,c} \\
+        C_{2,o}\,|h|^{-\varepsilon_o}                 & h \le -f\,h_{bk,c}
+    \end{cases}
+
+``C(h)`` follows ``theta`` segment by segment (``SPMOIS``); the inverse ``h(theta)``
+(``WCH``) takes the original branch for ``theta <= theta_o(-f h_{b,o})`` below the
+linear segment of the current curve. Note the two thresholds: ``WC`` switches at
+the *current* ``-f hb``, ``WCH`` at the water content of the *original* curve at
+the *original* ``-f hb`` (``WC10S2``); both are reproduced as they are. The curve
+jumps at ``-f hb`` (by up to 4.8e-3 on the CA-TPA 2015 calls). With
+``original == current`` every function returns the single-segment values.
+Source lines: ``WC`` ``Rzrich.for`` 2033-2037, ``SPMOIS`` 1954-1958, ``WCH``
+2105 and 2123-2128, ``POINTK`` 860-864 and 875-876.
 
 Source: Ahuja, L.R., Rojas, K.W., Hanson, J.D., Shaffer, M.J., Ma, L. (eds.),
 2000. Root Zone Water Quality Model. Water Resources Publications, ch. 3;
@@ -154,14 +190,20 @@ __all__ = [
     "H_MIN",
     "H_WP",
     "RZWQM_HYDRAULICS",
+    "AnyHydraulicParams",
     "HydraulicsCoefficients",
     "SoilHydraulicParams",
+    "TilledSoilHydraulicParams",
     "c2_of_params",
     "c_of_h",
+    "c_of_h_tilled",
     "derive_rzwqm",
     "h_of_theta",
+    "h_of_theta_tilled",
     "k_of_h",
+    "k_of_h_tilled",
     "theta_of_h",
+    "theta_of_h_tilled",
 ]
 
 _REF = "rzwqm2-4.6"
@@ -175,7 +217,9 @@ class HydraulicsCoefficients(Coefficients):
     the coefficients here are the heads at which RZWQM2 evaluates the curve for its derived
     diagnostics (:func:`derive_rzwqm`) and the dry-end clamp of the state. They are conventions of the
     reference model (1/3 bar written as 333 cm, 15 bar as 15000 cm), declared with ``calibrate=False``;
-    the reference source writes the magnitudes (``333.0D0``, ``-15000.D0``).
+    the reference source writes the magnitudes (``333.0D0``, ``-15000.D0``). The two
+    ``tillage_split_*`` factors place the joint of the post-tillage two-segment curves
+    (:class:`TilledSoilHydraulicParams`), written ``10D0`` / ``10.0D0`` in the source.
     """
 
     h_fc13: float = coef(
@@ -236,6 +280,38 @@ class HydraulicsCoefficients(Coefficients):
         ),
         calibrate=False,
         fortran_name="HMIN",
+    )
+    tillage_split_retention: float = coef(
+        10.0,
+        "-",
+        "multiple of the current bubbling pressure hb below which (h < -f hb) the post-tillage "
+        "theta(h) and C(h) follow the pre-tillage curve; WCH switches at theta_orig(-f hb_orig)",
+        Provenance(
+            _REF,
+            file="RZWQM/Rzrich.for",
+            line=2033,
+            routine="WC",
+            paper="Ahuja et al. (1998), Soil Sci. Soc. Am. J. 62:1228-1233",
+            note="also SPMOIS (Rzrich.for:1954) and the WC10S2 threshold of WCH (Rzrich.for:2105); "
+            "a segment boundary where the curve jumps: zero derivative almost everywhere",
+        ),
+        calibrate=False,
+    )
+    tillage_split_conductivity: float = coef(
+        10.0,
+        "-",
+        "multiple of the current K-curve bubbling pressure hb_k at and below which (h <= -f hb_k) "
+        "the post-tillage K(h) follows the pre-tillage C2 |h|**(-eps)",
+        Provenance(
+            _REF,
+            file="RZWQM/Rzrich.for",
+            line=875,
+            routine="POINTK",
+            paper="Ahuja et al. (1998), Soil Sci. Soc. Am. J. 62:1228-1233",
+            note="pre-tillage C2 and eps are the C22/SN22 copies of the first call per horizon "
+            "(Rzrich.for:860-864); a segment boundary: zero derivative almost everywhere",
+        ),
+        calibrate=False,
     )
 
 
@@ -471,6 +547,59 @@ _ARRAY_FIELDS: tuple[str, ...] = (
 )
 
 
+class TilledSoilHydraulicParams(Params):
+    """Post-tillage hydraulics: the current parameters and the pre-tillage (start-up) ones.
+
+    RZWQM2 evaluates the current curve ``current`` (``SOILHP`` after tillage and
+    reconsolidation) near saturation and the start-up curve ``original`` (``TRHYDP``,
+    ``C22``/``SN22``) at the dry end, joined at ``-10 hb`` (see the module docstring and
+    :attr:`HydraulicsCoefficients.tillage_split_retention`). Both are full
+    :class:`SoilHydraulicParams` pytrees of the same shape, so every parameter of both
+    curves is a calibratable leaf. The hydraulic functions of this module accept this
+    class wherever they accept :class:`SoilHydraulicParams`; ``original == current`` gives
+    the single-segment values.
+    """
+
+    current: SoilHydraulicParams = field(
+        description="parameters of the curve now (after tillage / reconsolidation)", fortran_name="SOILHP"
+    )
+    original: SoilHydraulicParams = field(
+        description="start-up (pre-tillage) parameters, used below -10 hb",
+        fortran_name="TRHYDP",
+    )
+
+    def __check_init__(self) -> None:
+        if not isinstance(self.current, SoilHydraulicParams) or not isinstance(
+            self.original, SoilHydraulicParams
+        ):
+            raise TypeError("current and original must be SoilHydraulicParams")
+        if self.current.node_horizon != self.original.node_horizon:
+            raise ValueError("current and original must share the node -> horizon map")
+
+    @classmethod
+    def untilled(cls, params: SoilHydraulicParams) -> TilledSoilHydraulicParams:
+        """A soil before any tillage: the original curve is the current one."""
+        return cls(current=params, original=params)
+
+    @property
+    def hb(self) -> Array:
+        """Bubbling pressure of the current curve (the air-entry kink the solver works around)."""
+        return self.current.hb
+
+    @property
+    def n_horizon(self) -> int:
+        """Number of horizons."""
+        return self.current.n_horizon
+
+    def at_nodes(self) -> TilledSoilHydraulicParams:
+        """Gather both curves onto the node axis (see :meth:`SoilHydraulicParams.at_nodes`)."""
+        return TilledSoilHydraulicParams(current=self.current.at_nodes(), original=self.original.at_nodes())
+
+
+#: either parameter set accepted by the hydraulic functions
+AnyHydraulicParams = SoilHydraulicParams | TilledSoilHydraulicParams
+
+
 # ---------------------------------------------------------------------------
 # safe primitives
 # ---------------------------------------------------------------------------
@@ -504,13 +633,15 @@ def _prepare(h: Any, p: SoilHydraulicParams) -> tuple[Array, SoilHydraulicParams
 # ---------------------------------------------------------------------------
 
 
-def theta_of_h(h: Any, params: SoilHydraulicParams) -> Array:
+def theta_of_h(h: Any, params: AnyHydraulicParams) -> Array:
     """Volumetric water content ``theta(h)`` [cm3 cm-3] (RZWQM ``WC``).
 
     Vectorised over the shape of ``h``; ``params`` is gathered per node when it
     carries ``node_horizon``.  Both ``where`` branches are finite for every
     finite ``h``.
     """
+    if isinstance(params, TilledSoilHydraulicParams):
+        return theta_of_h_tilled(h, params)
     h, p = _prepare(h, params)
     absh = _clamp_min(-h, p.hb)  # BC branch argument: |h| >= hb, so the power is bounded by hb**-lambda
     theta_bc = p.theta_r + _beta(p) * absh ** (-p.lambda_)
@@ -519,7 +650,7 @@ def theta_of_h(h: Any, params: SoilHydraulicParams) -> Array:
     return jnp.where(h >= 0.0, p.theta_s, theta)
 
 
-def c_of_h(h: Any, params: SoilHydraulicParams) -> Array:
+def c_of_h(h: Any, params: AnyHydraulicParams) -> Array:
     """Specific moisture capacity ``C(h) = d theta / dh`` [cm-1] (RZWQM ``SPMOIS``).
 
     Piecewise: ``0`` for ``h >= 0``, ``a1`` on the linear segment, and
@@ -528,6 +659,8 @@ def c_of_h(h: Any, params: SoilHydraulicParams) -> Array:
     two joints (``h = -hb`` belongs to the Brooks-Corey segment, ``h = 0`` to
     the saturated one).
     """
+    if isinstance(params, TilledSoilHydraulicParams):
+        return c_of_h_tilled(h, params)
     h, p = _prepare(h, params)
     absh = _clamp_min(-h, p.hb)
     c_bc = _beta(p) * p.lambda_ * absh ** (-p.lambda_ - 1.0)
@@ -535,7 +668,7 @@ def c_of_h(h: Any, params: SoilHydraulicParams) -> Array:
     return jnp.where(h >= 0.0, 0.0, c)
 
 
-def h_of_theta(theta: Any, params: SoilHydraulicParams) -> Array:
+def h_of_theta(theta: Any, params: AnyHydraulicParams) -> Array:
     """Matric potential ``h(theta)`` [cm] (RZWQM ``WCH``), the inverse of :func:`theta_of_h`.
 
     * ``theta >= theta_s``: ``0`` (RZWQM keeps the old head there; saturation
@@ -551,6 +684,8 @@ def h_of_theta(theta: Any, params: SoilHydraulicParams) -> Array:
     far outside the model range: ``theta(H_CLAMP_RZWQM)`` exceeds it by at least
     0.0117 on every horizon.
     """
+    if isinstance(params, TilledSoilHydraulicParams):
+        return h_of_theta_tilled(theta, params)
     theta, p = _prepare(theta, params)
     span = p.theta_s - p.theta_r - p.a1 * p.hb  # theta range of the BC segment, > 0 for valid parameters
     se = (theta - p.theta_r) / _clamp_min(span, _SE_FLOOR)
@@ -577,7 +712,7 @@ def c2_of_params(params: SoilHydraulicParams) -> Array:
     return params.ksat * params.hb_k ** (params.eps - params.n1)
 
 
-def k_of_h(h: Any, params: SoilHydraulicParams) -> Array:
+def k_of_h(h: Any, params: AnyHydraulicParams) -> Array:
     """Hydraulic conductivity ``K(h)`` [cm hr-1] (RZWQM ``POINTK``).
 
     ``ksat`` for ``h >= 0``; ``ksat |h|**(-n1)`` on ``[-hb_k, 0)``; and
@@ -586,6 +721,8 @@ def k_of_h(h: Any, params: SoilHydraulicParams) -> Array:
     finite for ``n1 > 0`` as ``h -> 0-`` (RZWQM does not guard this; its
     reference classes all have ``n1 = 0`` so the segment is flat).
     """
+    if isinstance(params, TilledSoilHydraulicParams):
+        return k_of_h_tilled(h, params)
     h, p = _prepare(h, params)
     absh_dry = _clamp_min(-h, p.hb_k)
     k_dry = c2_of_params(p) * absh_dry ** (-p.eps)
@@ -593,6 +730,82 @@ def k_of_h(h: Any, params: SoilHydraulicParams) -> Array:
     k_wet = p.ksat * absh_wet ** (-p.n1)
     k = jnp.where(h >= -p.hb_k, k_wet, k_dry)
     return jnp.where(h >= 0.0, p.ksat, k)
+
+
+# ---------------------------------------------------------------------------
+# post-tillage two-segment curves (RZWQM2 WC / SPMOIS / WCH / POINTK with TRHYDP)
+# ---------------------------------------------------------------------------
+
+
+def _prepare_tilled(
+    x: Any, params: TilledSoilHydraulicParams
+) -> tuple[Array, SoilHydraulicParams, SoilHydraulicParams]:
+    p = params.at_nodes()
+    return jnp.asarray(x, dtype=jnp.result_type(float)), p.current, p.original
+
+
+def theta_of_h_tilled(
+    h: Any, params: TilledSoilHydraulicParams, coefficients: HydraulicsCoefficients = RZWQM_HYDRAULICS
+) -> Array:
+    """Post-tillage ``theta(h)`` (RZWQM ``WC`` with ``TRHYDP``, ``Rzrich.for`` 2033-2037).
+
+    The current curve (:func:`theta_of_h` of ``params.current``, bit for bit) for
+    ``h >= -f hb_current``; the original Brooks-Corey segment below, ``f`` =
+    ``coefficients.tillage_split_retention``. The original branch's argument is clamped to
+    ``|h| >= f hb_current`` so that it is finite wherever it is not selected.
+    """
+    h, c, o = _prepare_tilled(h, params)
+    split = coefficients.tillage_split_retention * c.hb
+    absh = _clamp_min(-h, split)
+    theta_orig = o.theta_r + _beta(o) * absh ** (-o.lambda_)
+    return jnp.where(h < -split, theta_orig, theta_of_h(h, c))
+
+
+def c_of_h_tilled(
+    h: Any, params: TilledSoilHydraulicParams, coefficients: HydraulicsCoefficients = RZWQM_HYDRAULICS
+) -> Array:
+    """Post-tillage ``C(h)`` (RZWQM ``SPMOIS`` with ``TRHYDP``, ``Rzrich.for`` 1954-1958).
+
+    The derivative of :func:`theta_of_h_tilled` on each segment (the jump at ``-f hb`` has
+    no derivative; RZWQM ignores it the same way).
+    """
+    h, c, o = _prepare_tilled(h, params)
+    split = coefficients.tillage_split_retention * c.hb
+    absh = _clamp_min(-h, split)
+    c_orig = _beta(o) * o.lambda_ * absh ** (-o.lambda_ - 1.0)
+    return jnp.where(h < -split, c_orig, c_of_h(h, c))
+
+
+def h_of_theta_tilled(
+    theta: Any, params: TilledSoilHydraulicParams, coefficients: HydraulicsCoefficients = RZWQM_HYDRAULICS
+) -> Array:
+    """Post-tillage ``h(theta)`` (RZWQM ``WCH`` with ``TRHYDP``/``WC10S2``, ``Rzrich.for`` 2105, 2123-2128).
+
+    The original inverse where ``theta`` is at or below ``theta_o(-f hb_o)`` (the water
+    content of the *original* curve at the *original* split head, ``WC10S2``) and below the
+    linear segment of the current curve; :func:`h_of_theta` of ``params.current`` elsewhere.
+    """
+    theta, c, o = _prepare_tilled(theta, params)
+    theta_split = o.theta_r + _beta(o) * (coefficients.tillage_split_retention * o.hb) ** (-o.lambda_)
+    below_lin = theta < c.theta_s - c.a1 * c.hb
+    return jnp.where((theta <= theta_split) & below_lin, h_of_theta(theta, o), h_of_theta(theta, c))
+
+
+def k_of_h_tilled(
+    h: Any, params: TilledSoilHydraulicParams, coefficients: HydraulicsCoefficients = RZWQM_HYDRAULICS
+) -> Array:
+    """Post-tillage ``K(h)`` (RZWQM ``POINTK`` with ``C22``/``SN22``, ``Rzrich.for`` 860-864, 875-876).
+
+    ``C2_o |h|**(-eps_o)`` at and below ``-f hb_k,current`` (``C2_o`` from
+    :func:`c2_of_params` of the original parameters, the value ``SOILPR`` stored at
+    start-up), :func:`k_of_h` of ``params.current`` above; ``f`` =
+    ``coefficients.tillage_split_conductivity``.
+    """
+    h, c, o = _prepare_tilled(h, params)
+    split = coefficients.tillage_split_conductivity * c.hb_k
+    absh = _clamp_min(-h, split)
+    k_orig = c2_of_params(o) * absh ** (-o.eps)
+    return jnp.where(h <= -split, k_orig, k_of_h(h, c))
 
 
 def derive_rzwqm(

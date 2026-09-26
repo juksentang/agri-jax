@@ -142,7 +142,7 @@ from agrijax.core.process import check_enabled, process
 from agrijax.core.state import Forcing, Params, State, field
 
 from .coefficients import numerical_setting, rzwqm2, setting_field
-from .hydraulics import H_CLAMP_RZWQM, SoilHydraulicParams, h_of_theta, k_of_h, theta_of_h
+from .hydraulics import H_CLAMP_RZWQM, AnyHydraulicParams, h_of_theta, k_of_h, theta_of_h
 from .sinks import SINK_CHANNELS, SinkChannels, as_sink_channels
 
 __all__ = [
@@ -428,7 +428,7 @@ class RichardsConfig(eqx.Module):
 class RichardsParams(Params):
     """Parameters of the Richards redistribution process."""
 
-    soil: SoilHydraulicParams
+    soil: AnyHydraulicParams
     grid: RichardsGrid
     h_min: Array = field(
         dims=(),
@@ -529,14 +529,14 @@ class SoilWater(State):
     pond: Array = field(dims=(), unit="cm", description="surface ponding depth")
 
     @classmethod
-    def from_theta(cls, theta: Any, soil: SoilHydraulicParams) -> SoilWater:
+    def from_theta(cls, theta: Any, soil: AnyHydraulicParams) -> SoilWater:
         """Initial state from a water-content profile (``h = h(theta)``, RZWQM ``WCH``)."""
         th = jnp.asarray(theta, dtype=jnp.result_type(float))
         h = h_of_theta(th, soil)
         return cls(h=h, theta=theta_of_h(h, soil), pond=jnp.zeros((), th.dtype), flux=_zero_fluxes(th.dtype))
 
     @classmethod
-    def from_head(cls, h: Any, soil: SoilHydraulicParams) -> SoilWater:
+    def from_head(cls, h: Any, soil: AnyHydraulicParams) -> SoilWater:
         """Initial state from a head profile (``theta = theta(h)``)."""
         hh = jnp.asarray(h, dtype=jnp.result_type(float))
         return cls(
@@ -581,7 +581,7 @@ def _zero_fluxes(dtype: Any) -> SoilWaterFluxes:
 class _StepArgs(NamedTuple):
     """Differentiable inputs of one sub-step solve (``soil`` already gathered on the nodes)."""
 
-    soil: SoilHydraulicParams
+    soil: AnyHydraulicParams
     tl: Array
     delz: Array
     dz_top: Array
@@ -821,7 +821,7 @@ def richards_step(
     h: Array,
     theta: Array,
     pond: Array,
-    soil: SoilHydraulicParams,
+    soil: AnyHydraulicParams,
     grid: RichardsGrid,
     supply: Array,
     evaporation: Array,
@@ -839,7 +839,9 @@ def richards_step(
     ``[n_channel, n]`` one row per channel in the order
     :data:`~agrijax.processes.soil_water.sinks.SINK_CHANNELS` (each row capped by the water left
     after the rows before it). ``soil`` must already be on the node axis
-    (``SoilHydraulicParams.at_nodes()``).
+    (``SoilHydraulicParams.at_nodes()``); a
+    :class:`~agrijax.processes.soil_water.hydraulics.TilledSoilHydraulicParams` selects RZWQM2's
+    post-tillage two-segment curves (current above ``-10 hb``, pre-tillage below).
 
     Source: Celia et al. (1990) mixed form; Ahuja et al. (2000) ch. 3; RZWQM2 ``RICHRD``/``CHKBC``.
     """

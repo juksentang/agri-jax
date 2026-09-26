@@ -1,6 +1,7 @@
 """Coefficients of the Brooks-Corey hydraulic functions (``soil_water/hydraulics.py``).
 
-* the reference heads of RZWQM2 (1/3 bar, 1/10 bar, 15 bar, dry-end clamp) are declared once with
+* the reference heads of RZWQM2 (1/3 bar, 1/10 bar, 15 bar, dry-end clamp) and the two joints of the
+  post-tillage two-segment curves (``10 hb`` in ``WC``, ``10 hb_k`` in ``POINTK``) are declared once with
   unit, meaning and an RZWQM2 provenance (file, line, routine, published source; no source text);
   they are conventions of the reference, not calibrated;
 * the module constants ``H_FC13 H_FC110 H_WP H_CLAMP_RZWQM`` are the declared defaults, and the
@@ -38,13 +39,18 @@ def _params() -> H.SoilHydraulicParams:
 
 def test_reference_heads_are_declared_with_rzwqm2_provenance() -> None:
     rows = coefficient_table(H.RZWQM_HYDRAULICS)
-    assert [r["path"] for r in rows] == ["h_fc13", "h_fc110", "h_wp", "h_clamp"]
-    assert [r["value"] for r in rows] == [-333.0, -100.0, -15000.0, -15000.0]
+    assert [r["path"] for r in rows] == [
+        "h_fc13", "h_fc110", "h_wp", "h_clamp", "tillage_split_retention", "tillage_split_conductivity",
+    ]  # fmt: skip
+    assert [r["value"] for r in rows] == [-333.0, -100.0, -15000.0, -15000.0, 10.0, 10.0]
     for r in rows:
-        assert r["unit"] == "cm" and r["description"].strip()
+        heads = not r["path"].startswith("tillage_split")
+        assert r["unit"] == ("cm" if heads else "-") and r["description"].strip()
         assert r["ref_version"] == "rzwqm2-4.6" and r["statement"] == "" and r["paper"]
-        assert r["file"] in {"RZWQM/RZTEST.for", "RZWQM/Rzmain.for"} and r["line"] and r["routine"]
+        files = {"RZWQM/RZTEST.for", "RZWQM/Rzmain.for"} if heads else {"RZWQM/Rzrich.for"}
+        assert r["file"] in files and r["line"] and r["routine"]
         assert not r["calibratable"] and not r["static"]
+    assert {r["routine"] for r in rows if r["path"].startswith("tillage_split")} == {"WC", "POINTK"}
 
 
 def test_module_constants_are_the_declared_defaults_and_guards() -> None:
