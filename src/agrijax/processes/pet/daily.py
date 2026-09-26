@@ -26,7 +26,8 @@ import jax.numpy as jnp
 from jaxtyping import Array
 
 from agrijax.core.process import process
-from agrijax.core.state import Forcing, Params, State, field
+from agrijax.core.state import Params, State, field
+from agrijax.iface.surface import DailyWeather, PETFluxes
 
 from .coefficients import PET_COEFFICIENTS, PETCoefficients
 from .penman_monteith import asce_reference_et
@@ -95,29 +96,6 @@ class SurfaceState(State):
     )
 
 
-class PETFluxes(State):
-    """Potential fluxes written by the PET processes."""
-
-    transpiration: Array = field(
-        dims=(), unit="cm d-1", description="S-W potential transpiration", fortran_name="PET"
-    )
-    soil_evaporation: Array = field(
-        dims=(), unit="cm d-1", description="S-W potential soil evaporation", fortran_name="PES"
-    )
-    residue_evaporation: Array = field(
-        dims=(), unit="cm d-1", description="S-W potential residue evaporation", fortran_name="PER"
-    )
-    reference_short: Array = field(
-        dims=(), unit="mm d-1", description="ASCE short-reference ET (grass)", fortran_name="ETO"
-    )
-    reference_tall: Array = field(
-        dims=(), unit="mm d-1", description="ASCE tall-reference ET (alfalfa)", fortran_name="ETR"
-    )
-    eo_priestley_taylor: Array = field(
-        dims=(), unit="mm d-1", description="DSSAT PETPT potential ET", fortran_name="EO"
-    )
-
-
 class PETState(State):
     """State slice of the PET processes."""
 
@@ -180,17 +158,6 @@ class PETSiteParams(Params):
     def coeffs(self) -> PETCoefficients:
         """The coefficients in force: :attr:`coefficients`, or :data:`~.coefficients.PET_COEFFICIENTS`."""
         return PET_COEFFICIENTS if self.coefficients is None else self.coefficients
-
-
-class DailyWeather(Forcing):
-    """Daily weather forcing of the PET processes (time axis first when stacked)."""
-
-    tmin: Array = field(unit="degC", dims="T", fortran_name="TMIN")
-    tmax: Array = field(unit="degC", dims="T", fortran_name="TMAX")
-    srad: Array = field(unit="MJ m-2 d-1", dims="T", fortran_name="RTS")
-    rh: Array = field(unit="percent", dims="T", fortran_name="RH")
-    wind_run: Array = field(unit="km d-1", dims="T", fortran_name="U")
-    doy: Array = field(unit="d", dims="T", fortran_name="JDAY")
 
 
 @process(

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 import textwrap
@@ -603,3 +604,76 @@ def test_kernel_and_processes_options(tmp_path: Path) -> None:
     rules = {x.rule for x in lint.lint_file(h, kernel=True, processes=("body",))}
     assert {"AJ004", "AJ005", "AJ007"} <= rules  # a call-form process gets every rule
     assert {x.rule for x in lint.lint_file(h, kernel=True)} == {"AJ007"}
+
+
+# AJ008 below the slots: core and iface import no processes module; iface only core and iface
+BELOW_SRC = """
+import numpy as np
+from agrijax.core.state import State
+from agrijax.processes.soil_water.uptake import RootRecord
+from ..processes.pet import daily
+from .. import processes
+from agrijax import processes as p
+from agrijax.models import day_rzwqm46
+from . import crop
+from .. import core
+
+
+def f():
+    import agrijax.processes.pet
+    from agrijax.io import catpa
+"""
+
+
+def _below(path: Path) -> list[int]:
+    out = []
+    for f in lint.lint_file(path):
+        assert f.rule == "AJ008" and f.level == "warning"
+        out.append(f.line)
+    return out
+
+
+def test_aj008_iface_imports_only_core_and_iface(tmp_path: Path) -> None:
+    f = tmp_path / "src" / "agrijax" / "iface" / "m.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(BELOW_SRC)
+    # processes (absolute, relative, inside a function) and any other agrijax package are reported
+    assert _below(f) == [4, 5, 6, 7, 8, 14, 15]
+    msg = next(x.message for x in lint.lint_file(f) if x.line == 8)
+    assert "agrijax/iface imports agrijax.models" in msg
+
+
+def test_aj008_core_imports_no_processes_module(tmp_path: Path) -> None:
+    f = tmp_path / "agrijax" / "core" / "m.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(BELOW_SRC)
+    # core may import other agrijax packages lazily (io), never processes
+    assert _below(f) == [4, 5, 6, 7, 14]
+    assert lint.main([str(f), "--strict"]) == 1 and lint.main([str(f), "--strict", "--ignore", "AJ008"]) == 0
+
+
+def test_module_imports_and_import_closure(tmp_path: Path) -> None:
+    tree = ast.parse("from ..processes.pet import daily\nfrom . import crop\nimport a.b\nfrom x import *\n")
+    nodes = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
+    got = [lint.module_imports(n, ("agrijax", "iface")) for n in nodes]
+    assert got == [
+        ["agrijax.processes.pet", "agrijax.processes.pet.daily"],
+        ["agrijax.iface", "agrijax.iface.crop"],
+        ["a.b"],
+        ["x"],
+    ]
+    root = tmp_path / "pkg"
+    (root / "sub").mkdir(parents=True)
+    (root / "__init__.py").write_text("")
+    (root / "a.py").write_text("from .sub import b\n")
+    (root / "sub" / "__init__.py").write_text("import numpy\n")
+    (root / "sub" / "b.py").write_text("def f():\n    from pkg import c\n")
+    (root / "c.py").write_text("")
+    assert lint.import_closure(["pkg.a"], tmp_path) == {
+        "pkg": "",
+        "pkg.a": "",
+        "pkg.sub": "pkg.a",
+        "pkg.sub.b": "pkg.a",
+        "pkg.c": "pkg.sub.b",
+    }
+    assert set(lint.import_closure(["pkg.a"], tmp_path, depth=1)) == {"pkg", "pkg.a", "pkg.sub", "pkg.sub.b"}

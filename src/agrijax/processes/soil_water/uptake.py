@@ -56,6 +56,7 @@ from agrijax.core.coefficients import Coefficients, Provenance, coef, numerical_
 from agrijax.core.ports import port
 from agrijax.core.process import process
 from agrijax.core.state import Forcing, Params, State, field
+from agrijax.iface.crop import CropWaterIn, RootRecord
 
 __all__ = [
     "ROOTWU_COEFFICIENTS",
@@ -192,79 +193,6 @@ _DEN_MIN = numerical_guard(
 _C = ("n_crop",)
 _CL = ("n_crop", "n_layer")
 _L = ("n_layer",)
-
-
-# ------------------------------------------------------------------------ interface records
-class CropWaterIn(State):
-    """The water a crop sees each day (bound to ``iface.crop_water.<slot>``).
-
-    ``sw`` is on the crop's layers and shared by the crops of a sample (``[n_layer]``); ``eop`` and
-    ``trwup`` are per crop. In DSSAT-CSM these are SPAM's ``SW``, ``EOP`` and ``TRWUP`` passed to
-    PLANT [LAND.for]; in RZWQM2 with an embedded DSSAT crop (``ISTRESS = 0``) the node water
-    mapped to the crop layers, ``EOP = 10 PET`` and ``ROOTWU``'s ``TRWUP``.
-    """
-
-    sw: Array = field(
-        unit="cm3 cm-3",
-        description="soil water content of the crop layers",
-        fortran_name="SW",
-        dims=_L,
-        grid="dssat_layers",
-    )
-    eop: Array = field(unit="mm d-1", description="potential transpiration", fortran_name="EOP", dims=_C)
-    trwup: Array = field(
-        unit="cm d-1", description="potential root water uptake", fortran_name="TRWUP", dims=_C
-    )
-
-    @classmethod
-    def zeros(cls, n_crop: int, n_layer: int, dtype: Any = None) -> CropWaterIn:
-        """An all-zero record (``n_crop`` crops, ``n_layer`` layers)."""
-        dt = dtype if dtype is not None else jnp.result_type(float)
-        return cls(
-            sw=jnp.zeros((n_layer,), dtype=dt),
-            eop=jnp.zeros((n_crop,), dtype=dt),
-            trwup=jnp.zeros((n_crop,), dtype=dt),
-        )
-
-
-class RootRecord(State):
-    """What a crop publishes each day for the uptake producers (bound to ``iface.root.<slot>``).
-
-    DSSAT's PLANT outputs ``RLV, RWUMX, PORMIN, XHLAI`` and SPAM reads them on its next call
-    [LAND.for], so a producer running before the crop on day ``d`` sees the record of day
-    ``d - 1``. ``rwumx`` and ``pormin`` are species parameters published as state, so their
-    gradient flows through the record.
-    """
-
-    rlv: Array = field(
-        unit="cm cm-3", description="root length density", fortran_name="RLV", dims=_CL, grid="dssat_layers"
-    )
-    rtdep: Array = field(unit="cm", description="rooting depth", fortran_name="RTDEP", dims=_C)
-    rwumx: Array = field(
-        unit="cm3 cm-1 d-1",
-        description="maximum water uptake per unit root length",
-        fortran_name="RWUMX",
-        dims=_C,
-    )
-    pormin: Array = field(
-        unit="cm3 cm-3",
-        description="minimum air-filled porosity for root function",
-        fortran_name="PORMIN",
-        dims=_C,
-    )
-    xhlai: Array = field(
-        unit="m2 m-2",
-        description="healthy leaf area index (ROOTWU runs when > 0)",
-        fortran_name="XHLAI",
-        dims=_C,
-    )
-
-    @classmethod
-    def zeros(cls, n_crop: int, n_layer: int, dtype: Any = None) -> RootRecord:
-        """An all-zero record (no roots, no canopy)."""
-        dt = dtype if dtype is not None else jnp.result_type(float)
-        c = jnp.zeros((n_crop,), dtype=dt)
-        return cls(rlv=jnp.zeros((n_crop, n_layer), dtype=dt), rtdep=c, rwumx=c, pormin=c, xhlai=c)
 
 
 class SoilView(eqx.Module):

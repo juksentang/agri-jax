@@ -9,7 +9,8 @@ Scope
   and do not apply to kernels that return NamedTuples or arrays;
 * ``--all`` applies every rule to every function in every file;
 * AJ008 is a file-level rule: it checks the import statements of every file under a
-  ``processes/`` directory, whatever the functions in it.
+  ``processes/`` directory, and of every file of ``agrijax/core/`` and ``agrijax/iface/``,
+  whatever the functions in it.
 
 Arguments that are static by convention are not traced: ``self``/``cls``, and arguments
 annotated ``bool``, ``int``, ``str``, ``float`` or ``Literal[...]`` (optionally ``| None``);
@@ -63,7 +64,12 @@ AJ008  warning  An import of another slot's package from code under ``processes/
                 <pkg>.processes.<b>``, ``from <pkg>.processes.<b> import ...``, ``from
                 <pkg>.processes import <b>`` and relative imports that climb into ``processes/<b>``
                 (``from ...pet import x``) are reported for every ``b != a``, also inside
-                functions. ``--strict`` enforces it (the tree has no AJ008 finding).
+                functions. The same rule keeps the port records below the slots: a file of
+                ``agrijax/core/`` or ``agrijax/iface/`` that imports any ``agrijax.processes``
+                module is reported, and a file of ``agrijax/iface/`` may import only
+                ``agrijax.core``, ``agrijax.iface`` and third-party packages (so that the
+                records' import closure is ``iface`` plus ``core``; :func:`import_closure` checks
+                it transitively). ``--strict`` enforces it (the tree has no AJ008 finding).
 
 Usage::
 
@@ -94,11 +100,13 @@ __all__ = [
     "Finding",
     "checked_functions",
     "count_by_file",
+    "import_closure",
     "import_slot",
     "lint_file",
     "lint_paths",
     "lint_source",
     "main",
+    "module_imports",
     "slot_of_path",
 ]
 
@@ -110,7 +118,10 @@ RULES: dict[str, tuple[str, str]] = {
     "AJ005": ("warning", "missing docstring or no 'Source:' line"),
     "AJ006": ("error", "Python loop over a shape-derived range or an array (unrolled layer loop)"),
     "AJ007": ("warning", "bare numeric literal in process or kernel code"),
-    "AJ008": ("warning", "import of another slot's package from code under processes/"),
+    "AJ008": (
+        "warning",
+        "import of another slot's package from code under processes/ (or of processes from core/, iface/)",
+    ),
 }
 #: warnings that ``--strict`` does not turn into failures (each has its own ``--strict-<rule>``);
 #: empty since every module's coefficients are labelled and AJ007 is enforced
@@ -807,7 +818,135 @@ def import_slot(node: ast.Import | ast.ImportFrom, package: Sequence[str]) -> li
     return []
 
 
+#: packages of ``agrijax`` below the slots: they never import ``agrijax.processes``
+_BELOW_SLOTS: tuple[str, ...] = ("core", "iface")
+#: what a file of ``agrijax/iface/`` may import from ``agrijax`` (its closure stays iface + core)
+_IFACE_MAY_IMPORT: tuple[str, ...] = ("agrijax.core", "agrijax.iface")
+
+
+def _below_slots_package(path: str | Path) -> tuple[str, ...] | None:
+    """The package parts (``("agrijax", "iface")``) of a file of ``agrijax/core/`` or
+    ``agrijax/iface/`` (or a subpackage of them), else ``None``."""
+    dirs = Path(path).parts[:-1]
+    for i in range(len(dirs) - 1, 0, -1):
+        if dirs[i - 1] == "agrijax" and dirs[i] in _BELOW_SLOTS:
+            return tuple(dirs[i - 1 :])
+    return None
+
+
+def module_imports(node: ast.Import | ast.ImportFrom, package: Sequence[str]) -> list[str]:
+    """The dotted modules an import statement names, resolved against the importing file's
+    package ``package`` (``("agrijax", "iface")``): ``import a.b`` -> ``a.b``; ``from a import
+    b`` -> ``a`` and ``a.b`` (``b`` may be a submodule); ``from .. import x`` relative to
+    ``package``. A relative import that climbs above the top package names nothing."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    module = node.module.split(".") if node.module else []
+    if node.level == 0:
+        base = module
+    else:
+        up = node.level - 1
+        if up >= len(package):
+            return []
+        base = [*package[: len(package) - up], *module]
+    if not base:
+        return []
+    head = ".".join(base)
+    return [head, *(f"{head}.{a.name}" for a in node.names if a.name != "*")]
+
+
+def _is_processes_module(dotted: str) -> bool:
+    parts = dotted.split(".")
+    return len(parts) >= 2 and parts[0] == "agrijax" and parts[1] == _KERNEL_DIR
+
+
+def _check_below_slots(tree: ast.AST, path: str, package: tuple[str, ...]) -> list[Finding]:
+    level, msg = RULES["AJ008"]
+    where = "/".join(package)
+    iface = package[1] == "iface"
+    out: list[Finding] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        names = module_imports(node, package)
+        bad = [m for m in names if _is_processes_module(m)]
+        if iface:
+            bad += [
+                m
+                for m in names
+                if m.split(".")[0] == "agrijax"
+                and m != "agrijax"
+                and not _is_processes_module(m)
+                and not any(m == p or m.startswith(p + ".") for p in _IFACE_MAY_IMPORT)
+            ]
+        if bad:
+            out.append(
+                Finding(
+                    "AJ008",
+                    level,
+                    path,
+                    node.lineno,
+                    node.col_offset,
+                    f"{msg}: {where} imports {bad[0]}; "
+                    + (
+                        "the port records import only agrijax.core, agrijax.iface and third-party packages"
+                        if iface
+                        else "core imports no agrijax.processes module"
+                    ),
+                )
+            )
+    return out
+
+
+def _module_file(dotted: str, src: Path) -> Path | None:
+    base = src.joinpath(*dotted.split("."))
+    for cand in (base.with_suffix(".py"), base / "__init__.py"):
+        if cand.is_file():
+            return cand
+    return None
+
+
+def import_closure(roots: Iterable[str], src: str | Path, *, depth: int | None = None) -> dict[str, str]:
+    """The modules of the roots' top package that importing ``roots`` can load, transitively over
+    every import statement of their source (also inside functions and ``if TYPE_CHECKING:``),
+    with the parent packages each import runs: ``{module: the module that imports it}``. Modules
+    are resolved as files under ``src`` (the directory that holds the top package); third-party
+    and unresolvable names are skipped. ``depth=1`` gives the direct imports only."""
+    src = Path(src)
+    tops = {r.split(".")[0] for r in roots}
+    seen: dict[str, str] = {}
+    todo: list[tuple[str, str, int]] = [(r, "", 0) for r in roots]
+
+    def with_parents(dotted: str) -> list[str]:
+        parts = dotted.split(".")
+        return [".".join(parts[: i + 1]) for i in range(len(parts))]
+
+    while todo:
+        mod, via, d = todo.pop()
+        for m in with_parents(mod):
+            if m in seen or m.split(".")[0] not in tops:
+                continue
+            file = _module_file(m, src)
+            if file is None:
+                continue
+            seen[m] = via
+            if depth is not None and d >= depth:
+                continue
+            package = tuple(m.split(".")) if file.name == "__init__.py" else tuple(m.split(".")[:-1])
+            try:
+                tree = ast.parse(file.read_text(encoding="utf-8"), filename=str(file))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    todo.extend((n, m, d + 1) for n in module_imports(node, package))
+    return seen
+
+
 def _check_aj008(tree: ast.AST, path: str) -> list[Finding]:
+    below = _below_slots_package(path)
+    if below is not None:
+        return _check_below_slots(tree, path, below)
     where = slot_of_path(path)
     if where is None:
         return []
@@ -890,7 +1029,8 @@ def lint_source(
     as a kernel wherever the file is (the conformance kit uses it for a plugin whose kernels are
     not under a ``processes/`` directory); ``None`` decides by the path. ``processes`` names
     functions that are processes although not decorated (``p = process(fn, ...)``): they get every
-    rule. AJ008 runs on the imports of every file under ``processes/``.
+    rule. AJ008 runs on the imports of every file under ``processes/``, ``agrijax/core/`` and
+    ``agrijax/iface/``.
     """
     try:
         tree = ast.parse(source, filename=path)

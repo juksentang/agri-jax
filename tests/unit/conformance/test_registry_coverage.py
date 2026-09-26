@@ -12,6 +12,7 @@ import pytest
 
 import agrijax.models
 import agrijax.processes
+from agrijax.core.ports import NAMESPACES, RESERVED_NAMESPACES
 from agrijax.core.process import registry
 from agrijax.testing.conformance import (
     EXEMPT,
@@ -72,7 +73,11 @@ def test_first_cases_cover_crop_uptake_grids_and_pet() -> None:
 def test_cases_name_their_slot_contract_and_own_path() -> None:
     for c in builtin_cases():
         assert c.contract_name is None or c.contract_name in SLOT_CONTRACTS, c.key
-        assert c.own_path.split(".", 1)[0] in {"crops", "soil_water", "surface", "iface"}, c.key
+        assert c.own_path.split(".", 1)[0] in {*NAMESPACES, *RESERVED_NAMESPACES}, c.key
+    # the producers of P1 trwup and P10 live outside the crop subtree (M3 contract section 11, items 1-2)
+    assert (
+        DEFAULT_OWN["water_supply"] == "water_supply.{slot}" and DEFAULT_OWN["n_supply"] == "n_supply.{slot}"
+    )
     assert set(DEFAULT_OWN) <= set(SLOT_CONTRACTS)
 
 

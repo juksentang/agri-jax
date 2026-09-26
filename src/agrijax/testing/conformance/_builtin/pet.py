@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import jax
 import numpy as np
 
 from agrijax.processes.pet import PET_COEFFICIENTS, PETParams
@@ -90,8 +89,8 @@ _WEATHER = ("tmin", "tmax", "srad", "rh", "wind_run", "doy")
 
 
 def cases() -> list[ConformanceCase]:
-    # the upcast needs float64 to exist: with x64 disabled there is nothing to exempt
-    upcast = {"precision": _UPCAST} if jax.config.read("jax_enable_x64") else {}
+    # the upcast needs float64 to exist: only the float32 part under x64 is exempt
+    upcast = {"precision": _UPCAST}
     return [
         ConformanceCase(
             key="pet/shuttleworth_wallace@rzwqm2-4.6:faithful",
@@ -101,7 +100,7 @@ def cases() -> list[ConformanceCase]:
             grad=GradSpec(edge_variants=("bare", "cold")),
             coefficient_sets=("coefficients.sw",),
             forcing_fields=_WEATHER,
-            exempt_checks=upcast,
+            exempt_float32_x64=upcast,
         ),
         ConformanceCase(
             key="pet/asce_reference@asce-ewri-2005:faithful",
@@ -111,7 +110,8 @@ def cases() -> list[ConformanceCase]:
             grad=GradSpec(edge_variants=("cold",)),
             coefficient_sets=("coefficients.asce",),
             forcing_fields=_WEATHER,
-            exempt_checks={**upcast, "registry": _REF_BUILD},
+            exempt_float32_x64=upcast,
+            exempt_checks={"registry": _REF_BUILD},
             # batched, XLA evaluates the tall-reference expression with 1-2 ulp difference
             transforms_exact=False,
         ),
@@ -123,6 +123,6 @@ def cases() -> list[ConformanceCase]:
             grad=GradSpec(edge_variants=("bare", "cold")),
             coefficient_sets=("coefficients.pt",),
             forcing_fields=("tmin", "tmax", "srad"),
-            exempt_checks=upcast,
+            exempt_float32_x64=upcast,
         ),
     ]

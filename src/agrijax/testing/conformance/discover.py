@@ -30,18 +30,10 @@ __all__ = ["ENTRY_POINT_GROUP", "EXEMPT", "builtin_cases", "discover", "load_pro
 ENTRY_POINT_GROUP = "agrijax.conformance"
 _BUILTIN_VALUE = "agrijax.testing.conformance.discover:builtin_cases"
 
-_H1 = (
-    "the soil-water package is being changed by the H1 hardening workflow on main; its cases are "
-    "written after that work merges (M3 contract, section 4.6)"
-)
 _DEMO = "a demonstration model (ref_version none, variant demo), not an assembly slot"
 
 #: registry keys of this repository without a case yet: key -> reason
 EXEMPT: dict[str, str] = {
-    "soil_water/day@rzwqm2-4.6:faithful": _H1,
-    "soil_water/day@rzwqm2-4.6:replay_flux": _H1,
-    "soil_water/infiltration_ga@rzwqm2-4.6:faithful": _H1,
-    "soil_water/richards@rzwqm2-4.6:faithful": _H1,
     "pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy": (
         "the CA-TPA PET demonstration's variant (agrijax.models.catpa_pet_demo): the canopy comes from "
         "the forcing; the faithful process it wraps has a case"
