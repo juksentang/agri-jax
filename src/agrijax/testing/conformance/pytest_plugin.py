@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 
 from .case import ConformanceCase, ConformanceError
-from .checks import check_name
+from .checks import check_name, check_parts
 from .discover import discover, select
 
 __all__ = ["run_check"]
@@ -56,14 +56,21 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
 def run_check(case: ConformanceCase, check: Callable[[ConformanceCase], Any]) -> None:
     """Run ``check``; an exempted check must fail (reported as xfail) and fails the test when it
-    passes, so a stale exemption cannot stay."""
+    passes, so a stale exemption cannot stay. A float32 exemption under x64
+    (``case.exempt_float32_x64``) runs the float64 part first as an ordinary check (it must pass)
+    and then the float32 part as an exempted one."""
     name = check_name(check)
-    reason = case.exempt_checks.get(name)
-    if reason is None:
-        check(case)
-        return
-    try:
-        check(case)
-    except ConformanceError as e:
-        pytest.xfail(f"exempt ({reason}): {e}")
-    raise ConformanceError(f"[{case.key}] {name}: passes although exempt ({reason}); remove the exemption")
+    for label, reason, ctx in check_parts(case, name):
+        at = f" ({label})" if label else ""
+        if reason is None:
+            with ctx:
+                check(case)
+            continue
+        try:
+            with ctx:
+                check(case)
+        except ConformanceError as e:
+            pytest.xfail(f"exempt{at} ({reason}): {e}")
+        raise ConformanceError(
+            f"[{case.key}] {name}{at}: passes although exempt ({reason}); remove the exemption"
+        )

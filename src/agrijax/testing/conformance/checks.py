@@ -14,11 +14,13 @@ the float32 parts still run and the float64 comparisons are left to the float64 
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import dataclasses
 import functools
 import importlib.util
 import inspect
 import os
+import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,7 @@ __all__ = [
     "check_grad_fd",
     "check_grad_finite",
     "check_lint",
+    "check_parts",
     "check_precision",
     "check_reads",
     "check_registry",
@@ -68,6 +71,7 @@ __all__ = [
     "check_transforms",
     "check_units",
     "check_writes",
+    "dtype_part",
     "run_checks",
 ]
 
@@ -87,12 +91,46 @@ def _x64() -> bool:
     return bool(jax.config.read("jax_enable_x64"))
 
 
+#: the dtype part a split check runs (:func:`dtype_part`); ``None``: every dtype
+_PART: contextvars.ContextVar[tuple[Any, ...] | None] = contextvars.ContextVar("_PART", default=None)
+
+
 def _dtypes() -> tuple[Any, ...]:
-    return (jnp.float64, jnp.float32) if _x64() else (jnp.float32,)
+    every = (jnp.float64, jnp.float32) if _x64() else (jnp.float32,)
+    only = _PART.get()
+    return every if only is None else tuple(d for d in every if d in only)
 
 
 def _main_dtype() -> Any:
-    return _dtypes()[0]
+    """The dtype of the single-dtype checks: float64 with x64, else float32 (not restricted by
+    :func:`dtype_part`)."""
+    return jnp.float64 if _x64() else jnp.float32
+
+
+@contextlib.contextmanager
+def dtype_part(*dtypes: Any) -> Iterator[None]:
+    """Run the per-dtype checks (:data:`~.case.DTYPE_SPLIT_CHECKS`) on ``dtypes`` only."""
+    token = _PART.set(tuple(dtypes))
+    try:
+        yield
+    finally:
+        _PART.reset(token)
+
+
+def check_parts(
+    case: ConformanceCase, name: str
+) -> list[tuple[str, str | None, contextlib.AbstractContextManager[None]]]:
+    """``[(label, exemption reason or None, context)]``: how :func:`run_checks` and the pytest
+    plugin run check ``name`` on ``case``. A float32 exemption under x64
+    (``case.exempt_float32_x64``) splits the check into its float64 part (must pass) and its
+    float32 part (must fail)."""
+    why32 = case.exempt_float32_x64.get(name) if _x64() else None
+    if why32 is None:
+        return [("", case.exempt_checks.get(name), contextlib.nullcontext())]
+    return [
+        ("float64 part", None, dtype_part(jnp.float64)),
+        ("float32 part", f"float32 under x64: {why32}", dtype_part(jnp.float32)),
+    ]
 
 
 def _is_float(x: Any) -> bool:
@@ -200,6 +238,27 @@ def _env(name: str, value: str) -> Iterator[None]:
             os.environ.pop(name, None)
         else:
             os.environ[name] = old
+
+
+#: the TypeError of a loop whose carry changes type (what :func:`_traces` reports)
+_CARRY_TYPES = re.compile(r"carry|must have (equal|identical) types")
+
+
+@contextlib.contextmanager
+def _traces(case: ConformanceCase, check: str, dtype: Any, variant: str) -> Iterator[None]:
+    """A run that does not trace (a scan whose carry changes dtype: an implicit upcast of float32
+    inputs under x64) is a failure of ``check``, reported as :class:`ConformanceError`."""
+    try:
+        yield
+    except TypeError as e:
+        if not _CARRY_TYPES.search(str(e)):
+            raise
+        first = " ".join(line.strip() for line in str(e).splitlines()[:4] if line.strip())
+        raise _fail(
+            case,
+            check,
+            f"{jnp.dtype(dtype).name} inputs, variant {variant!r}: the run does not trace ({first})",
+        ) from None
 
 
 def _step_all(procs: Sequence[Process]) -> Callable[[Any, Any, Any], Any]:
@@ -591,7 +650,9 @@ def _under(path: str, base: str) -> bool:
 
 def check_slot_contract(case: ConformanceCase) -> None:
     """Bound reads and writes stay inside the own subtree and the slot's contract ports; ``in``
-    ports are never written; each bound port has the contract's path and record class."""
+    ports are never written; every bound ``out`` port is written; the case binds exactly the ports
+    the process uses (so an ``out`` port cannot be left unchecked by leaving it bound but unused);
+    each bound port has the contract's path and record class."""
     name = "slot_contract"
     cname = case.contract_name
     if cname is None:
@@ -606,12 +667,18 @@ def check_slot_contract(case: ConformanceCase) -> None:
     unknown = sorted(set(pmap) - set(ports))
     if unknown:
         raise _fail(case, name, f"{cls.__name__} has no port fields {unknown}")
+    used = {path.split(".", 1)[0] for path in (*proc.reads, *proc.writes)}
     for path in (*proc.reads, *proc.writes):
         head = path.split(".", 1)[0]
         if head in ports and head not in pmap:
             problems.append(f"{proc.name} uses port {head!r} ({path}) but the case binds no global path")
         if path == "*":
             problems.append(f"{proc.name} declares the wildcard {path!r}; a slot process names its paths")
+    for port_field in sorted(set(pmap) - used):
+        problems.append(
+            f"the case binds port {port_field!r} that {proc.name} neither reads nor writes "
+            "(bind only the ports the process uses)"
+        )
     allowed: dict[str, Any] = {}
     for sp in contract.ports:
         try:
@@ -649,6 +716,15 @@ def check_slot_contract(case: ConformanceCase) -> None:
             if not sp.writable(fname):
                 what = "an 'in' port" if sp.direction == "in" else f"field {fname or '<record>'} of {sp.port}"
                 problems.append(f"writes {w}: {what} (slot {cname!r} may write {sp.writes or 'all fields'})")
+    for port_field, target in pmap.items():
+        sp = allowed.get(target)
+        if sp is None or sp.direction != "out":
+            continue
+        if not any(_under(w, target) or _under(target, w) for w in bound.writes):
+            problems.append(
+                f"port {port_field} -> {target} is an 'out' port of slot {cname!r} ({sp.port}) but "
+                f"{proc.name} never writes it"
+            )
     if problems:
         raise _fail(case, name, "; ".join(problems))
 
@@ -743,7 +819,8 @@ def check_balance(case: ConformanceCase) -> None:
     for dtype in _dtypes():
         for variant in case.variants:
             s0, p, f = _inputs(case, dtype, variant)
-            _, traj = _jit_run(case.proc, case.n_days)(p, f, s0)
+            with _traces(case, name, dtype, variant):
+                _, traj = _jit_run(case.proc, case.n_days)(p, f, s0)
             for b in case.balances:
                 tol = b.tol64 if dtype == jnp.float64 else b.tol32
                 before = s0
@@ -782,13 +859,21 @@ def check_transforms(case: ConformanceCase) -> None:
     dtype = _main_dtype()
     run = _jit_run(proc, case.n_days)
     rtol = _EAGER_JIT_RTOL[np.dtype(dtype)]
+    tol = None
+    if case.transforms_tol is not None:
+        tol = case.transforms_tol[0 if np.dtype(dtype) == np.dtype(np.float64) else 1]
     for variant in case.variants:
         s0, p, f = _inputs(case, dtype, variant)
         eager = _eager_run(proc, p, f, s0, case.n_days)
         jitted, _ = run(p, f, s0)
-        bad = _diff_leaves(eager, jitted, _rel_close(rtol))
+        bad = _diff_leaves(eager, jitted, _rel_close(rtol) if tol is None else tol.close)
         if bad:
-            raise _fail(case, name, f"variant {variant!r}: eager and jit differ beyond rtol {rtol} at {bad}")
+            what = f"rtol {rtol}" if tol is None else f"the case's {tol}"
+            raise _fail(
+                case,
+                name,
+                f"variant {variant!r}: eager and jit differ beyond {what} at {_describe(bad, eager, jitted)}",
+            )
         samples = [_inputs(case, dtype, variant, sample=k) for k in range(case.batch)]
         try:
             batched = _stack(samples)
@@ -796,13 +881,17 @@ def check_transforms(case: ConformanceCase) -> None:
             raise _fail(case, name, str(e)) from None
         vrun = jax.jit(jax.vmap(lambda s, pp, ff: _scan(proc, pp, ff, s, case.n_days)[0]))
         vout = vrun(batched[0], batched[1], batched[2])
-        close = None if case.transforms_exact else _within_ulps
+        close = tol.close if tol is not None else (None if case.transforms_exact else _within_ulps)
         for k, (sk, pk, fk) in enumerate(samples):
             single, _ = run(pk, fk, sk)
             vk = jtu.tree_map(lambda x, k=k: x[k], vout)
             bad = _diff_leaves(vk, single, close)
             if bad:
-                how = "bit for bit" if case.transforms_exact else f"within {_ULPS} ulp"
+                how = (
+                    f"within the case's {tol}"
+                    if tol is not None
+                    else ("bit for bit" if case.transforms_exact else f"within {_ULPS} ulp")
+                )
                 raise _fail(
                     case,
                     name,
@@ -836,7 +925,16 @@ def check_precision(case: ConformanceCase) -> None:
         else:
             s32, p32, f32 = _inputs(case, jnp.float32, variant)
             out64 = None
-        problems = _step_problems(case.proc, s32, p32, f32)  # an upcast would break the scan's carry
+        if jnp.float32 not in _dtypes():  # the float64 part alone (a float32 exemption under x64)
+            assert out64 is not None
+            bad = [
+                p for p, a in _paths_leaves(out64) if _is_float(a) and not np.all(np.isfinite(np.asarray(a)))
+            ]
+            if bad:
+                raise _fail(case, name, f"variant {variant!r}: not finite in float64: {bad[:8]}")
+            continue
+        with _traces(case, name, jnp.float32, variant):
+            problems = _step_problems(case.proc, s32, p32, f32)  # an upcast would break the scan's carry
         if problems:
             raise _fail(case, name, f"variant {variant!r}, float32 inputs: " + "; ".join(problems))
         out32, _ = run(p32, f32, s32)
@@ -926,7 +1024,7 @@ def check_grad_finite(case: ConformanceCase) -> None:
             vec, shapes = _vector(p, paths, dtype)
             fn = _loss_fn(case, s0, p, f, paths, shapes)
             for mode in modes:
-                with gradient_mode(mode):
+                with gradient_mode(mode), _traces(case, name, dtype, variant):
                     g = np.asarray(jax.jit(jax.grad(fn))(vec))
                 bad = [paths[i] for i in _owner(np.flatnonzero(~np.isfinite(g)), shapes)]
                 if bad:
@@ -1031,7 +1129,13 @@ def _replayer(port_field: str, target: str) -> Process:
 def check_binding(case: ConformanceCase) -> None:
     """Ports: the bound process equals the process on its own; a replay binding (port records
     from data) equals a coupled binding (records produced in the same step) bit for bit; a port
-    the process uses but the binding leaves out raises :class:`~agrijax.core.ports.BindingError`."""
+    the process uses but the binding leaves out raises :class:`~agrijax.core.ports.BindingError`.
+
+    The replay covers every port the process reads, ``inout`` ones included: the producer writes
+    the whole record, the replay feeds the record recorded at the end of the coupled step (with
+    the process's own writes in it). The two agree only when the process depends on a port through
+    the fields it reads and does not write; a process that reads back a field it writes into a
+    shared port (its memory kept outside its own subtree) is not replayable and fails here."""
     name = "binding"
     proc = case.proc
     s0, p, f = _inputs(case, _main_dtype())
@@ -1060,13 +1164,8 @@ def check_binding(case: ConformanceCase) -> None:
     if bad:
         raise _fail(case, name, f"bound and unbound runs differ at {bad}")
 
-    # 2. replay == coupled, for every port the process reads and does not write
-    reads_in = [
-        q
-        for q in used
-        if any(_under(r, q) for r in proc.reads)
-        and not any(_under(w, q) or _under(q, w) for w in proc.writes)
-    ]
+    # 2. replay == coupled, for every port the process reads (read-only and inout)
+    reads_in = [q for q in used if any(_under(r, q) or _under(q, r) for r in proc.reads)]
     if reads_in:
         rng = np.random.default_rng([case.seed, 13])
         dt = _main_dtype()
@@ -1089,13 +1188,18 @@ def check_binding(case: ConformanceCase) -> None:
         final_r, _ = jax.jit(lambda pp, ff, gg: _scan(replay, pp, ff, gg, case.n_days))(
             gp, {"module": f, "replay": recs}, g0
         )
-        bad = _diff_leaves(get_path(final_c, own), get_path(final_r, own))
+        rclose = None if case.binding_exact else _within_ulps
+        bad = _diff_leaves(get_path(final_c, own), get_path(final_r, own), rclose)
         for port_field, target in pmap.items():
-            if port_field not in reads_in:
-                diff = _diff_leaves(get_path(final_c, target), get_path(final_r, target))
-                bad += [f"{port_field}.{x}" for x in diff]
+            diff = _diff_leaves(get_path(final_c, target), get_path(final_r, target), rclose)
+            bad += [f"{port_field}.{x}" for x in diff]
         if bad:
-            raise _fail(case, name, f"replay and coupled bindings differ at {bad}")
+            raise _fail(
+                case,
+                name,
+                f"replay and coupled bindings differ at {bad} (replayed ports {reads_in}; a process must "
+                "depend on a port only through the fields it reads and does not write)",
+            )
 
     # 3. a used port left unbound fails at trace time
     f0 = _day(f, 0)
@@ -1107,6 +1211,10 @@ def check_binding(case: ConformanceCase) -> None:
             partial(g_partial, p, f0)
         except BindingError:
             continue
+        except Exception as e:
+            raise _fail(
+                case, name, f"port {q!r} left unbound raised {type(e).__name__} ({e}) instead of BindingError"
+            ) from None
         raise _fail(case, name, f"port {q!r} left unbound did not raise BindingError")
 
 
@@ -1139,15 +1247,25 @@ def run_checks(
 ) -> dict[str, str | None]:
     """Run ``checks`` on ``case`` outside pytest: ``{check name: None if it passed, else the
     message}``. An exempted check (``case.exempt_checks``) that fails reports ``"exempt: ..."``;
-    one that passes is reported as a failure (the exemption is stale)."""
+    one that passes is reported as a failure (the exemption is stale). A float32 exemption under
+    x64 (``case.exempt_float32_x64``) runs the float64 part unexempted and the float32 part
+    exempted, each message prefixed with its part."""
     out: dict[str, str | None] = {}
     for check in checks:
         n = check_name(check)
-        try:
-            check(case)
-        except ConformanceError as e:
-            out[n] = f"exempt: {case.exempt_checks[n]}: {e}" if n in case.exempt_checks else str(e)
-        else:
-            stale = n in case.exempt_checks
-            out[n] = f"exempt check passes; remove the exemption ({case.exempt_checks[n]})" if stale else None
+        failures: list[str] = []  # a part that fails unexempted, or an exempt part that passes
+        expected: list[str] = []  # an exempt part that fails
+        for label, why, ctx in check_parts(case, n):
+            at = f"{label}: " if label else ""
+            try:
+                with ctx:
+                    check(case)
+            except ConformanceError as e:
+                (failures if why is None else expected).append(
+                    f"{at}{e}" if why is None else f"{at}exempt: {why}: {e}"
+                )
+            else:
+                if why is not None:
+                    failures.append(f"{at}exempt check passes; remove the exemption ({why})")
+        out[n] = "; ".join(failures) if failures else ("; ".join(expected) if expected else None)
     return out

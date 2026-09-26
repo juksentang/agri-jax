@@ -21,9 +21,13 @@ morning state is the reference's PHYSCL entry (soil water, yesterday's canopy, T
 uptake); the crop state of the crop day is our CERES-Maize driven by the reference's own crop
 water and nitrogen stress from sowing (2015-118) to the day before.
 
-Checked on each day: ``Day.check`` passes (and which allowed lags it uses), every state leaf is
-finite, the ledger closes (float64, ``AGRI_JAX_CHECK=1`` asserts it inside the run too), and the
-replay binding of the crop water port P1 (whose producers exist) gives the crop bit for bit what
+The day is the contract's whole day (``agrijax.iface.contract.DAY_TABLE``): the weather and
+management entries (radiation, events, season initialisation) are no-ops on these two days.
+
+Checked on each day: ``Day.check`` passes and uses all five allowed lags (among them ROOTWU's read
+of yesterday's root record, P2, now that ROOTWU is its own module ``water_supply.maize``) and
+fails without the P2 lag; every state leaf is finite, the ledger closes (float64,
+``AGRI_JAX_CHECK=1`` asserts it inside the run too), and the replay binding of the crop water port P1 (whose producers exist) gives the crop bit for bit what
 the coupled binding gives. Reference facts the contract relies on are checked on the whole run.
 The measured day values are printed (``-s``) for the W0 report; none is asserted against the
 reference.
@@ -31,6 +35,7 @@ reference.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 import os
@@ -43,6 +48,7 @@ import numpy as np
 import pytest
 
 from agrijax.core import Model, bind, compose, run
+from agrijax.core.day import DayLagError
 from agrijax.core.grids import rzwqm_lyrset, rzwqm_nodes
 from agrijax.core.ports import Binding
 from agrijax.iface.crop import CanopyRecord, CropNIn, CropWaterIn, RootRecord
@@ -338,10 +344,10 @@ class Reference:
             ),
             bind(
                 crop_n_replay,
-                own=f"{own}_n_supply",
+                own=f"n_supply.{SLOT}",
                 ports={"n_out": ports["n_in"]},
                 forcing="n",
-                name="n.replay",
+                name=f"n_supply.{SLOT}.replay",
             ),
             *(
                 bind(p, own=own, ports=ports, forcing="crop", params="crop", name=f"{own}.{k}")
@@ -352,7 +358,7 @@ class Reference:
         g0 = compose(
             {
                 **Binding(own, tuple(ports.items())).entries(s0),
-                f"{own}_n_supply": CropNReplayState(),
+                f"n_supply.{SLOT}": CropNReplayState(),
             }
         )
         forcing = {"crop": self.crop_forcing(days, replay=True), "n": self.nstres(days)}
@@ -476,6 +482,9 @@ def _leaves(tree: Any) -> list[np.ndarray]:
     return [np.asarray(x) for x in jax.tree_util.tree_leaves(tree)]
 
 
+P2_LAG = ("water_supply.maize.rootwu", "iface.root.maize")
+
+
 def test_day_check_passes_with_the_contract_lags(smoke: dict) -> None:
     r = smoke["report"]
     assert set(r.used) == {
@@ -483,8 +492,20 @@ def test_day_check_passes_with_the_contract_lags(smoke: dict) -> None:
         ("pet.sw_daily", "soil_water.theta"),
         ("soil_water.uptake_limit", "iface.root_uptake.maize"),
         ("soil_water.uptake_limit", "iface.crop_water.maize.trwup"),
+        P2_LAG,
     }
-    assert r.unused_pairs == (("crops.maize.rootwu", "iface.root.maize"),)
+    assert r.unused_pairs == ()
+    d = smoke["dayd"]
+    assert [p.name for p in d.phases] == ["weather", "management", "physcl", "plant", "ledger"]
+    assert smoke["model"].names[:3] == ("weather.radiation", "events.apply", "crops.maize.season_init")
+
+
+def test_day_check_fails_without_the_p2_lag(smoke: dict) -> None:
+    d = smoke["dayd"]
+    no_p2 = dataclasses.replace(d, lags=tuple(lag for lag in d.lags if lag.pair != P2_LAG))
+    assert len(no_p2.lags) == len(d.lags) - 1
+    with pytest.raises(DayLagError, match=r"water_supply\.maize\.rootwu <- iface\.root\.maize"):
+        no_p2.check(smoke["model"])
 
 
 def test_every_state_leaf_is_finite(smoke: dict) -> None:
@@ -517,12 +538,12 @@ def _p1_replay(values: dict) -> dict:
     return {
         f"{c}.remap_in": replay_entry(f"{c}.remap_in", {f"iface.crop_water.{SLOT}.sw": "replay.p1.sw"}),
         f"{c}.eop": replay_entry(f"{c}.eop", {f"iface.crop_water.{SLOT}.eop": "replay.p1.eop"}),
-        f"{c}.rootwu": replay_entry(
-            f"{c}.rootwu",
+        f"water_supply.{SLOT}.rootwu": replay_entry(
+            f"water_supply.{SLOT}.rootwu",
             {
                 f"iface.crop_water.{SLOT}.trwup": "replay.p1.trwup",
-                f"{c}_rootwu.tss": "replay.p1.tss",
-                f"{c}_rootwu.rwu": "replay.p1.rwu",
+                f"water_supply.{SLOT}.tss": "replay.p1.tss",
+                f"water_supply.{SLOT}.rwu": "replay.p1.rwu",
             },
         ),
     }
@@ -533,7 +554,7 @@ def test_replay_and_coupled_binding_of_p1_are_bit_identical(smoke: dict) -> None
     crop water record was produced in the day (coupled) or replayed from the coupled run's values."""
     fin = smoke["final"]
     cw = fin["iface"]["crop_water"][SLOT]
-    rw = fin["crops"][f"{SLOT}_rootwu"]
+    rw = fin["water_supply"][SLOT]
     p1 = {
         "sw": cw.sw[None],
         "eop": cw.eop[None],
@@ -545,7 +566,7 @@ def test_replay_and_coupled_binding_of_p1_are_bit_identical(smoke: dict) -> None
     model = smoke["dayd"].compile(day_processes(SLOT, replace=_p1_replay(p1)))
     rep = _run(model, smoke["params"], forcing, smoke["state"])
     for path in (f"crops.{SLOT}", f"iface.root.{SLOT}", f"iface.root_uptake.{SLOT}", f"iface.crop_water.{SLOT}",
-                 f"crops.{SLOT}_rootwu", "ledger.water", "soil_water"):  # fmt: skip
+                 f"water_supply.{SLOT}", "ledger.water", "soil_water"):  # fmt: skip
         a = _leaves(_get(fin, path))
         b = _leaves(_get(rep, path))
         assert len(a) == len(b) and all(x.tobytes() == y.tobytes() for x, y in zip(a, b, strict=True)), path
@@ -690,7 +711,7 @@ def test_node_uptake_port_units_against_the_reference(ref: Reference) -> None:
     ok = ~np.any(sw == ll, axis=1)
     rwu, swd = _f64(dd["RWU"][ok, :nl]), _f64(sw[ok])
     state = {
-        "crops": {f"{SLOT}_rootwu": {"rwu": jnp.asarray(rwu)}},
+        "water_supply": {SLOT: {"rwu": jnp.asarray(rwu)}},
         "iface": {
             "crop_water": {SLOT: {"sw": jnp.asarray(swd)}},
             "root_uptake": {SLOT: {"uptake": jnp.zeros((len(rwu), nn))}},

@@ -71,5 +71,8 @@ def cases() -> list[ConformanceCase]:
             ),
             grad=GradSpec(edge_variants=("no_canopy",)),
             coefficient_sets=("coefficients",),
+            # replaying P1.sw from data: rwu within 4 ulp (5.6e-17) of the coupled run, measured on
+            # rorqual (the two programs are compiled separately)
+            binding_exact=False,
         )
     ]

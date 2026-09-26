@@ -1,8 +1,9 @@
 """Soil-side port records: P3 node uptake, P4 sink inputs of the soil-water day.
 
-The sink record the Richards kernel takes, :class:`SinkChannels` (with :class:`SinkChannel`
-and :data:`SINK_CHANNELS`), is defined in :mod:`agrijax.processes.soil_water.sinks` and
-re-exported here unchanged. It is **not** a port: a channel may carry a per-sub-step callable
+The sink record the Richards kernel takes, :class:`SinkChannels` (with :class:`SinkChannel`,
+:data:`SinkRate` and :data:`SINK_CHANNELS`), is defined here, because :class:`SinkInputs` builds
+it, and re-exported unchanged from :mod:`agrijax.processes.soil_water.sinks` (its first home;
+both paths name the same classes). It is **not** a port: a channel may carry a per-sub-step callable
 (``SinkChannel.rate``), and there are no callables in state. The port is :class:`SinkInputs`,
 the day's per-node amounts of every channel as plain arrays; :meth:`SinkInputs.to_sink_channels`
 builds the kernel record with a static choice of active channels, so a per-sub-step sink stays a
@@ -17,19 +18,101 @@ by the node thickness to publish :class:`NodeUptake`.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
+import equinox as eqx
 import jax.numpy as jnp
 from jaxtyping import Array
 
 from agrijax.core.state import State, field
-from agrijax.processes.soil_water.sinks import SINK_CHANNELS, SinkChannel, SinkChannels
+from agrijax.core.units import HOURS_PER_DAY
 
-__all__ = ["SINK_CHANNELS", "NodeUptake", "SinkChannel", "SinkChannels", "SinkInputs"]
+__all__ = [
+    "SINK_CHANNELS",
+    "SOLUTE_CARRYING",
+    "NodeUptake",
+    "SinkChannel",
+    "SinkChannels",
+    "SinkInputs",
+    "SinkRate",
+]
 
 _N = ("n_node",)
 _GRID = "rzwqm2_nodes"
+
+#: channel names, in the order they are applied (and stacked on the channel axis)
+SINK_CHANNELS: tuple[str, ...] = ("subirrigation", "uptake", "tile", "lateral", "macropore_to_drain")
+
+#: per-sub-step sink ``rate(t0, dt, theta, h) -> [n_node]`` [cm h-1 per layer], positive removes water
+SinkRate = Callable[[Array, Array, Array, Array], Array]
+
+
+class SinkChannel(eqx.Module):
+    """One sink channel: a daily per-layer amount and/or a per-sub-step callable, and its solute flag."""
+
+    daily: Array | None = None  # [n_node] cm d-1 per layer, spread uniformly over the day
+    rate: SinkRate | None = eqx.field(static=True, default=None)
+    carries_solute: bool = eqx.field(static=True, default=True)
+
+    @property
+    def active(self) -> bool:
+        """``False`` when the channel is statically zero (no daily amount and no callable)."""
+        return self.daily is not None or self.rate is not None
+
+    def node_rate(self, tl: Array, t0: Array, dt: Array, theta: Array, h: Array) -> Array:
+        """Sink rate of the sub-step on the nodes [h-1] (``daily / (24 tl)`` plus ``rate(...) / tl``).
+
+        Source: plan 19 A6 (sink channels); Ahuja et al. (2000) ch. 3.
+        """
+        out = jnp.zeros_like(theta)
+        if self.daily is not None:
+            out = jnp.asarray(self.daily, theta.dtype) / (HOURS_PER_DAY * tl)
+        if self.rate is not None:
+            out = out + jnp.asarray(self.rate(t0, dt, theta, h), theta.dtype) / tl
+        return out
+
+
+def _absent(carries_solute: bool = True) -> SinkChannel:
+    return SinkChannel(carries_solute=carries_solute)
+
+
+class SinkChannels(eqx.Module):
+    """The typed sink record of the soil-water step; in M3 only ``uptake`` is non-zero.
+
+    Defaults: ``uptake`` does not carry solute (crop N uptake is its own process), the drains,
+    lateral flow and subirrigation do.
+    """
+
+    uptake: SinkChannel = eqx.field(default_factory=lambda: _absent(False))
+    tile: SinkChannel = eqx.field(default_factory=_absent)
+    lateral: SinkChannel = eqx.field(default_factory=_absent)
+    subirrigation: SinkChannel = eqx.field(default_factory=_absent)
+    macropore_to_drain: SinkChannel = eqx.field(default_factory=_absent)
+
+    @classmethod
+    def from_uptake(cls, uptake: Any) -> SinkChannels:
+        """The M3 record: the day's per-layer root water uptake [cm d-1], every other channel absent."""
+        return cls(uptake=SinkChannel(daily=uptake, carries_solute=False))
+
+    def channels(self) -> tuple[SinkChannel, ...]:
+        """The channels in the order :data:`SINK_CHANNELS`."""
+        return tuple(getattr(self, name) for name in SINK_CHANNELS)
+
+    @property
+    def only_daily_uptake(self) -> bool:
+        """``True`` when ``uptake`` is a daily array and every other channel is absent (the M1/M3 case)."""
+        others = [c.active for n, c in zip(SINK_CHANNELS, self.channels()) if n != "uptake"]
+        return self.uptake.rate is None and not any(others)
+
+    def daily_uptake_only(self) -> Array | None:
+        """The daily uptake array when it is the only channel (the M1/M3 case), else ``None``."""
+        return self.uptake.daily if self.only_daily_uptake else None
+
+    def solute_channels(self) -> tuple[str, ...]:
+        """Names of the active channels that carry solute."""
+        return tuple(n for n, c in zip(SINK_CHANNELS, self.channels()) if c.active and c.carries_solute)
+
 
 #: channels that carry dissolved solute with their water (the :class:`SinkChannels` defaults)
 SOLUTE_CARRYING: dict[str, bool] = {

@@ -20,6 +20,7 @@ from agrijax.core.process import Process, ProcessKey, lookup
 __all__ = [
     "CALIBRATABLE",
     "DEFAULT_OWN",
+    "DTYPE_SPLIT_CHECKS",
     "Balance",
     "ConformanceCase",
     "ConformanceError",
@@ -34,8 +35,8 @@ CALIBRATABLE = "<calibratable>"
 #: default global path of a module's own subtree, by slot (``{slot}`` is the crop slot)
 DEFAULT_OWN: dict[str, str] = {
     "crop": "crops.{slot}",
-    "water_supply": "crops.{slot}.rootwu",
-    "n_supply": "crops.{slot}.n_supply",
+    "water_supply": "water_supply.{slot}",
+    "n_supply": "n_supply.{slot}",
     "soil_water": "soil_water",
     "pet": "surface.pet",
     "snow": "surface.snow",
@@ -104,6 +105,10 @@ class GradSpec:
     fd_directions: int = 2
 
 
+#: checks that run float64 and float32 separately (``ConformanceCase.exempt_float32_x64``)
+DTYPE_SPLIT_CHECKS = ("balance", "precision", "grad_finite")
+
+
 @dataclass(frozen=True)
 class ConformanceCase:
     """One registry key and the synthetic inputs that exercise it (M3 coupling contract, section 4).
@@ -131,6 +136,15 @@ class ConformanceCase:
         Tolerance of float32 against float64 on the same inputs.
     transforms_exact:
         ``vmap(jit)`` must equal per-sample ``jit`` bit for bit (else within 4 ulp).
+    transforms_tol / transforms_why:
+        ``(float64, float32)`` tolerances that replace the ulp criterion of ``vmap(jit)`` against
+        ``jit`` and the relative one of eager against ``jit``, for a process whose result is a
+        long iteration (a fixed-count Newton solver, say) in which the batched and the eager
+        programs round differently; the reason, with the measured differences, is required.
+        Batch independence stays bit for bit.
+    binding_exact:
+        The replay binding must equal the coupled one bit for bit (else within 4 ulp: the two
+        programs are compiled separately and XLA may round a reduction differently).
     forcing_fields:
         The forcing fields the process reads (listed in its docstring); when given, every other
         forcing leaf is perturbed and the output must not change.
@@ -140,6 +154,12 @@ class ConformanceCase:
     exempt_checks:
         ``{check name: reason}``: the check is run and must fail (an exemption that passes is an
         error, so it is removed as soon as the gap is closed).
+    exempt_float32_x64:
+        ``{check name: reason}`` for a gap that exists only for float32 inputs with x64 enabled
+        (an implicit upcast, say): the float32 part of the check is run and must fail (xfail, and
+        an error once it passes), the float64 part is run as an ordinary check and must pass.
+        Only the checks with a per-dtype part (:data:`DTYPE_SPLIT_CHECKS`); with x64 disabled
+        float32 is the only dtype and the check runs unexempted.
     origin:
         Distribution and version that provides the case (filled by discovery).
     """
@@ -161,9 +181,13 @@ class ConformanceCase:
     batch: int = 3
     f32: Tolerance = Tolerance(1e-4, 1e-6)
     transforms_exact: bool = True
+    transforms_tol: tuple[Tolerance, Tolerance] | None = None
+    transforms_why: str = ""
+    binding_exact: bool = True
     forcing_fields: tuple[str, ...] = ()
     coefficient_sets: tuple[str, ...] | None = None
     exempt_checks: Mapping[str, str] = field(default_factory=dict)
+    exempt_float32_x64: Mapping[str, str] = field(default_factory=dict)
     origin: str = ""
     seed: int = 0
 
@@ -179,9 +203,21 @@ class ConformanceCase:
             raise ValueError(f"{self.key}: grad=None needs a reason (no_grad)")
         if self.slot_contract is None and not self.no_slot_contract.strip():
             raise ValueError(f"{self.key}: slot_contract=None needs a reason (no_slot_contract)")
+        if self.transforms_tol is not None and not self.transforms_why.strip():
+            raise ValueError(f"{self.key}: transforms_tol needs a reason (transforms_why)")
         for name, why in self.exempt_checks.items():
             if not str(why).strip():
                 raise ValueError(f"{self.key}: exemption of {name!r} without a reason")
+        for name, why in self.exempt_float32_x64.items():
+            if name not in DTYPE_SPLIT_CHECKS:
+                raise ValueError(
+                    f"{self.key}: exempt_float32_x64 of {name!r}: "
+                    f"only {DTYPE_SPLIT_CHECKS} have a float32 part"
+                )
+            if name in self.exempt_checks:
+                raise ValueError(f"{self.key}: {name!r} is in both exempt_checks and exempt_float32_x64")
+            if not str(why).strip():
+                raise ValueError(f"{self.key}: float32 exemption of {name!r} without a reason")
 
     # ------------------------------------------------------------------ derived
     @property

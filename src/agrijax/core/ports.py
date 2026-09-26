@@ -64,8 +64,12 @@ __all__ = [
     "port_names",
 ]
 
-#: top-level names of an assembled state (plan 19 A2)
-NAMESPACES: tuple[str, ...] = ("soil_water", "crops", "iface", "ledger", "prev")
+#: top-level names of an assembled state (plan 19 A2). ``water_supply`` and ``n_supply`` hold the
+#: per-crop producers of P1 ``trwup`` (ROOTWU) and P10 (crop nitrogen) at ``<namespace>.<slot>``:
+#: outside ``crops.<slot>``, so their state does not overlap the crop's subtree and their day entries
+#: (``water_supply.<slot>.rootwu``, ``n_supply.<slot>.replay``) are modules of their own, which makes
+#: ROOTWU's read of yesterday's root record a lag the day checks (M3 contract section 11, items 1-2).
+NAMESPACES: tuple[str, ...] = ("soil_water", "crops", "water_supply", "n_supply", "iface", "ledger", "prev")
 #: reserved for later slots, accepted but unused in M3
 RESERVED_NAMESPACES: tuple[str, ...] = ("surface", "soil_heat", "solutes", "soil_om")
 

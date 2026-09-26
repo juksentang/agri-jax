@@ -2,13 +2,20 @@
 
 This is not the M3 assembly. It checks that the coupling contract (the port records of
 :mod:`agrijax.iface`, their global paths, units and allowed lags) fits the modules that exist
-today before the slot modules are developed in parallel. Every entry of the contract's day that
-has no process yet is stood in for by a **replay** entry that writes the entry's output port from
-data (a reference run), so the ports are exercised end to end:
+today before the slot modules are developed in parallel. The day is the contract's whole day
+(:data:`agrijax.iface.contract.DAY_TABLE`, every phase and entry in order). Every entry that has
+no process yet is stood in for by a **replay** entry that writes the entry's output port from
+data (a reference run), so the ports are exercised end to end, or by a **no-op** entry where
+nothing changes on the smoke days:
 
 ======================================  =============================================  =========
 entry                                   process                                        port out
 ======================================  =============================================  =========
+``weather``
+``weather.radiation``                   no-op (RTS, RTH preprocessed in io)            --
+``management``
+``events.apply``                        no-op (no event process yet, gap G15)          --
+``crops.<slot>.season_init``            no-op (no season init yet, gap G14)            --
 ``physcl``
 ``pet.sw_daily``                        replay (PET fluxes to the port)                P5
 ``snow.prms``                           replay (no snow module yet)                    P9
@@ -16,10 +23,10 @@ entry                                   process                                 
 ``soil_water.day``                      :func:`soil_water_day_entry` (the registered
                                         Green-Ampt day on the ports)                   --
 ``plant``
-``n_supply.replay``                     ``n_supply/forcing_replay@none:replay``        P10
+``n_supply.<slot>.replay``              ``n_supply/forcing_replay@none:replay``        P10
 ``crops.<slot>.remap_in``               :func:`remap_in_entry` (``REALMATCH`` kernel)  P1 ``sw``
 ``crops.<slot>.eop``                    :func:`eop_entry` (``EOP = 10 PET``)           P1 ``eop``
-``crops.<slot>.rootwu``                 ``water_supply/rootwu@dssat-4.8.6.0:faithful`` P1 ``trwup``
+``water_supply.<slot>.rootwu``          ``water_supply/rootwu@dssat-4.8.6.0:faithful`` P1 ``trwup``
 ``crops.<slot>.phenology`` .. ``roots`` CERES-Maize, growth ``:nstress_replay``        --
 ``crops.<slot>.publish``                ``crop/ceres_maize.publish@...:faithful``      P2
 ``crops.<slot>.canopy``                 replay (the crop publishes no canopy yet)      P6
@@ -30,7 +37,10 @@ entry                                   process                                 
 
 A replay entry declares, as its reads, the read set of the producer it stands in for (the
 contract's day table), so :meth:`~agrijax.core.day.Day.check` sees the lagged reads the coupled
-day will have; the replay itself uses none of them (it copies a forcing record).
+day will have; the replay itself uses none of them (it copies a forcing record). A no-op entry
+declares no reads and no writes: a season initialisation that declared its writes of ``P2`` and
+``P6`` would run before ROOTWU and PET and so hide their lags from the static check (the
+reference's own exception on a season's first day, O-RZ3), which the skeleton does not model.
 
 Global state (paths are the contract's; a nested dict of records)::
 
@@ -40,15 +50,16 @@ Global state (paths are the contract's; a nested dict of records)::
     iface.root.<s>    RootRecord         P2      iface.root_uptake.<s> NodeUptake      P3
     iface.crop_n.<s>  CropNIn            P10     ledger.water          WaterLedger     P11
     crops.<s>         CERES-Maize state (ports detached)
-    crops.<s>_rootwu  ROOTWU producer state (TSS, RWU)
-    crops.<s>_n_supply  the P10 replay producer (its only field is its port)
+    water_supply.<s>  ROOTWU producer state (TSS, RWU)
+    n_supply.<s>      the P10 replay producer (its only field is its port)
 
 ``soil_water`` is a dict of the :class:`~agrijax.processes.soil_water.richards.SoilWater` fields
 plus ``sink_in`` because the soil-water state class has no ``sink_in`` field yet (contract gap
 G1); :func:`soil_water_day_entry` rebuilds the ``SoilWater`` record, calls the registered
 ``soil_water/day@rzwqm2-4.6:faithful`` process on it and writes the result back. The ROOTWU
-state sits at ``crops.<s>_rootwu`` because the contract's ``crops.<s>.rootwu`` lies inside the
-CERES subtree ``crops.<s>`` (overlapping paths).
+state sits at ``water_supply.<s>`` and its entry is ``water_supply.<s>.rootwu``: a module of its
+own, outside the CERES subtree ``crops.<s>``, so its read of yesterday's root record (P2) is a
+lag :meth:`~agrijax.core.day.Day.check` sees (M3 contract section 11, items 1-2).
 
 Global params: ``{"soil": SoilWaterDayParams, "crop": CeresMaizeParams, "rootwu": RootwuParams,
 "crop_iface": CropIfaceParams}``. Global forcing: ``{"soil": StormForcing, "crop": CeresForcing,
@@ -72,7 +83,7 @@ from agrijax.core.ports import Binding, bind, compose
 from agrijax.core.process import Process, process
 from agrijax.core.state import Params, field, get_path, set_path
 from agrijax.core.units import HOURS_PER_DAY, MM_PER_CM
-from agrijax.iface.contract import allowed_lags
+from agrijax.iface.contract import allowed_lags, day_entries
 from agrijax.processes.crop.ceres_maize import CROP_PROCESSES_NSTRESS_REPLAY, CeresMaizeState
 from agrijax.processes.n_supply import CropNReplayState, crop_n_replay
 from agrijax.processes.soil_water.day import SoilWaterDayForcing, soil_water_day
@@ -93,6 +104,7 @@ __all__ = [
     "initial_state",
     "ledger_entry",
     "ledger_initial",
+    "noop_entry",
     "publish_uptake_entry",
     "remap_in_entry",
     "replay_entry",
@@ -130,32 +142,17 @@ def _p(slot: str) -> dict[str, str]:
         "root_uptake": f"iface.root_uptake.{slot}",
         "crop_n": f"iface.crop_n.{slot}",
         "crop": f"crops.{slot}",
-        "rootwu": f"crops.{slot}_rootwu",
-        "n_supply": f"crops.{slot}_n_supply",
+        "rootwu": f"water_supply.{slot}",
+        "n_supply": f"n_supply.{slot}",
     }
 
 
 def day_rzwqm46(slot: str = SLOT) -> Day:
-    """The skeleton day of the RZWQM2 4.6 order for crop ``slot``, with the contract's allowed lags."""
-    c = f"crops.{slot}"
+    """The contract's day in the RZWQM2 4.6 order for crop ``slot`` (every phase and entry of
+    :data:`agrijax.iface.contract.DAY_TABLE`), with the contract's allowed lags."""
     return Day(
         ref="rzwqm2-4.6",
-        phases=(
-            Phase("physcl", ("pet.sw_daily", "snow.prms", "soil_water.uptake_limit", "soil_water.day")),
-            Phase(
-                "plant",
-                (
-                    "n_supply.replay",
-                    f"{c}.remap_in",
-                    f"{c}.eop",
-                    f"{c}.rootwu",
-                    *(f"{c}.{n}" for n in CROP_ENTRIES),
-                    f"{c}.canopy",
-                    f"{c}.publish_uptake",
-                ),
-            ),
-            Phase("ledger", ("ledger.close",)),
-        ),
+        phases=tuple(Phase(ph, entries) for ph, entries in day_entries(slot)),
         lags=allowed_lags(slot),
     )
 
@@ -197,6 +194,27 @@ def replay_entry(name: str, copies: Mapping[str, str], *, stands_in_reads: Seque
         name=name,
         register=False,
         source="replay of a reference run (M3 coupling contract, section 2.1)",
+    )
+
+
+def noop_entry(name: str, *, why: str) -> Process:
+    """An entry of the contract's day whose producer does not exist yet and that changes nothing
+    on the days it is run (``why`` says why): no reads, no writes, the state comes back as is."""
+
+    def _noop(state: Any, params: Any, forcing_t: Any) -> Any:
+        """Leave the state unchanged (a placeholder of the contract's day order).
+
+        Source: M3 coupling contract, section 1.2 (the entry's producer is not implemented yet).
+        """
+        return state
+
+    return process(
+        _noop,
+        reads=(),
+        writes=(),
+        name=name,
+        register=False,
+        source=f"placeholder of the contract's day: {why}",
     )
 
 
@@ -316,7 +334,7 @@ def publish_uptake_entry(slot: str = SLOT, *, params_key: str = "crop_iface") ->
     layer with ``SW == LL`` exactly keeps the reference's previous node value in RZWQM2 (gap G21);
     this entry gives it 0.
     """
-    rwu_path = f"crops.{slot}_rootwu.rwu"
+    rwu_path = f"{_p(slot)['rootwu']}.rwu"
     sw_path = f"iface.crop_water.{slot}.sw"
     target = f"iface.root_uptake.{slot}.uptake"
 
@@ -372,7 +390,7 @@ def ledger_initial(storage0: Any) -> WaterLedger:
 
 # ------------------------------------------------------------------------ assembly
 def _stand_in_reads(slot: str) -> dict[str, tuple[str, ...]]:
-    """Read sets of the producers the replay entries stand in for (contract day table, entries 4-6, 15)."""
+    """Read sets of the producers the replay entries stand in for (contract day table rows 4-6, 15a)."""
     p = _p(slot)
     return {
         "pet.sw_daily": (p["canopy"], "soil_water.theta"),
@@ -402,6 +420,17 @@ def day_processes(
     si = _stand_in_reads(slot)
     ports = {"water_in": p["crop_water"], "root_out": p["root"], "n_in": p["crop_n"]}
     procs: dict[str, Process] = {
+        "weather.radiation": noop_entry(
+            "weather.radiation",
+            why="RTS and RTH are rebuilt in the forcing preprocessing (io; M3 contract decision 11)",
+        ),
+        "events.apply": noop_entry(
+            "events.apply", why="no management event process yet (gap G15); the smoke days have no event"
+        ),
+        f"crops.{slot}.season_init": noop_entry(
+            f"crops.{slot}.season_init",
+            why="no season initialisation process yet (gap G14); the smoke days are no sowing or harvest day",
+        ),
         "pet.sw_daily": replay_entry(
             "pet.sw_daily", {"iface.pet": "replay.pet"}, stands_in_reads=si["pet.sw_daily"]
         ),
@@ -414,21 +443,21 @@ def day_processes(
             stands_in_reads=si["soil_water.uptake_limit"],
         ),
         "soil_water.day": soil_water_day_entry(evaporation_demand=evaporation_demand),
-        "n_supply.replay": bind(
+        f"n_supply.{slot}.replay": bind(
             crop_n_replay,
             own=p["n_supply"],
             ports={"n_out": p["crop_n"]},
             forcing="n",
-            name="n_supply.replay",
+            name=f"n_supply.{slot}.replay",
         ),
         f"crops.{slot}.remap_in": remap_in_entry(slot),
         f"crops.{slot}.eop": eop_entry(slot),
-        f"crops.{slot}.rootwu": bind(
+        f"water_supply.{slot}.rootwu": bind(
             rootwu_supply,
             own=p["rootwu"],
             ports={"root": p["root"], "water": p["crop_water"]},
             params="rootwu",
-            name=f"crops.{slot}.rootwu",
+            name=f"water_supply.{slot}.rootwu",
         ),
         **{
             f"crops.{slot}.{n}": bind(

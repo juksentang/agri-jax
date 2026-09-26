@@ -66,8 +66,16 @@ DAY: dict[str, int] = {"vegetative": 35, "grain_fill": 85}
 #: the day's order after the water replay (``MZ_CERES``); the process under test runs from the
 #: state just before it
 ORDER = ("phenology", "stress", "growth", "roots", "publish")
-PORTS = {"water_in": "iface.crop_water.{slot}", "root_out": "iface.root.{slot}"}
-PORTS_N = {**PORTS, "n_in": "iface.crop_n.{slot}"}
+_WATER_IN = {"water_in": "iface.crop_water.{slot}"}
+#: the ports each process uses (the slot-contract check requires a case to bind exactly those)
+PORTS: dict[str, dict[str, str]] = {
+    "phenology": _WATER_IN,
+    "stress": _WATER_IN,
+    "growth": {},
+    "roots": _WATER_IN,
+    "publish": {"root_out": "iface.root.{slot}"},
+}
+PORTS_N = {"n_in": "iface.crop_n.{slot}"}
 
 
 def params(dtype: Any, yrplt: int) -> CeresMaizeParams:
@@ -180,7 +188,7 @@ def cases() -> list[ConformanceCase]:
             make=maker(name),
             variants=_VARIANTS,
             n_days=N_DAYS,
-            ports=PORTS,
+            ports=PORTS[name],
             no_balance=_NO_BALANCE,
             grad=_GRAD,
             coefficient_sets=("coefficients",),

@@ -7,7 +7,7 @@ An assembly declares its day as data::
         phases=(
             Phase("management", ("events.apply",)),
             Phase("physcl", ("pet.sw_daily", "soil_water.day")),
-            Phase("plant", ("crops.maize.rootwu", "crops.maize.phenology", "crops.maize.growth",
+            Phase("plant", ("water_supply.maize.rootwu", "crops.maize.phenology", "crops.maize.growth",
                             "crops.maize.publish_uptake")),
             Phase("ledger", ("ledger.close",)),
         ),

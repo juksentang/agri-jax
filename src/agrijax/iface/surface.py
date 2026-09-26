@@ -1,7 +1,8 @@
 """Surface-side port records: P5 PET fluxes, P8 daily weather, P9 snow outputs.
 
-:class:`PETFluxes` and :class:`DailyWeather` are defined in :mod:`agrijax.processes.pet.daily`
-and re-exported here unchanged. :class:`SnowOut` is new (the M3 snow module will write it).
+:class:`PETFluxes` and :class:`DailyWeather` are defined here and re-exported unchanged from
+:mod:`agrijax.processes.pet.daily` (their first home; both paths name the same classes).
+:class:`SnowOut` is new (the M3 snow module will write it).
 """
 
 from __future__ import annotations
@@ -11,10 +12,43 @@ from typing import Any
 import jax.numpy as jnp
 from jaxtyping import Array
 
-from agrijax.core.state import State, field
-from agrijax.processes.pet.daily import DailyWeather, PETFluxes
+from agrijax.core.state import Forcing, State, field
 
 __all__ = ["DailyWeather", "PETFluxes", "SnowOut"]
+
+
+class PETFluxes(State):
+    """Potential fluxes written by the PET processes."""
+
+    transpiration: Array = field(
+        dims=(), unit="cm d-1", description="S-W potential transpiration", fortran_name="PET"
+    )
+    soil_evaporation: Array = field(
+        dims=(), unit="cm d-1", description="S-W potential soil evaporation", fortran_name="PES"
+    )
+    residue_evaporation: Array = field(
+        dims=(), unit="cm d-1", description="S-W potential residue evaporation", fortran_name="PER"
+    )
+    reference_short: Array = field(
+        dims=(), unit="mm d-1", description="ASCE short-reference ET (grass)", fortran_name="ETO"
+    )
+    reference_tall: Array = field(
+        dims=(), unit="mm d-1", description="ASCE tall-reference ET (alfalfa)", fortran_name="ETR"
+    )
+    eo_priestley_taylor: Array = field(
+        dims=(), unit="mm d-1", description="DSSAT PETPT potential ET", fortran_name="EO"
+    )
+
+
+class DailyWeather(Forcing):
+    """Daily weather forcing of the PET processes (time axis first when stacked)."""
+
+    tmin: Array = field(unit="degC", dims="T", fortran_name="TMIN")
+    tmax: Array = field(unit="degC", dims="T", fortran_name="TMAX")
+    srad: Array = field(unit="MJ m-2 d-1", dims="T", fortran_name="RTS")
+    rh: Array = field(unit="percent", dims="T", fortran_name="RH")
+    wind_run: Array = field(unit="km d-1", dims="T", fortran_name="U")
+    doy: Array = field(unit="d", dims="T", fortran_name="JDAY")
 
 
 class SnowOut(State):
