@@ -219,7 +219,8 @@ def manage_runs(data_dir: Path, tmp_path_factory: pytest.TempPathFactory) -> dic
         pytest.skip("RZWQM binary not found")
     out_root = tmp_path_factory.mktemp("rz_manage_out")
     stage_root = tmp_path_factory.mktemp("rz_manage_src")
-    run_root = data_dir / "run"
+    # the reference binary needs a run dir <= 45 characters: honour AGRI_JAX_RUN_ROOT like run_fortran
+    run_root = Path(os.environ.get("AGRI_JAX_RUN_ROOT", str(data_dir / "run")))
 
     def one(site: str) -> Path | str:
         try:

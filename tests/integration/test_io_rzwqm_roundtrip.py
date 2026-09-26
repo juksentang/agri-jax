@@ -99,9 +99,13 @@ def tool(data_dir: Path) -> Path:
 
 @pytest.fixture(scope="module")
 def run_root(data_dir: Path) -> Iterator[Path]:
-    """A run root private to this pytest process, under ``<data-dir>/run`` (short absolute path)."""
-    parent = data_dir / "run"
-    parent.mkdir(exist_ok=True)
+    """A run root private to this pytest process, under ``AGRI_JAX_RUN_ROOT`` if set, else ``<data-dir>/run``.
+
+    The reference binary needs a short run dir (<= 45 characters), which ``<data-dir>/run`` is not on
+    the cluster.
+    """
+    parent = Path(os.environ.get("AGRI_JAX_RUN_ROOT", str(data_dir / "run")))
+    parent.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix="pyt_", dir=parent))
     yield root
     shutil.rmtree(root, ignore_errors=True)
