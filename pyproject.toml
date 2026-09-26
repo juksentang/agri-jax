@@ -52,6 +52,10 @@ docs = ["mkdocs-material", "mkdocstrings[python]"]
 Homepage = "https://github.com/juksentang/agri-jax"
 Documentation = "https://juksentang.github.io/agri-jax"
 
+[project.entry-points."agrijax.conformance"]
+# this repository's conformance cases, through the same entry point a plugin uses
+agrijax = "agrijax.testing.conformance.discover:builtin_cases"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

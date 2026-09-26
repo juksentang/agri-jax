@@ -61,13 +61,34 @@ class GrosubCoefficients(Coefficients):
 
 Lint rule **AJ007** reports the bare numeric literals left in `@process` functions and numerical kernels. The whitelist lives in `agrijax.core.lint` (`AJ007_TRIVIAL`, `AJ007_MAX_INDEX`, `AJ007_MAX_EXPONENT`, `AJ007_STRUCTURAL_CALLS`, `AJ007_STRUCTURAL_KEYWORDS`): `0`, `1` and `-1`; small integers used as indices, slice bounds, axes, shapes and counts; small integer exponents; comparisons with a shape query. Everything else is reported, powers of ten with a hint to use a unit adapter. AJ007 is a warning that `--strict` (run by CI and pre-commit) turns into a failure, like every other warning; `--strict-aj007` fails on AJ007 alone, `--aj007-report` prints the count per file, and `--ignore AJ007` turns it off. New code should not add AJ007 findings.
 
+## Ports, registry keys and lags
+
+Modules of different slots exchange data only through the port records of `agrijax.iface` (P1-P11: crop water, root record, node uptake, sink inputs, PET fluxes, canopy, surface soil water, weather, snow, crop nitrogen, water ledger). `agrijax.iface.contract.PORTS` gives each port's global path, fields (unit string in `agrijax.core.units` syntax, dims from `agrijax.core.dims.DIMS`, grid), producers, consumers and time semantics; a producer and a consumer of a port use the same record class, so the unit strings on both sides agree by construction. A slot package imports `agrijax.core` and `agrijax.iface`, never another slot's package: lint rule **AJ008** reports any import of `processes/<b>/` from code under `processes/<a>/` (absolute, `from agrijax.processes import b`, or a relative import that climbs into another slot, also inside functions), and `--strict` enforces it.
+
+A process of the library is registered under `slot/impl@ref_version:variant`. A variant other than `faithful` of a key with a reference can only be registered when its faithful sibling `slot/impl@ref_version:faithful` is already registered (define the faithful process first); `ref_version = none` (replays, demonstrations) is exempt. The rule is enforced by the registry, so it binds plugins too.
+
+A `Day` lists the one-day lags the coupling contract allows (`agrijax.iface.contract.allowed_lags(slot)`); `Day.check` rejects a lagged read no allowed lag covers and reports the allowed lags an implementation does not use (`Day.lag_report`), so swapping an implementation that reads less needs no change to the day. `exact_lags=True` asks for the two-way equality.
+
+## Conformance kit
+
+Every slot implementation, a plugin's included, provides a `ConformanceCase` (`agrijax.testing.conformance`): a `make(rng, dtype, variant)` that builds synthetic inputs from a NumPy generator (no data, never `jax.random`), the module binding (own subtree and ports), its conserved quantities (`Balance`) and its gradient spec (`GradSpec`). One command runs every generic check on it:
+
+```bash
+python -m agrijax.testing.conformance --key 'pet/*'          # this repository's cases
+python -m agrijax.testing.conformance --list                 # the cases and their origin
+python -m agrijax.testing.conformance --package my-plugin --no-builtin
+```
+
+The checks, in order: registry metadata and provenance (licence, `ref_build` of a faithful process, the `Source:` line, the case's origin); the lint with every rule (AJ001-AJ008) on the process module and the same-package modules it imports, every function as a kernel; coefficient labels; declared dims and shapes; units, and every bound port's record against `agrijax.iface.contract.PORTS` unit string for unit string; the slot contract (`SLOT_CONTRACTS`: reads and writes inside the own subtree and the slot's ports, never writing an `in` port); the writes under `AGRI_JAX_CHECK=1`; the reads by perturbation (every undeclared state leaf, and every undeclared forcing field when `forcing_fields` is given, set to NaN or a random value must leave the outputs bit for bit unchanged); daily closure of each balance in float64 and float32; eager against `jit`, `vmap(jit)` against per-sample `jit` and batch independence; float32 against float64 (no implicit upcast, finite); finite gradients in the case's and the `ste` gradient mode; gradients against central differences with steps `h` and `h/10` (a disagreement of the two is a kink next to the point: move the point or exempt the parameter in `fd_exempt`); replay against coupled binding and a `BindingError` for a used port left unbound. A case that leaves a check out gives the reason (`no_balance`, `no_grad`, `no_slot_contract`); `exempt_checks={name: reason}` records a known gap: the check must still fail (reported as xfail), and passing fails the test so the exemption is removed. A plugin registers its cases under the entry point group `agrijax.conformance`. `tests/unit/conformance/` runs every case of this repository in the unit tier, checks that every check fails on a fixture that breaks its rule, and that every registered key has a case or a written exemption (`agrijax.testing.conformance.EXEMPT`).
+
 ## Commands
 
 | What | Command |
 |---|---|
 | Format + lint | `uv run ruff format . && uv run ruff check .` |
 | Types | `uv run pyright` |
-| Three-rules lint | `uv run python -m agrijax.core.lint src/agrijax --strict` |
+| Three-rules lint (AJ001-AJ008) | `uv run python -m agrijax.core.lint src/agrijax --strict` |
+| Conformance kit, one slot | `uv run python -m agrijax.testing.conformance --key 'crop/*'` (or `pytest tests/unit/conformance --agrijax-key 'crop/*'`) |
 | Bare-literal count per file (AJ007) | `uv run python -m agrijax.core.lint src/agrijax --quiet --aj007-report` |
 | Unit tier (every push, no data) | `uv run pytest tests/unit -q` |
 | Unit tier in float32 | `AGRI_JAX_X64=0 uv run pytest tests/unit -q` |
@@ -82,7 +103,7 @@ Tests are marked with their tier automatically from their directory (`tests/<tie
 
 ## Layout
 
-`src/agrijax/`: `core/` (State/Params/Forcing, `@process`, `Model`, runtime, units, lint), `processes/` (soil_water, pet, crop/ceres_maize, canopy, arbitration), `models/`, `io/` (dssat, rzwqm), `calib/`, `port/`, `report/`.
+`src/agrijax/`: `core/` (State/Params/Forcing, `@process`, `Model`, runtime, units, lint), `iface/` (port records and the coupling contract table), `testing/conformance/` (the conformance kit and this repository's cases), `processes/` (soil_water, pet, crop/ceres_maize, n_supply, canopy, arbitration), `models/`, `io/` (dssat, rzwqm), `calib/`, `port/`, `report/`.
 
 ## Pull requests
 

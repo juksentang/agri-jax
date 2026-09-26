@@ -505,3 +505,101 @@ def test_aj007_package_count() -> None:
     assert counts == {}, counts
     # the coefficient declarations themselves carry no finding (they are module-level fields)
     assert not any(p.endswith(("coefficients.py", "units.py")) for p in counts)
+
+
+# ---------------------------------------------------------------------------
+# AJ008: a slot imports only core, the port records and its own package
+# ---------------------------------------------------------------------------
+
+AJ008_SRC = """
+import numpy as np
+from agrijax.core import process
+from agrijax.iface.crop import CropWaterIn
+from agrijax.processes.soil_water.uptake import RootRecord
+import agrijax.processes.pet.daily
+from agrijax.processes import soil_water, crop
+from ...pet import daily
+from ... import pet
+from .. import sibling
+from . import local
+from agrijax import processes
+import agrijax.processes
+import my_plugin.processes.bucket
+
+
+def f():
+    from agrijax.processes.soil_water import richards
+"""
+
+
+def _aj008(path: Path) -> list[tuple[int, str]]:
+    out = []
+    for f in lint.lint_file(path):
+        assert f.rule == "AJ008" and f.level == "warning"
+        out.append((f.line, f.message.split("imports processes/")[1].split(" ")[0]))
+    return out
+
+
+def test_aj008_reports_imports_of_other_slots(tmp_path: Path) -> None:
+    f = tmp_path / "pkg" / "processes" / "crop" / "sub" / "m.py"
+    f.parent.mkdir(parents=True)
+    f.write_text(AJ008_SRC)
+    # core, iface, numpy, the own slot (crop, ``..`` and ``.``) and the bare processes package pass
+    assert _aj008(f) == [
+        (5, "soil_water"),
+        (6, "pet"),
+        (7, "soil_water"),  # from agrijax.processes import soil_water, crop: crop is the own slot
+        (8, "pet"),
+        (9, "pet"),
+        (14, "bucket"),  # any package's processes/ directory
+        (18, "soil_water"),  # inside a function too
+    ]
+    assert lint.slot_of_path(f) == ("crop", ("crop", "sub"))
+
+
+def test_aj008_file_directly_in_processes_is_its_own_slot(tmp_path: Path) -> None:
+    f = tmp_path / "processes" / "bucket.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("from . import local\nfrom .bucket_util import x\nfrom agrijax.processes.pet import y\n")
+    assert _aj008(f) == [(1, "local"), (2, "bucket_util"), (3, "pet")]
+    assert lint.slot_of_path(tmp_path / "processes" / "__init__.py") is None
+    assert lint.slot_of_path(tmp_path / "io" / "x.py") is None
+    g = tmp_path / "io" / "x.py"
+    g.parent.mkdir()
+    g.write_text("from agrijax.processes.pet import y\n")
+    assert lint.lint_file(g) == [] and lint.lint_file(g, all_functions=True) == []  # outside processes/
+
+
+def test_aj008_is_enforced_by_strict_and_can_be_ignored(tmp_path: Path) -> None:
+    f = tmp_path / "processes" / "crop" / "m.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("from agrijax.processes.soil_water.uptake import RootRecord\n")
+    assert lint.main([str(f)]) == 0
+    assert lint.main([str(f), "--strict"]) == 1
+    assert lint.main([str(f), "--strict", "--ignore", "AJ008"]) == 0
+    assert (
+        "AJ008" in lint.RULES and lint.RULES["AJ008"][0] == "warning" and "AJ008" not in lint.NOT_STRICT_RULES
+    )
+
+
+def test_aj008_the_package_has_no_cross_slot_import() -> None:
+    src = Path(lint.__file__).resolve().parents[1]
+    found = [f for f in lint.lint_paths([src]) if f.rule == "AJ008"]
+    assert found == [], "\n".join(f.format() for f in found)
+
+
+def test_kernel_and_processes_options(tmp_path: Path) -> None:
+    g = tmp_path / "plugin" / "k.py"
+    g.parent.mkdir()
+    g.write_text(HEADER + KERNEL)
+    assert lint.lint_file(g) == []  # not under processes/: not linted by default
+    assert [x.rule for x in lint.lint_file(g, kernel=True, ignore={"AJ007"})] == ["AJ001"]
+    src = HEADER + textwrap.dedent("""
+    def body(state, params, forcing_t):
+        return state.water * 2
+    """)
+    h = tmp_path / "plugin" / "p.py"
+    h.write_text(src)
+    rules = {x.rule for x in lint.lint_file(h, kernel=True, processes=("body",))}
+    assert {"AJ004", "AJ005", "AJ007"} <= rules  # a call-form process gets every rule
+    assert {x.rule for x in lint.lint_file(h, kernel=True)} == {"AJ007"}

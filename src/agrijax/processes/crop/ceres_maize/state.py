@@ -4,7 +4,7 @@ Every crop field carries a leading ``n_crop`` axis (handover section 4); soil-la
 crop (root length density, days saturated) are ``[n_crop, n_layer]``; the soil itself (layer
 thickness and limits in :class:`CeresSoil`, water content in the ``water_in`` port) is shared by the crops,
 ``[n_layer]``. The crop reads its soil water, ``EOP`` and ``TRWUP`` from its ``water_in`` port and
-publishes its root record into ``root_out`` (:mod:`agrijax.processes.soil_water.uptake`). The
+publishes its root record into ``root_out`` (the port records of :mod:`agrijax.iface.crop`). The
 single lumped leaf pool of CERES-Maize lives in slot 0 of an
 :class:`~agrijax.core.organs.OrganQueue` with ``n_cohort = 1``: ``leaf.area[:, 0]`` is the plant
 leaf area ``PLA`` [cm2 plant-1] and ``leaf.mass[:, 0]`` the leaf weight ``LFWT`` [g plant-1].
@@ -32,7 +32,7 @@ from jaxtyping import Array
 from agrijax.core.organs import OrganQueue
 from agrijax.core.ports import port
 from agrijax.core.state import Forcing, Params, State, field
-from agrijax.processes.soil_water.uptake import CropWaterIn, RootRecord
+from agrijax.iface.crop import CropNIn, CropWaterIn, RootRecord
 
 from .coefficients import DSSAT_COEFFICIENTS, CeresCoefficients
 from .constants import ISTAGE_SOWING, MDATE_NONE, XSTAGE_SEASINIT
@@ -257,7 +257,7 @@ class CeresForcing(Forcing):
 
     ``sw``, ``eop`` and ``trwup`` are read only by
     :func:`~agrijax.processes.crop.ceres_maize.model.ceres_water_replay`, which writes them into the
-    ``water_in`` port (:class:`~agrijax.processes.soil_water.uptake.CropWaterIn`) when the crop runs
+    ``water_in`` port (:class:`~agrijax.iface.crop.CropWaterIn`) when the crop runs
     on its own; in a coupled assembly the port is written by the soil-water and
     uptake producers instead and these fields are unused. The crop computes its water-stress
     factors from ``eop`` and ``trwup`` itself (``MZ_GROSUB``); there are no stress fields here."""
@@ -271,7 +271,12 @@ class CeresForcing(Forcing):
         unit="h", description="twilight-to-twilight daylength (TWILIGHT)", fortran_name="TWILEN", dims="T"
     )
     co2: Array = field(unit="ppm", description="atmospheric CO2", fortran_name="CO2", dims="T")
-    snow: Array = field(unit="mm", description="snow depth", fortran_name="SNOW", dims="T")
+    snow: Array = field(
+        unit="mm",
+        description="snow accumulation as water equivalent (DSSAT SNOW)",
+        fortran_name="SNOW",
+        dims="T",
+    )
     sw: Array = field(
         unit="cm3 cm-3",
         description="replay: soil water content after today's soil update",
@@ -425,12 +430,17 @@ class CeresRootState(State):
 
 
 class CeresMaizeState(State):
-    """The whole CERES-Maize state, with its two ports (plan 19 A2, A4).
+    """The whole CERES-Maize state, with its ports (plan 19 A2, A4; M3 coupling contract P1, P2, P10).
 
     ``water_in`` is read (soil water of the crop layers, ``EOP``, ``TRWUP``); ``root_out`` is
     published at the end of each crop day (``RLV, RTDEP, RWUMX, PORMIN, XHLAI``). Run on its own
     the crop holds both records here; in an assembly they are bound to ``iface.*`` paths
     (:func:`agrijax.core.ports.bind`) and are ``None`` in the crop's own subtree.
+
+    ``n_in`` (:class:`~agrijax.iface.crop.CropNIn`, ``NSTRES``) is read only by the
+    ``nstress_replay`` growth variant; the faithful nitrogen-off processes never touch it, and
+    :meth:`initial` leaves it ``None`` so the faithful state is unchanged. Bind it to
+    ``iface.crop_n.<slot>``, or fill it here with ``CropNIn.initial(n_crop)``.
     """
 
     phen: CeresPhenologyState
@@ -439,6 +449,9 @@ class CeresMaizeState(State):
     roots: CeresRootState
     water_in: CropWaterIn = port(description="soil water, EOP and TRWUP the crop reads each day")
     root_out: RootRecord = port(description="root record the crop publishes each day (for ROOTWU)")
+    n_in: CropNIn = port(
+        description="nitrogen stress NSTRES (read by the nstress_replay growth variant only)"
+    )
 
     @classmethod
     def initial(cls, params: CeresMaizeParams, n_crop: int = 1, dtype: Any = None) -> CeresMaizeState:

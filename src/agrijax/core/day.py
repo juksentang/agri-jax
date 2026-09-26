@@ -24,9 +24,15 @@ An assembly declares its day as data::
   PCSE-style assemblies: no entry of that phase may read a path written by an earlier entry of
   the same phase.
 * **Lags are declared, never implicit.** A read that comes before another module's write of the
-  same path sees yesterday's value; :meth:`Day.compile` requires the set of such reads
-  (:meth:`Day.lagged_reads`) to equal the declared :class:`Lag` table exactly, in both
-  directions. The module of an entry is its name without the last component, so a module's
+  same path sees yesterday's value. The :class:`Lag` table of a ``Day`` is the set of lags the
+  coupling contract **allows** (M3 contract, decision 3: lags hang on the contract's ports, so
+  swapping one implementation for another with a smaller read set changes no ``Day``).
+  :meth:`Day.check` requires every lagged read of the compiled model (:meth:`Day.lagged_reads`)
+  to be covered by an allowed lag (same reader; the allowed path equal to the read or a dotted
+  prefix of it) and **reports** the allowed lags the implementation does not use
+  (:class:`LagReport`) instead of rejecting them; ``exact_lags=True`` restores the two-way
+  equality for a day that must reproduce a reference order exactly. The module of an entry is
+  its name without the last component, so a module's
   later entry updating the state its earlier entry read (DSSAT ``soil.watbal_rate`` reading the
   ``SW`` that ``soil.watbal_integr`` writes) is that module's own carried state, not a lag. The
   remaining stale reads are true state carried across days or initial conditions
@@ -42,6 +48,7 @@ runtime structure and no cost.
 from __future__ import annotations
 
 import dataclasses
+import logging
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -58,6 +65,7 @@ __all__ = [
     "DayLagError",
     "DayOrderError",
     "Lag",
+    "LagReport",
     "Phase",
     "snapshot",
 ]
@@ -66,6 +74,8 @@ Discipline = Literal["start_of_day"]
 #: ``Process.source`` of the entries built by :func:`snapshot`
 SNAPSHOT_SOURCE = "plan 19 A1 snapshot"
 DISCIPLINES: tuple[str, ...] = ("start_of_day",)
+
+_log = logging.getLogger(__name__)
 
 
 class DayError(ValueError):
@@ -77,7 +87,8 @@ class DayOrderError(DayError):
 
 
 class DayLagError(DayError):
-    """The lagged reads of the compiled day differ from the declared :class:`Lag` table."""
+    """A lagged read of the compiled day that the :class:`Lag` table does not allow (or, with
+    ``exact_lags=True``, an allowed lag the order does not produce)."""
 
 
 @dataclass(frozen=True)
@@ -105,6 +116,25 @@ class Lag:
     @property
     def pair(self) -> tuple[str, str]:
         return (self.reader, self.path)
+
+    def covers(self, reader: str, path: str) -> bool:
+        """``True`` when this lag allows ``reader``'s lagged read of ``path``: the same reader, and
+        ``path`` equal to the lag's path or below it (``iface.root.maize`` allows
+        ``iface.root.maize.rlv``)."""
+        return reader == self.reader and (path == self.path or path.startswith(self.path + "."))
+
+
+@dataclass(frozen=True)
+class LagReport:
+    """What :meth:`Day.check` found: the lagged reads of the model (each covered by an allowed
+    lag) and the allowed lags that no read of this implementation uses."""
+
+    used: tuple[tuple[str, str], ...]
+    unused: tuple[Lag, ...]
+
+    @property
+    def unused_pairs(self) -> tuple[tuple[str, str], ...]:
+        return tuple(lag.pair for lag in self.unused)
 
 
 @dataclass(frozen=True)
@@ -188,8 +218,24 @@ class Day:
         return [pr for pr in model.stale_reads() if pr not in lagged]
 
     def declared_lags(self) -> set[tuple[str, str]]:
-        """``{(reader, path)}`` of the declared lags."""
+        """``{(reader, path)}`` of the declared (allowed) lags."""
         return {lag.pair for lag in self.lags}
+
+    def lag_report(self, model: Model) -> LagReport:
+        """Split the lags of ``model``: its lagged reads, and the allowed lags none of them uses.
+
+        Raises :class:`DayLagError` for a lagged read no allowed lag covers.
+        """
+        found = self.lagged_reads(model)
+        undeclared = sorted({(r, p) for r, p in found if not any(lag.covers(r, p) for lag in self.lags)})
+        if undeclared:
+            raise DayLagError(
+                "undeclared lags (reader runs before another entry that writes the path, and the day "
+                "does not allow the lag): "
+                + ", ".join(f"{r} <- {p} (written by {list(model.writers(p))})" for r, p in undeclared)
+            )
+        unused = tuple(lag for lag in self.lags if not any(lag.covers(r, p) for r, p in found))
+        return LagReport(used=tuple(dict.fromkeys(found)), unused=unused)
 
     # ------------------------------------------------------------------ checks
     def order_violations(self, model: Model) -> list[tuple[str, str, str, str]]:
@@ -206,9 +252,11 @@ class Day:
                             out.append((ph.name, writer, reader, r))
         return out
 
-    def check(self, model: Model) -> None:
+    def check(self, model: Model, *, exact_lags: bool = False) -> LagReport:
         """Raise unless ``model`` follows this day: same entries in the same order, no forbidden
-        same-phase read, and lagged reads equal to the declared lags."""
+        same-phase read, and every lagged read allowed by the :class:`Lag` table. Returns the
+        :class:`LagReport` (the allowed lags this implementation does not use are reported, not
+        rejected); with ``exact_lags=True`` an unused allowed lag raises :class:`DayLagError`."""
         if model.names != self.entries:
             raise DayError(
                 f"model order {list(model.names)} differs from the day's entries {list(self.entries)}"
@@ -217,23 +265,19 @@ class Day:
         if bad:
             lines = "; ".join(f"[{ph}] {rd} reads {path} written earlier by {wr}" for ph, wr, rd, path in bad)
             raise DayOrderError(f"same-phase reads in a start_of_day phase: {lines}")
-        found = set(self.lagged_reads(model))
-        declared = self.declared_lags()
-        undeclared = sorted(found - declared)
-        unused = sorted(declared - found)
-        if undeclared or unused:
-            msg = []
-            if undeclared:
-                msg.append(
-                    "undeclared lags (reader runs before another entry that writes the path): "
-                    + ", ".join(f"{r} <- {p} (written by {list(model.writers(p))})" for r, p in undeclared)
-                )
-            if unused:
-                msg.append(
-                    "declared lags that the order does not produce: "
-                    + ", ".join(f"{r} <- {p}" for r, p in unused)
-                )
-            raise DayLagError("; ".join(msg))
+        report = self.lag_report(model)
+        if exact_lags and report.unused:
+            raise DayLagError(
+                "declared lags that the order does not produce: "
+                + ", ".join(f"{r} <- {p}" for r, p in report.unused_pairs)
+            )
+        if report.unused:
+            _log.info(
+                "day %s: allowed lags not used by this implementation: %s",
+                self.ref,
+                ", ".join(f"{r} <- {p}" for r, p in report.unused_pairs),
+            )
+        return report
 
     # ------------------------------------------------------------------ compile
     def compile(
@@ -244,6 +288,7 @@ class Day:
         outputs: Sequence[str] | OutputFn | None = None,
         name: str = "",
         check: bool = True,
+        exact_lags: bool = False,
     ) -> Model:
         """Build the :class:`~agrijax.core.model.Model` of this day.
 
@@ -251,7 +296,8 @@ class Day:
         names are the entry names, e.g. the output of :func:`agrijax.core.ports.bind` with
         ``name=``). Each process is renamed to its entry, so one function may serve several
         entries. Missing or surplus entries raise :class:`DayError`; with ``check=True`` (the
-        default) :meth:`check` runs on the result.
+        default) :meth:`check` runs on the result (``exact_lags`` is passed on). The allowed lags
+        the result does not use are in :meth:`lag_report`.
         """
         if isinstance(processes, Mapping):
             table: dict[str, Process] = {str(k): Model._as_process(v) for k, v in processes.items()}
@@ -272,7 +318,7 @@ class Day:
         ]
         model = Model(state_spec, procs, outputs=outputs, name=name or f"day@{self.ref}", day=self)
         if check:
-            self.check(model)
+            self.check(model, exact_lags=exact_lags)
         return model
 
 

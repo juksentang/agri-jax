@@ -3,7 +3,7 @@ declaration (Day/Phase/Lag), ports and bindings, the water ledger, gradient help
 coefficients (``coef`` / ``Provenance``), units, lint."""
 
 from agrijax.core.coefficients import Coefficients, Provenance, coef, coefficient_table
-from agrijax.core.day import Day, Lag, Phase, snapshot
+from agrijax.core.day import Day, Lag, LagReport, Phase, snapshot
 from agrijax.core.events import EventTable
 from agrijax.core.grad import gradient_mode
 from agrijax.core.ledger import WaterLedger, water_ledger
@@ -20,6 +20,7 @@ __all__ = [
     "EventTable",
     "Forcing",
     "Lag",
+    "LagReport",
     "Model",
     "OrganQueue",
     "Params",

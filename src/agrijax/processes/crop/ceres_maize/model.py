@@ -25,15 +25,16 @@ from jaxtyping import Array
 from agrijax.core.model import Model
 from agrijax.core.process import process
 from agrijax.core.units import CM_PER_M, KG_HA_PER_G_M2
-from agrijax.processes.soil_water.uptake import CropWaterIn, RootRecord
+from agrijax.iface.crop import CropWaterIn, RootRecord
 
-from .growth import ceres_growth, ceres_stress
+from .growth import ceres_growth, ceres_growth_nstress_replay, ceres_stress
 from .phenology import ceres_phenology
 from .roots import ceres_roots
 from .state import CeresForcing, CeresMaizeParams, CeresMaizeState
 
 __all__ = [
     "CROP_PROCESSES",
+    "CROP_PROCESSES_NSTRESS_REPLAY",
     "OUTPUT_UNITS",
     "ceres_maize_model",
     "ceres_publish",
@@ -177,6 +178,14 @@ def ceres_publish(
 
 #: the crop day, in the ``MZ_CERES`` order, without the replay producer (bind these in an assembly)
 CROP_PROCESSES = (ceres_phenology, ceres_stress, ceres_growth, ceres_roots, ceres_publish)
+#: the same day with the ``nstress_replay`` growth (``NSTRES`` from the ``n_in`` port; bind ``n_in``)
+CROP_PROCESSES_NSTRESS_REPLAY = (
+    ceres_phenology,
+    ceres_stress,
+    ceres_growth_nstress_replay,
+    ceres_roots,
+    ceres_publish,
+)
 
 
 def ceres_maize_model(*, outputs: Any = plantgro_outputs) -> Model:
