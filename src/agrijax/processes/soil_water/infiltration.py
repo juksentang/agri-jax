@@ -63,9 +63,18 @@ If the whole profile saturates before the rain ends, the remaining rain passes t
 saturated profile as bottom seepage (RZWQM2 with no water table), or runs off when the
 profile was saturated before the storm.
 
-Branches not implemented (inactive at CA-TPA, deferred as L-GA+): surface crust, macropore
-flow, water table / tile drains / saturated flow below the front, unit-gradient flow below the
-front, ponded irrigation (``INFLPD``), snowmelt events (L-snow).
+After tillage (``soil`` a :class:`~agrijax.processes.soil_water.hydraulics.TilledSoilHydraulicParams`)
+the initial suction ``s_i`` and the post-event heads come from the two-segment retention curve
+RZWQM2 evaluates in ``WCH`` (pre-tillage curve at the dry end), and everything else (porosity,
+the conductivity integral, the front conductance at the air-entry head) from the current
+parameters, as ``EVNTRO`` reads ``SOILHP`` directly there.
+
+Branches not implemented (deferred as L-GA+; inactive on the 15 ``RZWQM_sw_batch`` scenarios,
+active on the tile-drained ones, ``tests/integration/test_green_ampt_scenarios.py``): surface
+crust, macropore flow, water table / tile drains / saturated flow below the front, unit-gradient
+flow below the front, bottom-flux cap (``IREBOT = 3``), ice-limited porosity (``PORI``), plastic
+mulch, ponded irrigation (``INFLPD``), snowmelt events (L-snow). Irrigation events that enter
+with breakpoints do not match from their entry state either; the cause is open (L-irr).
 
 Differentiability: every quotient is on a clamped argument (``r >= r_min``, ``V > 0``,
 ``dq > 0`` on active slices, guarded elsewhere); the slice at which the rain runs out and the
@@ -98,7 +107,14 @@ from agrijax.core.dims import register_dim
 from agrijax.core.state import Forcing, Params, field
 
 from .coefficients import RZWQM2_GREEN_AMPT, GreenAmptCoefficients, numerical_setting, rzwqm2
-from .hydraulics import SoilHydraulicParams, c2_of_params, h_of_theta, k_of_h
+from .hydraulics import (
+    AnyHydraulicParams,
+    SoilHydraulicParams,
+    TilledSoilHydraulicParams,
+    c2_of_params,
+    h_of_theta,
+    k_of_h,
+)
 
 __all__ = [
     "GAResult",
@@ -306,9 +322,14 @@ def _int_pow(a: Array, b: Array, p: Array) -> Array:
     return jnp.where(near, log_ratio, general)
 
 
+def _current(soil: AnyHydraulicParams) -> SoilHydraulicParams:
+    """The parameters of the curve now (``SOILHP``): ``soil`` itself, or its ``current`` after tillage."""
+    return soil.current if isinstance(soil, TilledSoilHydraulicParams) else soil
+
+
 def wetting_front_suction(
     theta: Array,
-    soil: SoilHydraulicParams,
+    soil: AnyHydraulicParams,
     theta_avail: Array,
     pond: Array | float = 0.0,
     coefs: GreenAmptCoefficients = RZWQM2_GREEN_AMPT,
@@ -319,13 +340,16 @@ def wetting_front_suction(
     integral is closed-form on the two power-law segments of ``K`` (``K_s s^-n1`` up to
     ``hb_k``, ``C2 s^-eps`` beyond) and is 1 for ``s_i <= 1`` (RZWQM2 convention). ``soil`` on
     the node axis. The offset, the lower limit (1 cm) and the value below it are the
-    ``coefs`` (:class:`GreenAmptCoefficients`).
+    ``coefs`` (:class:`GreenAmptCoefficients`). After tillage ``s_i`` is read from the
+    two-segment retention curve of ``soil`` (``WCH``) and the integral from the current
+    parameters (``SOILHP``).
 
     Source: Mein & Larson (1973); Ahuja et al. (2000) ch. 3; RZWQM2 ``EVNTRO`` (conventions).
     """
     lower = coefs.suction_lower
     w_init = _where_min(theta, theta_avail)
     s_i = -h_of_theta(w_init, soil)
+    soil = _current(soil)
     hbk = jnp.where(soil.hb_k > lower, soil.hb_k, lower)
     s_wet = jnp.clip(s_i, lower, hbk)
     s_dry = jnp.where(s_i > hbk, s_i, hbk)
@@ -335,17 +359,19 @@ def wetting_front_suction(
     return integral + pond + coefs.suction_offset
 
 
-def front_conductance(soil: SoilHydraulicParams) -> Array:
+def front_conductance(soil: AnyHydraulicParams) -> Array:
     """Conductance of each node for the front ``C_i`` [cm h-1]: ``K(-hb)`` capped at ``K_s``, non-increasing.
 
     The surface node takes ``K_s`` (no crust). The running minimum over depth is an
-    associative scan, not a loop.
+    associative scan, not a loop. ``K`` is evaluated on ``soil`` (the two-segment curve after
+    tillage, ``POINTK``) at the current air-entry head.
 
     Source: Ahuja et al. (2000) ch. 3; RZWQM2 ``EVNTRO`` (conventions).
     """
-    k_air = k_of_h(-soil.hb, soil)
-    c = _where_min(k_air, soil.ksat)
-    c = jnp.concatenate([soil.ksat[:1], c[1:]])
+    cur = _current(soil)
+    k_air = k_of_h(-cur.hb, soil)
+    c = _where_min(k_air, cur.ksat)
+    c = jnp.concatenate([cur.ksat[:1], c[1:]])
     return lax.associative_scan(_where_min, c)
 
 
@@ -395,7 +421,7 @@ def _rain_intensity(consumed: Array, cum: Array, rate: Array) -> Array:
 def green_ampt_event(
     theta: Array,
     h: Array,
-    soil: SoilHydraulicParams,
+    soil: AnyHydraulicParams,
     tl: Array,
     aef: Array,
     duration: Array,
@@ -408,7 +434,8 @@ def green_ampt_event(
     ``theta``, ``h`` on the nodes, ``soil`` on the node axis, ``tl`` the cell thicknesses,
     ``duration``/``depth`` the breakpoint intervals [h]/[cm]. Nodes that receive water get
     ``h = h(theta)``; the others keep their head and water content bit for bit. ``coefs`` are
-    the event coefficients (``None``: the RZWQM2 values, :data:`RZWQM2_GREEN_AMPT`).
+    the event coefficients (``None``: the RZWQM2 values, :data:`RZWQM2_GREEN_AMPT`). ``soil``
+    may be the post-tillage :class:`TilledSoilHydraulicParams` (see the module docstring).
 
     Source: Green & Ampt (1911); Mein & Larson (1973); Ahuja et al. (2000) ch. 3; RZWQM2
     ``EVNTRO``/``INFIL``/``UNSATFLO``/``MIXRUNOFF`` (conventions).
@@ -417,7 +444,7 @@ def green_ampt_event(
     coefs = RZWQM2_GREEN_AMPT if coefs is None else coefs
     dtype = theta.dtype
     n = tl.shape[-1]
-    theta_avail = soil.theta_s * aef
+    theta_avail = _current(soil).theta_s * aef
     node, zc = slice_nodes(tl, cfg)
     deficit = theta_avail[node] - theta[node]
     active = deficit > _SAT_TOL
