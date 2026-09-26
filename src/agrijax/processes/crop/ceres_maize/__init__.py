@@ -2,7 +2,8 @@
 
 The crop reads its water through the ``water_in`` port (soil water, ``EOP``, ``TRWUP``) and computes
 its water-stress factors itself; it publishes a root record (``root_out``) for the uptake
-producers (:mod:`agrijax.processes.soil_water.uptake`).
+producers. The port records are those of :mod:`agrijax.iface.crop`; the ``nstress_replay`` growth
+variant also reads the nitrogen stress ``NSTRES`` from the ``n_in`` port.
 
 An independent implementation from the published equations of DSSAT-CSM ``Plant/CERES-Maize``
 (BSD-3, Copyright 1998-2026 DSSAT Foundation, University of Florida, International Fertilizer
@@ -20,9 +21,16 @@ from .coefficients import (
     RootgrCoefficients,
     coefficient_table,
 )
-from .growth import ceres_growth, ceres_stress, saturation_factor, water_stress_factors
+from .growth import (
+    ceres_growth,
+    ceres_growth_nstress_replay,
+    ceres_stress,
+    saturation_factor,
+    water_stress_factors,
+)
 from .model import (
     CROP_PROCESSES,
+    CROP_PROCESSES_NSTRESS_REPLAY,
     OUTPUT_UNITS,
     ceres_maize_model,
     ceres_publish,
@@ -49,6 +57,7 @@ from .state import (
 
 __all__ = [
     "CROP_PROCESSES",
+    "CROP_PROCESSES_NSTRESS_REPLAY",
     "DSSAT_COEFFICIENTS",
     "NOT_REACHED",
     "N_STAGE_DATES",
@@ -68,6 +77,7 @@ __all__ = [
     "PhenolCoefficients",
     "RootgrCoefficients",
     "ceres_growth",
+    "ceres_growth_nstress_replay",
     "ceres_maize_model",
     "ceres_phenology",
     "ceres_publish",

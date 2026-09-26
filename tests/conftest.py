@@ -15,6 +15,8 @@
 * With ``AGRI_JAX_NO_SKIP=1`` (set by the CI unit job) any skipped test fails the run, unless the
   test is marked ``@pytest.mark.allow_skip(reason=...)``; a silently skipped reader test would
   otherwise pass CI without running.
+* Loads the conformance kit's pytest plugin (``--agrijax-key``, the ``conformance_case`` fixture
+  of ``tests/unit/conformance/``).
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ from pathlib import Path
 import jax
 import pytest
 from hypothesis import settings
+
+pytest_plugins = ("agrijax.testing.conformance.pytest_plugin",)
 
 settings.register_profile("agrijax", derandomize=True, database=None, deadline=None)
 settings.load_profile("agrijax")

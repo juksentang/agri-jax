@@ -28,6 +28,14 @@ A process of the model library is registered under a versioned key
 * ``variant`` is ``faithful`` for the version pinned to the reference; any other variant reuses
   the faithful kernels and must list how it deviates.
 
+A variant other than ``faithful`` of a key with a reference (``ref_version != none``) can only
+be registered once its **faithful sibling** ``slot/impl@ref_version:faithful`` is registered:
+:meth:`ProcessRegistry.add` raises :class:`MissingFaithfulError` otherwise, and removing a
+faithful entry that still has variants raises too (M3 coupling contract, decision 7). The rule
+binds every registration, including plugins, since they register through the same registry;
+keys with ``ref_version = none`` are exempt (they have no reference to be faithful to). Define a
+module's faithful process before its variants.
+
 Selection between variants is static (Python-level, by key), never a traced flag. Numerics
 settings (sub-step and iteration counts) are configuration, not variants.
 
@@ -65,6 +73,7 @@ __all__ = [
     "PROVENANCE",
     "Deviation",
     "DuplicateProcessError",
+    "MissingFaithfulError",
     "Process",
     "ProcessInfo",
     "ProcessKey",
@@ -98,6 +107,10 @@ GRIDS: dict[str, str] = {
     "point": "no spatial axis (one value per sample, crop or organ)",
     "rzwqm2_nodes": "RZWQM2 vertex-centred soil node grid (TL, DELZ)",
     "dssat_layers": "DSSAT soil layers (DLAYR), no surface layer 0",
+    "rzwqm2_lyrset": (
+        "the DSSAT crop layers of RZWQM2's embedded crop (LYRSET: layer bottoms 5, 15, 30, 45, 60, 90, "
+        "120, 150 cm at CA-TPA), onto which the node water is mapped"
+    ),
 }
 
 FAITHFUL = "faithful"
@@ -121,6 +134,10 @@ class ProcessSignatureError(TypeError):
 
 class DuplicateProcessError(ValueError):
     """A different process is already registered under the same key or name."""
+
+
+class MissingFaithfulError(ValueError):
+    """A non-faithful variant without its registered faithful sibling (M3 contract, decision 7)."""
 
 
 def check_enabled() -> bool:
@@ -180,6 +197,17 @@ class ProcessKey:
 
     def __str__(self) -> str:
         return f"{self.slot}/{self.impl}@{self.ref_version}:{self.variant}"
+
+    @property
+    def faithful(self) -> ProcessKey:
+        """The ``faithful`` key of the same ``slot/impl@ref_version``."""
+        return ProcessKey(self.slot, self.impl, self.ref_version, FAITHFUL)
+
+    @property
+    def needs_faithful_sibling(self) -> bool:
+        """``True`` for a variant other than ``faithful`` of a key with a reference: it may only be
+        registered next to its faithful sibling (``ref_version = none`` is exempt)."""
+        return self.variant != FAITHFUL and self.ref_version != NO_REFERENCE
 
 
 @dataclass(frozen=True)
@@ -388,7 +416,14 @@ class ProcessRegistry(MutableMapping[str, Process]):
         self.add(proc)
 
     def __delitem__(self, name_or_key: str) -> None:
-        self._remove(self[name_or_key])
+        proc = self[name_or_key]
+        orphans = self._variants_of(proc)
+        if orphans:
+            raise MissingFaithfulError(
+                f"cannot remove {proc.key!r}: the variants {orphans} would lose their faithful sibling "
+                "(remove them first)"
+            )
+        self._remove(proc)
 
     def __iter__(self) -> Iterator[str]:
         return iter(list(self._by_name))
@@ -398,8 +433,19 @@ class ProcessRegistry(MutableMapping[str, Process]):
 
     # ---- registry operations
     def add(self, proc: Process) -> Process:
-        """Register ``proc``; raise :class:`DuplicateProcessError` if its name or key is taken."""
+        """Register ``proc``; raise :class:`DuplicateProcessError` if its name or key is taken, and
+        :class:`MissingFaithfulError` if it is a variant (other than ``faithful``, with a reference)
+        whose faithful sibling is not registered."""
         key = proc.key
+        if proc.info is not None and proc.info.key.needs_faithful_sibling:
+            sibling = str(proc.info.key.faithful)
+            if sibling not in self._by_key:
+                raise MissingFaithfulError(
+                    f"cannot register variant {key!r} ({proc.name!r}): its faithful sibling {sibling!r} is "
+                    "not registered. Every non-faithful variant of a reference needs the faithful "
+                    "implementation next to it (M3 coupling contract, decision 7); register the faithful "
+                    "process first, or use ref_version 'none' for a process without a reference"
+                )
         clash: list[str] = []
         taken = [self._by_name.get(proc.name)]
         if key is not None:
@@ -419,6 +465,17 @@ class ProcessRegistry(MutableMapping[str, Process]):
         if key is not None:
             self._by_key[key] = proc
         return proc
+
+    def _variants_of(self, proc: Process) -> list[str]:
+        """Registered keys whose faithful sibling is ``proc`` (empty unless ``proc`` is faithful)."""
+        if proc.info is None or proc.info.variant != FAITHFUL or self._by_key.get(str(proc.key)) is not proc:
+            return []
+        fk = proc.info.key
+        return sorted(
+            k
+            for k, p in self._by_key.items()
+            if p.info is not None and p.info.key.needs_faithful_sibling and p.info.key.faithful == fk
+        )
 
     def _remove(self, proc: Process) -> None:
         if self._by_name.get(proc.name) is proc:

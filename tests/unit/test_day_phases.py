@@ -9,7 +9,8 @@ Two synthetic assemblies stand in for the two reference days:
   entries, and one function serves two entries.
 
 The tests check the compiled order, the ``dataflow()`` edges, that ``stale_reads()`` equals the
-declared lags plus the carried state exactly, that undeclared and surplus lags are rejected,
+declared lags plus the carried state exactly, that undeclared lags are rejected and allowed but
+unused lags reported (rejected only with ``exact_lags=True``),
 that a lagged reader really sees yesterday's value when the model runs (compared with a NumPy
 loop), the ``start_of_day`` discipline, and the ``prev.*`` snapshot.
 """
@@ -130,13 +131,44 @@ def test_undeclared_lag_is_rejected() -> None:
         rz_day(lags=()).compile(RZ_PROCS)
 
 
-def test_declared_lag_the_order_does_not_produce_is_rejected() -> None:
+def test_allowed_lag_the_order_does_not_produce_is_reported() -> None:
+    """M3 contract decision 3: the Lag table is what the contract allows; an implementation may use
+    a subset. Unused allowed lags are reported by ``check`` / ``lag_report``, not rejected, unless
+    ``exact_lags=True`` (the old two-way equality)."""
     bogus = Lag("crops.maize.growth", "soil_water.w", evidence="none")  # written earlier today: fresh
-    with pytest.raises(DayLagError, match="declared lags that the order does not produce"):
-        rz_day(lags=(UPTAKE_LAG, bogus)).compile(RZ_PROCS)
     carried = Lag("crops.maize.growth", "crops.maize.lai", evidence="none")  # own state, not a lag
-    with pytest.raises(DayLagError, match="does not produce"):
-        rz_day(lags=(UPTAKE_LAG, carried)).compile(RZ_PROCS)
+    for extra in (bogus, carried):
+        day = rz_day(lags=(UPTAKE_LAG, extra))
+        model = day.compile(RZ_PROCS)
+        report = day.check(model)
+        assert report.used == (("soil_water.day", "iface.root_uptake.maize.q"),)
+        assert report.unused == (extra,) and report.unused_pairs == (extra.pair,)
+        assert day.lag_report(model) == report
+        with pytest.raises(DayLagError, match="declared lags that the order does not produce"):
+            day.compile(RZ_PROCS, exact_lags=True)
+        with pytest.raises(DayLagError, match="does not produce"):
+            day.check(model, exact_lags=True)
+    exact = rz_day().check(rz_day().compile(RZ_PROCS), exact_lags=True)
+    assert exact.unused == ()
+
+
+def test_allowed_lag_on_a_record_covers_reads_of_its_fields() -> None:
+    """A lag allowed on a port record (``iface.root_uptake.maize``) covers a reader that reads one of
+    its fields; a lag on one field does not cover a read of the whole record or of another reader."""
+    on_record = Lag("soil_water.day", "iface.root_uptake.maize", evidence="port P3")
+    day = rz_day(lags=(on_record,))
+    report = day.check(day.compile(RZ_PROCS))
+    assert report.unused == () and report.used == (("soil_water.day", "iface.root_uptake.maize.q"),)
+    assert on_record.covers("soil_water.day", "iface.root_uptake.maize.q")
+    assert on_record.covers("soil_water.day", "iface.root_uptake.maize")
+    assert not on_record.covers("soil_water.day", "iface.root_uptake.maizeq")
+    assert not on_record.covers("crops.maize.growth", "iface.root_uptake.maize.q")
+    field_lag = Lag("soil_water.day", "iface.root_uptake.maize.q.x", evidence="narrower than the read")
+    with pytest.raises(DayLagError, match="undeclared lags"):
+        rz_day(lags=(field_lag,)).compile(RZ_PROCS)
+    wrong_reader = Lag("crops.maize.growth", "iface.root_uptake.maize", evidence="another reader")
+    with pytest.raises(DayLagError, match="undeclared lags"):
+        rz_day(lags=(wrong_reader,)).compile(RZ_PROCS)
 
 
 def test_lagged_reader_sees_yesterdays_value() -> None:

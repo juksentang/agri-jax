@@ -14,6 +14,11 @@ PSTRES2 = KSTRES = 1``, no pest damage):
   PAR x RUE x CO2 x temperature / water stress x ``SLPF``), leaf appearance, the per-stage leaf,
   stem, ear, grain and root growth, leaf senescence, cold / drought crop failure and the state
   totals.
+* :func:`ceres_growth_nstress_replay` - the same day with the nitrogen stress ``NSTRES`` read
+  from the crop's ``n_in`` port (:class:`~agrijax.iface.crop.CropNIn`, ``iface.crop_n.<slot>``)
+  into ``CARBO = PCARB min(PRFT, SWFAC, NSTRES) SLPF``, the only place ``MZ_GROSUB`` uses
+  ``NSTRES`` for growth. M3 fills the port with a replay of the reference run (coupling contract
+  decision 2); with ``NSTRES = 1`` it is the faithful process bit for bit.
 
 ``ceres_growth`` is a thin process over kernels with one responsibility each, in the order of
 the Fortran: :func:`stage_date_init`, :func:`emergence_init`, :func:`assimilation`,
@@ -63,7 +68,14 @@ from .constants import (
     ISTAGE_MATURITY,
     PAIR_MEAN_WEIGHT,
 )
-from .state import CeresForcing, CeresGrowthState, CeresMaizeParams, CeresMaizeState, CeresSpecies
+from .state import (
+    CeresForcing,
+    CeresGrowthState,
+    CeresMaizeParams,
+    CeresMaizeState,
+    CeresPhenologyState,
+    CeresSpecies,
+)
 
 __all__ = [
     "WATER_STRESS_COEFFICIENTS",
@@ -79,6 +91,7 @@ __all__ = [
     "assimilation",
     "canopy_height",
     "ceres_growth",
+    "ceres_growth_nstress_replay",
     "ceres_stress",
     "crop_failure",
     "ear_growth_fraction",
@@ -876,10 +889,19 @@ class GrosubDay(NamedTuple):
 
 
 def grosub_blocks(
-    state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing, c: GrosubCoefficients
+    state: CeresMaizeState,
+    params: CeresMaizeParams,
+    forcing_t: CeresForcing,
+    c: GrosubCoefficients,
+    photo_stress: Array,
 ) -> GrosubDay:
     """Stage-date resets, assimilation, leaf appearance and the five stage blocks of
     ``MZ_GROSUB``, every block evaluated from the day-start organs and selected by stage.
+
+    ``photo_stress`` is the stress factor that multiplies ``PCARB`` next to ``PRFT`` in
+    ``CARBO``: ``SWFAC`` with nitrogen off (:func:`ceres_growth`), ``min(SWFAC, NSTRES)`` with a
+    nitrogen stress (:func:`ceres_growth_nstress_replay`); ``min`` is exact, so
+    ``min(PRFT, min(SWFAC, NSTRES)) = AMIN1(PRFT, SWFAC, NSTRES)``.
 
     Source: DSSAT-CSM v4.8.6.0 MZ_GROSUB.for, INTEGR, from the stage-date initialisations to the
     end of the ``ISTAGE`` ``IF / ELSEIF`` chain.
@@ -900,7 +922,18 @@ def grosub_blocks(
     tmin = jnp.asarray(f.tmin)
     swfac, turfac = stq.swfac, stq.turfac
     carbo = assimilation(
-        f.srad, tmax, tmin, f.co2, em.lai, pltpop, params.rowspc, swfac, params.soil.slpf, cul.rue, spe, c
+        f.srad,
+        tmax,
+        tmin,
+        f.co2,
+        em.lai,
+        pltpop,
+        params.rowspc,
+        photo_stress,
+        params.soil.slpf,
+        cul.rue,
+        spe,
+        c,
     )
     fexp = jnp.minimum(turfac, 1.0 - stq.satfac)  # min(AGEFAC, TURFAC, 1 - SATFAC, PSTRES2, KSTRES)
     dtt, sumdtt = ph.dtt, ph.sumdtt
@@ -1032,6 +1065,61 @@ def growth_totals(
     )
 
 
+def _growth_day(
+    state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing, photo_stress: Array
+) -> tuple[CeresPhenologyState, CeresGrowthState]:
+    """The body of :func:`ceres_growth` with the ``CARBO`` stress factor ``photo_stress``
+    (:func:`grosub_blocks`): the day's new phenology and growth state (growth, senescence,
+    failure and totals).
+
+    Source: DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for, DYNAMIC = INTEGR (BSD-3).
+    """
+    ph = state.phen
+    g = state.growth
+    cul = params.cultivar
+    c = params.coef().grosub
+    d = grosub_blocks(state, params, forcing_t, c, photo_stress)
+    grow, em = d.grow, d.em
+    tmin = jnp.asarray(forcing_t.tmin)
+    swfac = state.stress.swfac
+
+    senla, lai = leaf_senescence(
+        d.organs.pla, em.senla, d.organs.slan, em.lai, swfac, tmin, g.pltpop, params.species.fslfw, c
+    )
+    senla = jnp.where(grow, senla, em.senla)
+    lai = jnp.where(grow, lai, em.lai)
+    fail = crop_failure(
+        grow,
+        ph.istage,
+        ph.mdate,
+        ph.crop_status,
+        jnp.asarray(forcing_t.yrdoy),
+        d.leafno,
+        lai,
+        tmin,
+        swfac,
+        g.icold,
+        g.nwsd,
+        cul.tsen,
+        cul.cday,
+        c,
+    )
+    new_growth = growth_totals(g, d, senla, lai, fail, params.species.canht_pot, c)
+    new_phen = eqx.tree_at(
+        lambda p: (p.istage, p.mdate, p.crop_status, p.sumdtt, p.ears, p.gpp),
+        ph,
+        (
+            fail.istage.astype(ph.istage.dtype),
+            fail.mdate.astype(ph.mdate.dtype),
+            fail.status.astype(ph.crop_status.dtype),
+            d.sumdtt,
+            _nonneg(grow, d.sd.ears),
+            _nonneg(grow, ph.gpp),
+        ),
+    )
+    return new_phen, new_growth
+
+
 @process(
     reads=("phen", "stress", "growth"),
     writes=(
@@ -1088,47 +1176,66 @@ def ceres_growth(
 
     Source: DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for, DYNAMIC = INTEGR (BSD-3).
     """
-    ph = state.phen
-    g = state.growth
-    cul = params.cultivar
-    c = params.coef().grosub
-    d = grosub_blocks(state, params, forcing_t, c)
-    grow, em = d.grow, d.em
-    tmin = jnp.asarray(forcing_t.tmin)
-    swfac = state.stress.swfac
+    new = _growth_day(state, params, forcing_t, state.stress.swfac)
+    return eqx.tree_at(lambda x: (x.phen, x.growth), state, new)
 
-    senla, lai = leaf_senescence(
-        d.organs.pla, em.senla, d.organs.slan, em.lai, swfac, tmin, g.pltpop, params.species.fslfw, c
-    )
-    senla = jnp.where(grow, senla, em.senla)
-    lai = jnp.where(grow, lai, em.lai)
-    fail = crop_failure(
-        grow,
-        ph.istage,
-        ph.mdate,
-        ph.crop_status,
-        jnp.asarray(forcing_t.yrdoy),
-        d.leafno,
-        lai,
-        tmin,
-        swfac,
-        g.icold,
-        g.nwsd,
-        cul.tsen,
-        cul.cday,
-        c,
-    )
-    new_growth = growth_totals(g, d, senla, lai, fail, params.species.canht_pot, c)
-    new_phen = eqx.tree_at(
-        lambda p: (p.istage, p.mdate, p.crop_status, p.sumdtt, p.ears, p.gpp),
-        ph,
+
+@process(
+    reads=("phen", "stress", "growth", "n_in"),
+    writes=(
+        "growth",
+        "phen.istage",
+        "phen.mdate",
+        "phen.crop_status",
+        "phen.sumdtt",
+        "phen.ears",
+        "phen.gpp",
+    ),
+    source="DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for (BSD-3), NSTRES from the crop nitrogen port",
+    fortran_name="MZ_GROSUB",
+    key="crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay",
+    provenance="translated_bsd3",
+    grid="point",
+    ref_build="dscsm048 v4.8.6.0 (build486)",
+    sources=(
+        ("everything of the faithful growth process", "MZ_GROSUB.for INTEGR (BSD-3), as ceres_growth"),
         (
-            fail.istage.astype(ph.istage.dtype),
-            fail.mdate.astype(ph.mdate.dtype),
-            fail.status.astype(ph.crop_status.dtype),
-            d.sumdtt,
-            _nonneg(grow, d.sd.ears),
-            _nonneg(grow, ph.gpp),
+            "CARBO = PCARB * AMIN1(PRFT, SWFAC, NSTRES, PSTRES1, KSTRES) * SLPF with PSTRES1 = KSTRES = 1",
+            "MZ_GROSUB.for INTEGR, 'Calculate Potential Photosynthesis'",
         ),
-    )
-    return eqx.tree_at(lambda x: (x.phen, x.growth), state, (new_phen, new_growth))
+    ),
+    deviates=(
+        (
+            "NSTRES is read from the crop nitrogen port iface.crop_n.<slot> (a replay of the reference "
+            "run in M3) instead of computed by MZ_NFACTO from the crop's nitrogen concentrations; "
+            "AGEFAC and NDEF3, the other outputs of MZ_NFACTO, stay 1, and phosphorus, potassium and "
+            "pests stay off",
+            "M3 coupling contract decision 2: the RZWQM2 reference maize at CA-TPA is nitrogen-limited "
+            "and there is no nitrogen module yet",
+            "tests/unit/test_ceres_nstress_replay.py (NSTRES = 1 is the faithful process bit for bit; "
+            "CARBO = PCARB min(PRFT, SWFAC, NSTRES) SLPF)",
+        ),
+        (
+            "DSSAT single precision (REAL*4) is not reproduced",
+            "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
+            "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
+)
+def ceres_growth_nstress_replay(
+    state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing
+) -> CeresMaizeState:
+    """:func:`ceres_growth` with the nitrogen stress of the ``n_in`` port in ``CARBO``.
+
+    ``CARBO = PCARB min(PRFT, SWFAC, NSTRES) SLPF`` with ``NSTRES = n_in.nstres``; everything
+    else is the faithful growth day. In DSSAT-CSM v4.8.6.0 ``MZ_GROSUB`` uses ``NSTRES`` for
+    growth only in this statement (its other use, the stress summary ``CNSD1``, is not a state
+    here). Bind ``n_in`` to ``iface.crop_n.<slot>``, or fill it in the crop's own state
+    (``CropNIn.initial`` gives ``NSTRES = 1``).
+
+    Source: DSSAT-CSM v4.8.6.0 Plant/CERES-Maize/MZ_GROSUB.for, DYNAMIC = INTEGR (BSD-3).
+    """
+    swfac = state.stress.swfac
+    nstres = jnp.asarray(state.n_in.nstres, dtype=swfac.dtype)
+    new = _growth_day(state, params, forcing_t, jnp.minimum(swfac, nstres))
+    return eqx.tree_at(lambda x: (x.phen, x.growth), state, new)

@@ -7,7 +7,9 @@ Scope
   kernels the processes call: ``shuttleworth_wallace``, ``theta_of_h``, private helpers, ...)
   gets the numerical rules AJ001-AJ003, AJ006 and AJ007; AJ004/AJ005 are about the process contract
   and do not apply to kernels that return NamedTuples or arrays;
-* ``--all`` applies every rule to every function in every file.
+* ``--all`` applies every rule to every function in every file;
+* AJ008 is a file-level rule: it checks the import statements of every file under a
+  ``processes/`` directory, whatever the functions in it.
 
 Arguments that are static by convention are not traced: ``self``/``cls``, and arguments
 annotated ``bool``, ``int``, ``str``, ``float`` or ``Literal[...]`` (optionally ``| None``);
@@ -52,6 +54,16 @@ AJ007  warning  A bare numeric literal in a ``@process`` function or a numerical
                 is reported. Decorators and annotations are not checked; defaults of arguments
                 are. AJ007 is a warning; ``--strict`` (what CI and pre-commit run) makes it fail
                 like every other warning, and ``--strict-aj007`` fails on AJ007 alone.
+AJ008  warning  An import of another slot's package from code under ``processes/<a>/``: modules of
+                different slots talk only through the port records (M3 coupling contract; parallel
+                development rule 2). A file of slot ``a`` (the directory right below the last
+                ``processes/`` of its path, or the file itself when it sits directly in
+                ``processes/``) may import ``agrijax.core``, the port records ``agrijax.iface``,
+                its own slot ``processes/a`` and third-party packages; ``import
+                <pkg>.processes.<b>``, ``from <pkg>.processes.<b> import ...``, ``from
+                <pkg>.processes import <b>`` and relative imports that climb into ``processes/<b>``
+                (``from ...pet import x``) are reported for every ``b != a``, also inside
+                functions. ``--strict`` enforces it (the tree has no AJ008 finding).
 
 Usage::
 
@@ -82,10 +94,12 @@ __all__ = [
     "Finding",
     "checked_functions",
     "count_by_file",
+    "import_slot",
     "lint_file",
     "lint_paths",
     "lint_source",
     "main",
+    "slot_of_path",
 ]
 
 RULES: dict[str, tuple[str, str]] = {
@@ -96,6 +110,7 @@ RULES: dict[str, tuple[str, str]] = {
     "AJ005": ("warning", "missing docstring or no 'Source:' line"),
     "AJ006": ("error", "Python loop over a shape-derived range or an array (unrolled layer loop)"),
     "AJ007": ("warning", "bare numeric literal in process or kernel code"),
+    "AJ008": ("warning", "import of another slot's package from code under processes/"),
 }
 #: warnings that ``--strict`` does not turn into failures (each has its own ``--strict-<rule>``);
 #: empty since every module's coefficients are labelled and AJ007 is enforced
@@ -719,6 +734,106 @@ def _aj007_allowed(node: ast.AST, value: float, is_int: bool, parents: dict[int,
 
 
 # ---------------------------------------------------------------------------
+# AJ008: slots talk only through the port records
+# ---------------------------------------------------------------------------
+
+
+def slot_of_path(path: str | Path) -> tuple[str, tuple[str, ...]] | None:
+    """``(slot, package parts below processes/)`` of a file under a ``processes/`` directory, else
+    ``None``. The slot is the directory right below the last ``processes/`` of the path
+    (``processes/crop/ceres_maize/growth.py`` -> ``("crop", ("crop", "ceres_maize"))``), or the
+    module itself for a file directly in ``processes/`` (``processes/bucket.py`` -> ``("bucket",
+    ())``); ``processes/__init__.py`` has no slot."""
+    parts = Path(path).parts
+    dirs = parts[:-1]
+    idx = [i for i, d in enumerate(dirs) if d == _KERNEL_DIR]
+    if not idx:
+        return None
+    below = tuple(dirs[idx[-1] + 1 :])
+    if below:
+        return below[0], below
+    stem = Path(parts[-1]).stem
+    if stem == "__init__":
+        return None
+    return stem, ()
+
+
+def _slot_in_dotted(parts: Sequence[str]) -> str | None:
+    """The slot a dotted module path names: the part after its last ``processes`` component."""
+    idx = [i for i, p in enumerate(parts) if p == _KERNEL_DIR]
+    if not idx or idx[-1] + 1 >= len(parts):
+        return None
+    return parts[idx[-1] + 1]
+
+
+def import_slot(node: ast.Import | ast.ImportFrom, package: Sequence[str]) -> list[tuple[str, str]]:
+    """``[(slot, imported name)]`` of the ``processes/<slot>`` packages an import statement reaches,
+    for a file whose package parts below ``processes/`` are ``package`` (see :func:`slot_of_path`).
+
+    Absolute imports are matched on a ``processes`` component of the dotted name; a relative import
+    is resolved against ``package`` first. ``from <pkg>.processes import <b>`` reaches ``b``; a bare
+    ``import <pkg>.processes`` reaches no slot."""
+    out: list[tuple[str, str]] = []
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            slot = _slot_in_dotted(alias.name.split("."))
+            if slot is not None:
+                out.append((slot, alias.name))
+        return out
+    module = node.module.split(".") if node.module else []
+    names = [a.name for a in node.names]
+    if node.level == 0:
+        slot = _slot_in_dotted(module)
+        if slot is not None:
+            return [(slot, ".".join(module))]
+        if module and module[-1] == _KERNEL_DIR:
+            return [(n, ".".join([*module, n])) for n in names if n != "*"]
+        return []
+    up = node.level - 1  # ``from .x`` stays in the file's package
+    text = "." * node.level + ".".join(module)
+    if up < len(package):
+        base = list(package[: len(package) - up])
+        return [(base[0], text)]
+    if up == len(package):  # resolved at the processes/ directory itself
+        if module:
+            return [(module[0], text)]
+        return [(n, f"{text}{n}") for n in names if n != "*"]
+    # climbed above processes/: it re-enters a slot only through a ``processes`` component
+    slot = _slot_in_dotted(module)
+    if slot is not None:
+        return [(slot, text)]
+    if module and module[-1] == _KERNEL_DIR:
+        return [(n, f"{text}.{n}") for n in names if n != "*"]
+    return []
+
+
+def _check_aj008(tree: ast.AST, path: str) -> list[Finding]:
+    where = slot_of_path(path)
+    if where is None:
+        return []
+    slot, package = where
+    level, msg = RULES["AJ008"]
+    out: list[Finding] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for other, name in import_slot(node, package):
+            if other != slot:
+                out.append(
+                    Finding(
+                        "AJ008",
+                        level,
+                        path,
+                        node.lineno,
+                        node.col_offset,
+                        f"{msg}: processes/{slot} imports processes/{other} ({name}); import "
+                        "agrijax.core and the port records agrijax.iface instead",
+                    )
+                )
+    return out
+
+
+# ---------------------------------------------------------------------------
 # public API
 # ---------------------------------------------------------------------------
 
@@ -741,11 +856,17 @@ def _in_kernel_dir(path: str) -> bool:
     return _KERNEL_DIR in Path(path).parts[:-1]
 
 
-def _select(tree: ast.AST, path: str, all_functions: bool) -> Iterator[tuple[_FnNode, bool, frozenset[str]]]:
-    kernel_file = _in_kernel_dir(path)
+def _select(
+    tree: ast.AST,
+    path: str,
+    all_functions: bool,
+    kernel: bool | None = None,
+    processes: frozenset[str] = frozenset(),
+) -> Iterator[tuple[_FnNode, bool, frozenset[str]]]:
+    kernel_file = _in_kernel_dir(path) if kernel is None else kernel
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            is_proc = _is_process_decorated(node)
+            is_proc = _is_process_decorated(node) or node.name in processes
             if all_functions or is_proc:
                 yield node, is_proc, ALL_RULES
             elif kernel_file:
@@ -753,13 +874,23 @@ def _select(tree: ast.AST, path: str, all_functions: bool) -> Iterator[tuple[_Fn
 
 
 def lint_source(
-    source: str, path: str = "<string>", *, all_functions: bool = False, ignore: Iterable[str] = ()
+    source: str,
+    path: str = "<string>",
+    *,
+    all_functions: bool = False,
+    ignore: Iterable[str] = (),
+    kernel: bool | None = None,
+    processes: Iterable[str] = (),
 ) -> list[Finding]:
     """Lint Python source text.
 
     ``@process`` functions get every rule; other functions in a ``processes/`` directory get
     :data:`KERNEL_RULES`; ``all_functions=True`` applies every rule to every function. Rules in
-    ``ignore`` (e.g. ``{"AJ007"}``) are not run.
+    ``ignore`` (e.g. ``{"AJ007"}``) are not run. ``kernel=True`` checks every non-process function
+    as a kernel wherever the file is (the conformance kit uses it for a plugin whose kernels are
+    not under a ``processes/`` directory); ``None`` decides by the path. ``processes`` names
+    functions that are processes although not decorated (``p = process(fn, ...)``): they get every
+    rule. AJ008 runs on the imports of every file under ``processes/``.
     """
     try:
         tree = ast.parse(source, filename=path)
@@ -767,8 +898,10 @@ def lint_source(
         return [Finding("AJ000", "error", path, e.lineno or 0, e.offset or 0, f"syntax error: {e.msg}")]
     skip = frozenset(ignore)
     findings: list[Finding] = []
-    for node, _, rules in _select(tree, path, all_functions):
+    for node, _, rules in _select(tree, path, all_functions, kernel, frozenset(processes)):
         findings.extend(_FunctionChecker(node, path, rules - skip).run())
+    if "AJ008" not in skip:
+        findings.extend(_check_aj008(tree, path))
     findings.sort(key=lambda f: (f.path, f.line, f.col, f.rule))
     return findings
 
@@ -786,9 +919,23 @@ def checked_functions(paths: Iterable[str | Path], *, all_functions: bool = Fals
     return out
 
 
-def lint_file(path: str | Path, *, all_functions: bool = False, ignore: Iterable[str] = ()) -> list[Finding]:
+def lint_file(
+    path: str | Path,
+    *,
+    all_functions: bool = False,
+    ignore: Iterable[str] = (),
+    kernel: bool | None = None,
+    processes: Iterable[str] = (),
+) -> list[Finding]:
     p = Path(path)
-    return lint_source(p.read_text(encoding="utf-8"), str(p), all_functions=all_functions, ignore=ignore)
+    return lint_source(
+        p.read_text(encoding="utf-8"),
+        str(p),
+        all_functions=all_functions,
+        ignore=ignore,
+        kernel=kernel,
+        processes=processes,
+    )
 
 
 def _iter_py_files(paths: Iterable[str | Path]) -> Iterator[Path]:

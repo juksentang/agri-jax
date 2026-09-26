@@ -16,6 +16,7 @@ from agrijax.core.process import (
     PROVENANCE,
     Deviation,
     DuplicateProcessError,
+    MissingFaithfulError,
     Process,
     ProcessKey,
     ProcessRegistry,
@@ -37,6 +38,7 @@ PROCESS_MODULES = (
     "agrijax.processes.crop.ceres_maize.growth",
     "agrijax.processes.crop.ceres_maize.roots",
     "agrijax.processes.crop.ceres_maize.model",
+    "agrijax.processes.n_supply.replay",
     "agrijax.models.catpa_pet_demo",
     "agrijax.models.tobacco_demo",
 )
@@ -79,6 +81,12 @@ EXPECTED = {
     ),
     "crop/ceres_maize.stress@dssat-4.8.6.0:faithful": ("ceres_stress", "translated_bsd3", "dssat_layers"),
     "crop/ceres_maize.growth@dssat-4.8.6.0:faithful": ("ceres_growth", "translated_bsd3", "point"),
+    "crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay": (
+        "ceres_growth_nstress_replay",
+        "translated_bsd3",
+        "point",
+    ),
+    "n_supply/forcing_replay@none:replay": ("crop_n_replay", "equations_only", "point"),
     "crop/ceres_maize.roots@dssat-4.8.6.0:faithful": ("ceres_roots", "translated_bsd3", "dssat_layers"),
     "crop/ceres_maize.publish@dssat-4.8.6.0:faithful": ("ceres_publish", "translated_bsd3", "dssat_layers"),
     "diagnostic/catpa_pet_totals@none:demo": ("accumulate_totals", "equations_only", "point"),
@@ -179,6 +187,7 @@ def test_variants_list_their_deviations() -> None:
 def test_list_processes_filters() -> None:
     ceres = list_processes(slot="crop", impl="ceres_maize")
     assert [p.info.impl for p in ceres if p.info] == [
+        "ceres_maize.growth",
         "ceres_maize.growth",
         "ceres_maize.phenology",
         "ceres_maize.publish",
@@ -438,3 +447,82 @@ def test_unkeyed_process_reports_missing_metadata() -> None:
     p = process(_noop, name="adhoc", register=False)
     assert p.key is None and p.info is None
     assert metadata_problems(p)
+
+
+# ---------------------------------------------------------------------------------- faithful siblings
+
+
+def test_variant_without_faithful_sibling_is_refused_at_registration() -> None:
+    """M3 contract decision 7: registering a non-faithful variant of a reference needs its faithful
+    sibling in the registry (plugins register through the same registry, so they are bound too)."""
+    key = "test_slot/orphan@dssat-4.8.6.0:tuned"
+    meta = {**META, "deviates": (("tuned", "test", "unit test"),)}
+    with pytest.raises(MissingFaithfulError, match=re.escape("test_slot/orphan@dssat-4.8.6.0:faithful")):
+        process(_noop, name="orphan_tuned", key=key, **meta)
+    assert "orphan_tuned" not in registry and key not in registry
+    # register=False (a throwaway process) is not registered, so not checked
+    assert process(_noop, name="orphan_tuned", key=key, register=False, **meta).key == key
+    # ref_version none has no faithful version and stays exempt
+    free = process(_noop, name="free_demo", key="test_slot/free@none:demo", **META)
+    try:
+        assert lookup("test_slot/free@none:demo") is free
+    finally:
+        registry.pop("free_demo", None)
+
+
+def test_variant_after_its_faithful_sibling_registers_and_pins_it() -> None:
+    fkey, vkey = "test_slot/sib@dssat-4.8.6.0:faithful", "test_slot/sib@dssat-4.8.6.0:tuned"
+    meta_v = {**META, "deviates": (("tuned", "test", "unit test"),)}
+    faithful = process(_noop, name="sib_faithful", key=fkey, **META)
+    variant = process(lambda s, p, f: s, name="sib_tuned", key=vkey, **meta_v)
+    try:
+        assert ProcessKey.parse(vkey).faithful == ProcessKey.parse(fkey)
+        assert ProcessKey.parse(vkey).needs_faithful_sibling
+        assert not ProcessKey.parse(fkey).needs_faithful_sibling
+        assert not ProcessKey.parse("test_slot/sib@none:demo").needs_faithful_sibling
+        assert lookup(vkey) is variant and lookup(fkey) is faithful
+        # the faithful entry cannot be removed while a variant depends on it
+        with pytest.raises(MissingFaithfulError, match=re.escape(vkey)):
+            del registry[fkey]
+        assert lookup(fkey) is faithful
+        # re-registering the same faithful definition (a module reload) keeps the variant valid
+        again = process(_noop, name="sib_faithful", key=fkey, **META)
+        assert lookup(fkey) is again and lookup(vkey) is variant
+    finally:
+        registry.pop("sib_tuned", None)
+        registry.pop("sib_faithful", None)
+    assert fkey not in registry and vkey not in registry
+
+
+def test_local_registry_enforces_the_sibling_rule() -> None:
+    reg = ProcessRegistry()
+    meta_v = {**META, "deviates": (("tuned", "test", "unit test"),)}
+    v = process(_noop, name="loc_tuned", key="test_slot/loc@rzwqm2-4.6:tuned", register=False, **meta_v)
+    with pytest.raises(MissingFaithfulError):
+        reg.add(v)
+    f = process(_noop, name="loc_faithful", key="test_slot/loc@rzwqm2-4.6:faithful", register=False, **META)
+    reg.add(f)
+    reg.add(v)
+    assert set(reg.keyed()) == {"test_slot/loc@rzwqm2-4.6:faithful", "test_slot/loc@rzwqm2-4.6:tuned"}
+    del reg["loc_tuned"]
+    del reg["loc_faithful"]
+    assert len(reg) == 0
+
+
+def test_every_registered_variant_has_its_faithful_sibling() -> None:
+    for p in list_processes():
+        i = p.info
+        assert i is not None
+        if i.key.needs_faithful_sibling:
+            assert lookup(i.key.faithful).info is not None
+
+
+def test_nstress_replay_key_is_the_growth_variant() -> None:
+    """M3 contract decision 2: the NSTRES replay is a variant of the CERES growth process, next to
+    its faithful sibling; its producer has no reference (a replay) and is exempt."""
+    v = lookup("crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay")
+    f = lookup("crop/ceres_maize.growth@dssat-4.8.6.0:faithful")
+    assert v.info is not None and v.info.deviates and v.info.ref_build
+    assert v.writes == f.writes and set(v.reads) == {*f.reads, "n_in"}
+    prod = lookup("n_supply/forcing_replay@none:replay")
+    assert prod.writes == ("n_out",) and prod.reads == ()
