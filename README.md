@@ -67,6 +67,8 @@ These numbers come from a computational skeleton, not the full model. The skelet
 | float32, 24 × 3 | 101 s | 993 runs/s |
 | float64, 12 × 2 | 82 s | 1220 runs/s |
 
+These are skeleton timings. On the real Richards equation the 24 × 3 scheme has a worst error of 9.47 cm against a converged reference solution and 12 × 2 is worse, so neither meets the project's accuracy criterion (M1); the table will be replaced by measurements of the full model with the adaptive solver.
+
 The RZWQM2 reference binary takes 24 s per run on one CPU core. The same 10⁵ runs cost 667 core-hours, roughly 10 wall-clock hours on a cluster. At this batch size the GPU is saturated, so run time follows the number of implicit solves per day. How far the scheme can be thinned while staying in agreement with the reference model, and while keeping gradients trustworthy, is the question the first paper will answer.
 
 ## Roadmap
