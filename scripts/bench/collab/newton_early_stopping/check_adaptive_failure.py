@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from experiment_adaptive_richards import install_adaptive, R, jax, jnp, np
+from agrijax.processes.soil_water.hydraulics import k_of_h, theta_of_h
 from tests.unit.test_richards import CATPA_REC1, CATPA_REC2, SoilHydraulicParams, nodes, step_args
 
 
@@ -22,8 +23,8 @@ def main():
         audit = {"forward": [], "backward": []}
         install_adaptive(tol, audit)
         h0 = jnp.full(3, head)
-        q = R.k_of_h(h0, soil)[0] if demand is None else demand
-        a = step_args(h0, R.theta_of_h(h0, soil), soil, grid, q_demand=q)
+        q = k_of_h(h0, soil)[0] if demand is None else demand
+        a = step_args(h0, theta_of_h(h0, soil), soil, grid, q_demand=q)
 
         def loss(aa):
             h, _ = R._solve_implicit(cfg, h0, aa)

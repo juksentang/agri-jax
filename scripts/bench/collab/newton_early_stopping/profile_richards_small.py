@@ -85,9 +85,9 @@ def main():
     result_file = out / f"results_iter{args.iterations}_{args.mode}.json"
     for iterations, mode in [(args.iterations, args.mode)]:
         name = f"iter{iterations}_{mode}"
-        cfg = R.RichardsConfig(n_sub=24, n_iter=iterations, grad=mode)
+        cfg = R.FixedStepping(n_sub=24, n_iter=iterations, grad=mode)
         def loss(s, cfg=cfg):
-            params = R.RichardsParams(soil=s, grid=grid, config=cfg)
+            params = R.RichardsParams(soil=s, grid=grid, stepping=cfg)
             def body(w, f):
                 w = R.richards_day(w, params, f.supply, f.evaporation, f.uptake)
                 return w, 10.0 * (w.flux.drainage + w.flux.evaporation)
@@ -114,7 +114,7 @@ def main():
     result["gradient_leaves"] = [np.asarray(x).tolist() for x in jax.tree.leaves(gradient)]
     # Check residuals independently; these diagnostic outputs are not added to the timed objective.
     for iterations in (args.iterations,):
-        params = R.RichardsParams(soil=soil, grid=grid, config=R.RichardsConfig(n_sub=24, n_iter=iterations))
+        params = R.RichardsParams(soil=soil, grid=grid, stepping=R.FixedStepping(n_sub=24, n_iter=iterations))
         def diagnostics(s):
             p = params.replace(soil=s)
             def body(w, f):
