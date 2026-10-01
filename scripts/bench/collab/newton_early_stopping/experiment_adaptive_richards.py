@@ -14,6 +14,7 @@ import sys
 
 from profile_richards_small import (Catpa2015, R, ROOT, THETA_INIT, jax, jnp,
                                     measure, np)
+from agrijax.processes.soil_water import fixed_cn
 
 
 def install_adaptive(tol, audit=None):
@@ -96,6 +97,9 @@ def install_adaptive(tol, audit=None):
         return reject(jnp.zeros_like(h)), jax.tree.map(reject, a_bar)
 
     solve.defvjp(fwd, bwd)
+    # The fixed-step solver lives in fixed_cn; richards_step resolves
+    # _solve_implicit there, so the patch must go on that module (R keeps a re-export).
+    fixed_cn._solve_implicit = solve
     R._solve_implicit = solve
 
 
@@ -105,7 +109,7 @@ def make_objective(case, cfg, days, diagnostics=False):
     theta0 = jnp.full(case.grid.n_node, THETA_INIT)
 
     def objective(soil):
-        params = R.RichardsParams(soil=soil, grid=case.grid, config=cfg)
+        params = R.RichardsParams(soil=soil, grid=case.grid, stepping=cfg)
         def body(w, f):
             w = R.richards_day(w, params, f.supply, f.evaporation, f.uptake)
             daily = 10 * (w.flux.drainage + w.flux.evaporation)
@@ -150,7 +154,7 @@ def main():
     audit = {"forward": [], "backward": []} if args.audit else None
     if args.variant == "adaptive":
         install_adaptive(args.tol, audit)
-    cfg = R.RichardsConfig(n_sub=24, n_iter=args.max_iter,
+    cfg = R.FixedStepping(n_sub=24, n_iter=args.max_iter,
         grad="unrolled" if args.variant == "unrolled" else "implicit")
     objective = make_objective(case, cfg, args.days, diagnostics=True)
     result = dict(config=vars(args), environment=dict(jax=jax.__version__,
