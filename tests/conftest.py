@@ -152,3 +152,12 @@ def x64_enabled() -> bool:
 def tol(x64_enabled: bool) -> float:
     """Default relative tolerance for numerical comparisons: 1e-9 in x64, 1e-3 in float32."""
     return 1e-9 if x64_enabled else 1e-3
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _clear_jax_caches_after_module():
+    """Drop JAX's in-memory compiled programs after each test module, so a long run (a CI worker
+    goes through hundreds of modules) does not hold every program it compiled; the persistent
+    compilation cache, where set, still serves recompiles."""
+    yield
+    jax.clear_caches()
