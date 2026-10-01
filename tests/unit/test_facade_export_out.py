@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
-from tests.unit.test_facade_export import _batch, _reference, _season
+from .test_facade_export import _batch, _reference, _season
 
 import agrijax as aj
 from agrijax import dssat as ajd
