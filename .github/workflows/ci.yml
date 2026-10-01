@@ -12,6 +12,10 @@ concurrency:
 env:
   JAX_PLATFORMS: cpu
   UV_LOCKED: "1"
+  # JAX's persistent compilation cache, kept between runs (actions/cache below): most of the unit
+  # tier's time is XLA compilation of small programs, not running them
+  JAX_COMPILATION_CACHE_DIR: /home/runner/.cache/jax-compilation
+  JAX_PERSISTENT_CACHE_MIN_COMPILE_TIME_SECS: "0"
 
 jobs:
   lint:
@@ -21,6 +25,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+          enable-cache: true
       - run: uv sync --extra dev --extra port
       - run: uv run ruff check .
       - run: uv run ruff format --check .
@@ -52,19 +57,33 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
+          enable-cache: true
       - run: uv sync --extra dev --extra port
+      # newest cache of this job's configuration; a new entry is saved at the end of every run
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.cache/jax-compilation
+          key: jax-cc-${{ runner.os }}-py${{ matrix.python }}-x64${{ matrix.x64 }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            jax-cc-${{ runner.os }}-py${{ matrix.python }}-x64${{ matrix.x64 }}-${{ hashFiles('uv.lock') }}-
       # the unit tier is data-free (tests/conftest.py rejects a unit test that asks for data_dir);
       # AGRI_JAX_NO_SKIP=1 turns any skip not marked @pytest.mark.allow_skip into a failure, so
       # a reader test cannot silently skip here
-      # two processes (four on the 3.11 runner ran out of memory), test files kept together on a worker; coverage only in the job
-      # that uploads it
+      # two processes (with four, the 3.11 runner was stopped twice at the same point, most likely out
+      # of memory), test files kept together on a worker; coverage only in the job that uploads it;
+      # the 25 slowest tests are listed at the end
       - run: >-
-          uv run pytest tests/unit -q -rs -n 2 --dist loadfile
+          uv run pytest tests/unit -q -rs -n 2 --dist loadfile --durations=25
           ${{ (matrix.python == '3.12' && matrix.x64 == '1') && '--cov=agrijax --cov-report=xml' || '' }}
         env:
           AGRI_JAX_X64: ${{ matrix.x64 }}
           AGRI_JAX_CHECK: "1"
           AGRI_JAX_NO_SKIP: "1"
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: /home/runner/.cache/jax-compilation
+          key: jax-cc-${{ runner.os }}-py${{ matrix.python }}-x64${{ matrix.x64 }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}
       - uses: codecov/codecov-action@v4
         if: matrix.python == '3.12' && matrix.x64 == '1'
         with:
