@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ajfig ajfig" viewBox="0 0 1000 640" role="img" aria-labelledby="validation-runs-zh-t validation-runs-zh-d">
+<title id="validation-runs-zh-t">65 个自由运行季对 DSSAT-CSM 4.8.6 的偏差</title>
+<desc id="validation-runs-zh-d">65 个运行上的四条累积分布曲线：籽粒产量相对误差（中位数 4.0e-5，最大 1.5e-2，验收上限 2 %）、LAI 的 RMSE（最大 0.0061）、剖面土壤水的 RMSE（最大 0.33 mm）和每日水量账最大残差（最大 6.6e-14 mm）。</desc>
+<style>
+svg.ajfig.ajfig{--f-bg:var(--panel,#E6E9E3);--f-ink:var(--ink,#16201C);--f-mut:var(--muted,#56625D);--f-rule:var(--rule,#C8CEC7);--f-neu:var(--neutral,#B9C0B7);--f-teal:var(--teal,#0F8A66);--f-rust:var(--rust,#C2591A);--f-violet:var(--violet,#6B4FBB);font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){svg.ajfig.ajfig{--f-bg:var(--panel,#1A201D);--f-ink:var(--ink,#E8EBE5);--f-mut:var(--muted,#97A29C);--f-rule:var(--rule,#2E3632);--f-neu:var(--neutral,#48504C);--f-teal:var(--teal,#2FA582);--f-rust:var(--rust,#D96A28);--f-violet:var(--violet,#8E78D8)}}
+.ajfig.ajfig text{font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;fill:var(--f-mut);font-size:15px;white-space:pre}
+.ajfig.ajfig text.k{fill:var(--f-ink)}
+.ajfig.ajfig text.m{fill:var(--f-mut)}
+.ajfig.ajfig text.n{font-family:"IBM Plex Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.ajfig.ajfig text.b{font-weight:700}
+.ajfig.ajfig text.w{font-weight:500}
+.ajfig.ajfig text.h{paint-order:stroke;stroke:var(--f-bg);stroke-width:4px;stroke-linejoin:round}
+.ajfig.ajfig text.s17{font-size:17px}
+.ajfig.ajfig text.s20{font-size:20px}
+.ajfig.ajfig text.s26{font-size:26px}
+.ajfig.ajfig .bg{fill:var(--f-bg)}
+.ajfig.ajfig .grid{stroke:var(--f-rule);stroke-width:1;fill:none}
+.ajfig.ajfig .axis{stroke:var(--f-mut);stroke-width:1;fill:none}
+.ajfig.ajfig .ink{stroke:var(--f-ink);stroke-width:1;fill:none}
+.ajfig.ajfig .ink2{stroke:var(--f-ink);stroke-width:2;fill:none;stroke-linejoin:round}
+.ajfig.ajfig .fteal{fill:var(--f-teal)}
+.ajfig.ajfig .frust{fill:var(--f-rust)}
+.ajfig.ajfig .fneu{fill:var(--f-neu)}
+.ajfig.ajfig .fink{fill:var(--f-ink)}
+.ajfig.ajfig .steal{stroke:var(--f-teal);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ajfig.ajfig .srust{stroke:var(--f-rust);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ajfig.ajfig .ring{stroke:var(--f-bg);stroke-width:2}
+.ajfig.ajfig .w4{stroke-width:4}
+.ajfig.ajfig .w15{stroke-width:1.5}
+.ajfig.ajfig .soft{opacity:.55}
+</style>
+<rect width="1000" height="640" rx="2" class="bg"/>
+<text x="28.0" y="40.0" class="s20 k b">65 个自由运行季对 DSSAT-CSM 4.8.6 的偏差</text>
+<text x="28.0" y="64.0" class="m">氮过程关闭，CPU 上 float64。每条曲线表示不大于某一数值的运行所占比例。</text>
+<text x="28.0" y="98.0" class="s17 k w">籽粒产量相对误差</text>
+<text x="28.0" y="120.0" class="m">DSSAT 产量大于 0 的 59 个运行</text>
+<line x1="78.0" y1="254.0" x2="470.0" y2="254.0" class="grid"/>
+<text x="70.0" y="259.0" text-anchor="end" class="n">0 %</text>
+<line x1="78.0" y1="199.0" x2="470.0" y2="199.0" class="grid"/>
+<text x="70.0" y="204.0" text-anchor="end" class="n">50 %</text>
+<line x1="78.0" y1="144.0" x2="470.0" y2="144.0" class="grid"/>
+<text x="70.0" y="149.0" text-anchor="end" class="n">100 %</text>
+<line x1="78.0" y1="254.0" x2="78.0" y2="259.0" class="axis"/>
+<text x="78.0" y="276.0" text-anchor="middle" class="n">1e-6</text>
+<line x1="156.4" y1="254.0" x2="156.4" y2="259.0" class="axis"/>
+<text x="156.4" y="276.0" text-anchor="middle" class="n">1e-5</text>
+<line x1="234.8" y1="254.0" x2="234.8" y2="259.0" class="axis"/>
+<text x="234.8" y="276.0" text-anchor="middle" class="n">1e-4</text>
+<line x1="313.2" y1="254.0" x2="313.2" y2="259.0" class="axis"/>
+<text x="313.2" y="276.0" text-anchor="middle" class="n">1e-3</text>
+<line x1="391.6" y1="254.0" x2="391.6" y2="259.0" class="axis"/>
+<text x="391.6" y="276.0" text-anchor="middle" class="n">1e-2</text>
+<line x1="470.0" y1="254.0" x2="470.0" y2="259.0" class="axis"/>
+<text x="470.0" y="276.0" text-anchor="middle" class="n">1e-1</text>
+<line x1="78.0" y1="254.0" x2="470.0" y2="254.0" class="axis"/>
+<path d="M78.0,254.0H98.0V252.1H123.8V250.3H141.4V248.4H141.4V246.5H141.4V244.7H168.0V242.8H168.0V240.9H168.6V239.1H169.0V237.2H169.2V235.4H170.4V233.5H175.0V231.6H178.0V229.8H179.8V227.9H180.6V226.0H181.5V224.2H187.4V222.3H187.4V220.4H187.7V218.6H188.6V216.7H189.8V214.8H192.9V213.0H192.9V211.1H193.3V209.3H193.7V207.4H201.6V205.5H202.5V203.7H202.9V201.8H203.3V199.9H203.9V198.1H203.9V196.2H203.9V194.3H210.1V192.5H212.5V190.6H212.6V188.7H212.7V186.9H213.5V185.0H213.9V183.2H215.8V181.3H217.2V179.4H220.8V177.6H221.0V175.7H221.2V173.8H222.0V172.0H228.8V170.1H228.8V168.2H235.3V166.4H235.7V164.5H235.7V162.6H240.6V160.8H251.3V158.9H253.1V157.1H256.6V155.2H273.4V153.3H274.2V151.5H278.9V149.6H306.6V147.7H335.2V145.9H406.4V144.0H470.0" class="steal"/>
+<circle cx="203.9" cy="194.3" r="4" class="fteal ring"/>
+<text x="212.9" y="214.3" class="k n">中位数 4.0e-5</text>
+<circle cx="406.4" cy="144.0" r="4" class="fteal ring"/>
+<text x="406.4" y="134.0" text-anchor="middle" class="k n">最大 1.5e-2</text>
+<line x1="415.2" y1="144.0" x2="415.2" y2="254.0" class="ink"/>
+<text x="409.2" y="246.0" text-anchor="end" class="k">验收上限 2 %</text>
+<text x="514.0" y="98.0" class="s17 k w">叶面积指数全季 RMSE</text>
+<text x="514.0" y="120.0" class="m">m² m⁻²，65 个运行</text>
+<line x1="564.0" y1="254.0" x2="956.0" y2="254.0" class="grid"/>
+<text x="556.0" y="259.0" text-anchor="end" class="n">0 %</text>
+<line x1="564.0" y1="199.0" x2="956.0" y2="199.0" class="grid"/>
+<text x="556.0" y="204.0" text-anchor="end" class="n">50 %</text>
+<line x1="564.0" y1="144.0" x2="956.0" y2="144.0" class="grid"/>
+<text x="556.0" y="149.0" text-anchor="end" class="n">100 %</text>
+<line x1="564.0" y1="254.0" x2="564.0" y2="259.0" class="axis"/>
+<text x="564.0" y="276.0" text-anchor="middle" class="n">0</text>
+<line x1="676.0" y1="254.0" x2="676.0" y2="259.0" class="axis"/>
+<text x="676.0" y="276.0" text-anchor="middle" class="n">0.002</text>
+<line x1="788.0" y1="254.0" x2="788.0" y2="259.0" class="axis"/>
+<text x="788.0" y="276.0" text-anchor="middle" class="n">0.004</text>
+<line x1="900.0" y1="254.0" x2="900.0" y2="259.0" class="axis"/>
+<text x="900.0" y="276.0" text-anchor="middle" class="n">0.006</text>
+<line x1="564.0" y1="254.0" x2="956.0" y2="254.0" class="axis"/>
+<path d="M564.0,254.0H685.7V252.3H685.7V250.6H687.5V248.9H694.7V247.2H696.7V245.5H696.8V243.8H700.1V242.2H704.5V240.5H704.8V238.8H705.1V237.1H707.1V235.4H708.8V233.7H708.8V232.0H708.8V230.3H709.1V228.6H712.7V226.9H712.7V225.2H714.4V223.5H714.6V221.8H715.0V220.2H715.0V218.5H715.0V216.8H716.0V215.1H716.1V213.4H716.6V211.7H717.3V210.0H717.8V208.3H719.5V206.6H721.4V204.9H722.6V203.2H722.7V201.5H722.8V199.8H723.9V198.2H724.2V196.5H724.3V194.8H724.4V193.1H724.8V191.4H724.9V189.7H725.5V188.0H725.8V186.3H725.8V184.6H725.8V182.9H727.5V181.2H728.4V179.5H729.0V177.8H729.3V176.2H729.4V174.5H729.7V172.8H729.9V171.1H729.9V169.4H731.0V167.7H731.2V166.0H731.2V164.3H731.4V162.6H733.9V160.9H734.4V159.2H734.5V157.5H734.5V155.8H745.2V154.2H745.2V152.5H748.9V150.8H751.1V149.1H792.6V147.4H795.6V145.7H903.5V144.0H956.0" class="steal"/>
+<circle cx="723.9" cy="198.2" r="4" class="fteal ring"/>
+<text x="732.9" y="218.2" class="k n">中位数 0.0029</text>
+<circle cx="903.5" cy="144.0" r="4" class="fteal ring"/>
+<text x="903.5" y="134.0" text-anchor="middle" class="k n">最大 0.0061</text>
+<text x="28.0" y="324.0" class="s17 k w">剖面土壤水 RMSE</text>
+<text x="28.0" y="346.0" class="m">mm，65 个运行（DSSAT 输出取整毫米）</text>
+<line x1="78.0" y1="480.0" x2="470.0" y2="480.0" class="grid"/>
+<text x="70.0" y="485.0" text-anchor="end" class="n">0 %</text>
+<line x1="78.0" y1="425.0" x2="470.0" y2="425.0" class="grid"/>
+<text x="70.0" y="430.0" text-anchor="end" class="n">50 %</text>
+<line x1="78.0" y1="370.0" x2="470.0" y2="370.0" class="grid"/>
+<text x="70.0" y="375.0" text-anchor="end" class="n">100 %</text>
+<line x1="78.0" y1="480.0" x2="78.0" y2="485.0" class="axis"/>
+<text x="78.0" y="502.0" text-anchor="middle" class="n">0</text>
+<line x1="176.0" y1="480.0" x2="176.0" y2="485.0" class="axis"/>
+<text x="176.0" y="502.0" text-anchor="middle" class="n">0.1</text>
+<line x1="274.0" y1="480.0" x2="274.0" y2="485.0" class="axis"/>
+<text x="274.0" y="502.0" text-anchor="middle" class="n">0.2</text>
+<line x1="372.0" y1="480.0" x2="372.0" y2="485.0" class="axis"/>
+<text x="372.0" y="502.0" text-anchor="middle" class="n">0.3</text>
+<line x1="470.0" y1="480.0" x2="470.0" y2="485.0" class="axis"/>
+<text x="470.0" y="502.0" text-anchor="middle" class="n">0.4</text>
+<line x1="78.0" y1="480.0" x2="470.0" y2="480.0" class="axis"/>
+<path d="M78.0,480.0H338.8V478.3H346.6V476.6H349.1V474.9H349.1V473.2H349.7V471.5H351.1V469.8H351.7V468.2H352.1V466.5H352.8V464.8H353.6V463.1H353.9V461.4H354.0V459.7H354.0V458.0H354.0V456.3H354.1V454.6H354.3V452.9H354.5V451.2H355.6V449.5H356.9V447.8H357.9V446.2H358.1V444.5H358.4V442.8H358.6V441.1H358.7V439.4H360.6V437.7H361.0V436.0H362.4V434.3H362.9V432.6H363.7V430.9H363.8V429.2H364.5V427.5H364.7V425.8H364.8V424.2H364.9V422.5H365.0V420.8H365.3V419.1H366.1V417.4H366.3V415.7H366.3V414.0H366.5V412.3H366.8V410.6H366.8V408.9H367.2V407.2H368.6V405.5H368.6V403.8H368.8V402.2H369.0V400.5H369.0V398.8H369.2V397.1H370.0V395.4H370.2V393.7H370.2V392.0H370.2V390.3H371.2V388.6H372.3V386.9H372.3V385.2H373.6V383.5H374.2V381.8H375.0V380.2H375.5V378.5H375.5V376.8H375.8V375.1H380.4V373.4H386.2V371.7H397.5V370.0H470.0" class="steal"/>
+<circle cx="364.8" cy="424.2" r="4" class="fteal ring"/>
+<text x="373.8" y="444.2" class="k n">中位数 0.29</text>
+<circle cx="397.5" cy="370.0" r="4" class="fteal ring"/>
+<text x="397.5" y="360.0" text-anchor="middle" class="k n">最大 0.33</text>
+<text x="514.0" y="324.0" class="s17 k w">每日水量账最大残差</text>
+<text x="514.0" y="346.0" class="m">单位 1e-14 mm，65 个运行</text>
+<line x1="564.0" y1="480.0" x2="956.0" y2="480.0" class="grid"/>
+<text x="556.0" y="485.0" text-anchor="end" class="n">0 %</text>
+<line x1="564.0" y1="425.0" x2="956.0" y2="425.0" class="grid"/>
+<text x="556.0" y="430.0" text-anchor="end" class="n">50 %</text>
+<line x1="564.0" y1="370.0" x2="956.0" y2="370.0" class="grid"/>
+<text x="556.0" y="375.0" text-anchor="end" class="n">100 %</text>
+<line x1="564.0" y1="480.0" x2="564.0" y2="485.0" class="axis"/>
+<text x="564.0" y="502.0" text-anchor="middle" class="n">0</text>
+<line x1="676.0" y1="480.0" x2="676.0" y2="485.0" class="axis"/>
+<text x="676.0" y="502.0" text-anchor="middle" class="n">2</text>
+<line x1="788.0" y1="480.0" x2="788.0" y2="485.0" class="axis"/>
+<text x="788.0" y="502.0" text-anchor="middle" class="n">4</text>
+<line x1="900.0" y1="480.0" x2="900.0" y2="485.0" class="axis"/>
+<text x="900.0" y="502.0" text-anchor="middle" class="n">6</text>
+<line x1="564.0" y1="480.0" x2="956.0" y2="480.0" class="axis"/>
+<path d="M564.0,480.0H680.2V478.3H680.2V476.6H680.2V474.9H680.2V473.2H682.9V471.5H682.9V469.8H682.9V468.2H688.3V466.5H688.3V464.8H688.3V463.1H688.3V461.4H688.3V459.7H713.2V458.0H713.2V456.3H713.2V454.6H713.2V452.9H713.2V451.2H713.2V449.5H715.4V447.8H717.9V446.2H725.6V444.5H738.1V442.8H738.1V441.1H738.1V439.4H741.2V437.7H744.3V436.0H744.3V434.3H744.3V432.6H754.4V430.9H756.7V429.2H763.0V427.5H763.0V425.8H763.0V424.2H763.0V422.5H769.2V420.8H787.8V419.1H787.8V417.4H787.8V415.7H787.8V414.0H787.8V412.3H800.3V410.6H800.3V408.9H800.3V407.2H803.4V405.5H803.4V403.8H803.4V402.2H803.4V400.5H803.4V398.8H803.4V397.1H812.7V395.4H812.7V393.7H818.9V392.0H825.1V390.3H843.8V388.6H850.0V386.9H850.0V385.2H854.7V383.5H854.7V381.8H854.7V380.2H884.2V378.5H887.3V376.8H887.3V375.1H895.1V373.4H896.6V371.7H930.8V370.0H956.0" class="steal"/>
+<circle cx="763.0" cy="422.5" r="4" class="fteal ring"/>
+<text x="772.0" y="442.5" class="k n">中位数 3.6</text>
+<circle cx="930.8" cy="370.0" r="4" class="fteal ring"/>
+<text x="930.8" y="360.0" text-anchor="middle" class="k n">最大 6.6</text>
+<text x="28.0" y="536.0" class="m">65 个运行的出苗、吐丝、成熟日期全部一致。6 个运行在 DSSAT 中无籽粒产量（HWAM 为 0），Agri-JAX 同样给出 0。</text>
+<text x="28.0" y="558.0" class="m">自由运行：土壤水、蒸发与吸水均由 Agri-JAX 计算，不取自 DSSAT；残留物记录与土壤性质变化取自 DSSAT 回放（这两个模块尚未移</text>
+<text x="28.0" y="580.0" class="m">植）。参照为 dscsm048 build 486 的输出，涵盖 DSSAT 示例试验的 58 个玉米处理和 AmeriFlux CA-TPA 玉米站点的 7 个季。</text>
+</svg>

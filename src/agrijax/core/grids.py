@@ -1,0 +1,304 @@
+"""Soil grids and conservative remapping between them.
+
+A :class:`SoilGrid` is a static, hashable description of a 1-D soil column: the depths of its cell
+bottoms from the surface (cm), cells stacked from depth 0. The grids of the RZWQM2 4.6 day
+(:mod:`agrijax.models.day_rzwqm46`) are:
+
+* :func:`rzwqm_nodes` - the RZWQM2 node grid: cell ``i`` spans ``[TLT(i-1), TLT(i)]`` with
+  ``TLT`` the layer-bottom column of the ``rzwqm.dat`` node records (37 cells to 150 cm at
+  CA-TPA);
+* :func:`lyrset` / :func:`rzwqm_lyrset` - the fixed layers of an embedded DSSAT crop: bottoms at
+  5, 15, 30, 45, 60 cm, then every 30 cm, cut at the bottom of the source profile, with the
+  last layer merged half-and-half into the one above when it is thinner than that layer and
+  thinner than 15 cm (``LYRSET``). These numbers are the static coefficients of
+  :class:`LyrsetCoefficients` (unit, meaning, ``LMATCH.for`` line and statement).
+
+The remapping operators are built from the overlap matrix ``O[i, j]`` = thickness of target cell
+``i`` inside source cell ``j`` (:func:`overlap`):
+
+* **intensive** quantities (water content, temperature, a rate per unit thickness such as the
+  uptake ``qsr`` in cm d-1 per cm): ``y_i = sum_j O_ij x_j / sum_j O_ij``, the thickness-weighted
+  mean over the part of the target cell the source covers (0 where it covers none). This is the
+  ``LMATCH`` rule of DSSAT-CSM, which RZWQM2 applies between its nodes and the embedded crop's
+  layers (``REALMATCH``), so the faithful mapping and the conservative one are the same operator;
+* **extensive** quantities (cm of water, kg ha-1 per cell): ``y_i = sum_j (O_ij / dz_j) x_j``,
+  each source cell's amount split by the fraction of its thickness inside each target cell.
+
+Where the target covers the source (same profile depth), the extensive map preserves the column
+total exactly and the intensive map preserves the thickness-weighted total ``sum_i dz_i y_i``; on
+coinciding grids both are the identity. The operators are linear with constant weights (NumPy
+float64, built once per grid pair), so they are differentiable everywhere with finite gradients.
+
+The surface cell "layer 0" and layer-fraction weights are reserved:
+``SoilGrid(surface=True)`` raises until they are implemented.
+
+Source: DSSAT-CSM v4.8.6.0 ``Soil/SoilUtilities/LMATCH.for`` (``LMATCH``, ``LYRSET``; BSD-3,
+Copyright 1998-2026 DSSAT Foundation, University of Florida, International Fertilizer Development
+Center). The RZWQM2 conventions (the fixed layers +30 cm to 20 layers, the node cells up to the
+deepest layer bottom, the node <-> layer mapping by thickness-weighted means) are validated
+against RZWQM2 4.6 dumps of CA-TPA (``tests/integration/test_rootwu_dssat.py``).
+"""
+
+from __future__ import annotations
+
+import functools
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
+
+import jax.numpy as jnp
+import numpy as np
+from jax.typing import ArrayLike
+from jaxtyping import Array
+
+from agrijax.core.coefficients import Coefficients, Provenance, coef
+
+__all__ = [
+    "LYRSET_COEFFICIENTS",
+    "LYRSET_FIXED",
+    "LYRSET_MERGE_BELOW",
+    "LYRSET_N_MAX",
+    "LYRSET_STEP",
+    "LyrsetCoefficients",
+    "SoilGrid",
+    "lyrset",
+    "overlap",
+    "remap",
+    "remap_extensive",
+    "remap_intensive",
+    "remap_weights",
+    "rzwqm_lyrset",
+    "rzwqm_nodes",
+]
+
+_REF = "dssat-4.8.6.0"
+_LMATCH = "Soil/SoilUtilities/LMATCH.for"
+
+
+def _lyrset(value: float, unit: str, description: str, file_line: str, statement: str, **kw: Any) -> Any:
+    """A static ``LYRSET`` coefficient (grid geometry: not a pytree leaf, not calibrated)."""
+    routine = kw.pop("routine", "LYRSET")
+    prov = Provenance.at(_REF, file_line, routine=routine, statement=statement, note=kw.pop("note", ""))
+    return coef(value, unit, description, prov, static=True, **kw)
+
+
+class LyrsetCoefficients(Coefficients):
+    """The numbers of DSSAT ``LYRSET`` (and of RZWQM2's embedded-crop layers, which use the same).
+
+    Grid geometry, so every field is static: a layer boundary is a structural choice (it sets the
+    number of layers), not a calibratable response. RZWQM2 4.6 sets the same fixed bottoms and
+    the ``+30 cm`` step for all 20 layers (``RZWQM/DSSATDRV.for:557-563``, ``dslayer = 20`` at
+    line 69, routine ``DSSATDRV``), and calls ``LYRSET`` / ``REALMATCH`` of its bundled
+    ``DSSAT40/Input/LMATCH.FOR``; the values below are cited from DSSAT-CSM v4.8.6.0, where they
+    are the same numbers.
+    """
+
+    ds1: float = _lyrset(5.0, "cm", "bottom of fixed crop layer 1", f"{_LMATCH}:177", "DS(1) =  5.")
+    ds2: float = _lyrset(15.0, "cm", "bottom of fixed crop layer 2", f"{_LMATCH}:178", "DS(2) = 15.")
+    ds3: float = _lyrset(30.0, "cm", "bottom of fixed crop layer 3", f"{_LMATCH}:179", "DS(3) = 30.")
+    ds4: float = _lyrset(45.0, "cm", "bottom of fixed crop layer 4", f"{_LMATCH}:180", "DS(4) = 45.")
+    ds5: float = _lyrset(60.0, "cm", "bottom of fixed crop layer 5", f"{_LMATCH}:181", "DS(5) = 60.")
+    step: float = _lyrset(
+        30.0,
+        "cm",
+        "thickness of the crop layers below 60 cm",
+        f"{_LMATCH}:184",
+        "DS(L) = DS(L - 1) + 30.",
+        note="DSSAT-CSM uses 60 cm from layer 18 on; RZWQM2 keeps 30 cm to layer 20 (DSSATDRV.for:563)",
+    )
+    merge_below: float = _lyrset(
+        15.0,
+        "cm",
+        "a last layer thinner than this (and than the layer above) is merged with the layer above",
+        f"{_LMATCH}:233",
+        "DLAYR (NLAYRO) .LT. 15.0) THEN",
+    )
+    merge_divisor: float = _lyrset(
+        2.0,
+        "-",
+        "the merged last two layers each get their summed thickness divided by this",
+        f"{_LMATCH}:234",
+        "DLAYR (NLAYRO)   = (DLAYR(NLAYRO) + DLAYR(NLAYRO-1))/2",
+    )
+    n_max: int = _lyrset(
+        20,
+        "-",
+        "maximum number of crop layers (DSSAT NL; RZWQM2 dslayer)",
+        "Utilities/ModuleDefs.for:49",
+        "NL       = 20,",
+        routine="ModuleDefs",
+    )
+
+    @property
+    def fixed(self) -> tuple[float, ...]:
+        """The fixed layer bottoms ``DS(1..5)`` [cm]."""
+        return (self.ds1, self.ds2, self.ds3, self.ds4, self.ds5)
+
+
+#: the DSSAT-CSM v4.8.6.0 values of :class:`LyrsetCoefficients`
+LYRSET_COEFFICIENTS = LyrsetCoefficients()
+#: fixed layer bottoms of ``LYRSET`` [cm]
+LYRSET_FIXED: tuple[float, ...] = LYRSET_COEFFICIENTS.fixed
+#: thickness of the layers below 60 cm in RZWQM2's embedded crop [cm]
+LYRSET_STEP = LYRSET_COEFFICIENTS.step
+#: a last layer thinner than this (and than the layer above) is merged with the layer above [cm]
+LYRSET_MERGE_BELOW = LYRSET_COEFFICIENTS.merge_below
+#: maximum number of crop layers (DSSAT ``NL``; RZWQM2 ``dslayer``)
+LYRSET_N_MAX = LYRSET_COEFFICIENTS.n_max
+
+Kind = Literal["intensive", "extensive"]
+
+
+@dataclass(frozen=True)
+class SoilGrid:
+    """A 1-D soil column: cell bottoms [cm] from the surface, strictly increasing, the first > 0.
+
+    Static and hashable (usable as a static argument or a closure constant under ``jit``).
+    """
+
+    name: str
+    bottom: tuple[float, ...]
+    surface: bool = False
+
+    def __post_init__(self) -> None:
+        b = tuple(float(x) for x in self.bottom)
+        object.__setattr__(self, "bottom", b)
+        if not b:
+            raise ValueError(f"grid {self.name!r}: no cells")
+        arr = np.asarray(b)
+        if not (np.all(np.isfinite(arr)) and arr[0] > 0.0 and np.all(np.diff(arr) > 0.0)):
+            raise ValueError(f"grid {self.name!r}: cell bottoms must be finite, > 0 and increasing: {b}")
+        if self.surface:
+            raise NotImplementedError("the surface cell 'layer 0' is reserved and not implemented yet")
+
+    @classmethod
+    def from_thickness(cls, name: str, thickness: Sequence[float] | np.ndarray) -> SoilGrid:
+        """A grid from its cell thicknesses (cm), stacked from the surface."""
+        return cls(name, tuple(np.cumsum(np.asarray(thickness, dtype=float)).tolist()))
+
+    @property
+    def n(self) -> int:
+        """Number of cells."""
+        return len(self.bottom)
+
+    @property
+    def bottoms(self) -> np.ndarray:
+        """Cell bottoms [cm], float64."""
+        return np.asarray(self.bottom, dtype=float)
+
+    @property
+    def tops(self) -> np.ndarray:
+        """Cell tops [cm], float64 (the first is 0)."""
+        return np.concatenate([[0.0], self.bottoms[:-1]])
+
+    @property
+    def thickness(self) -> np.ndarray:
+        """Cell thicknesses [cm], float64."""
+        return np.diff(np.concatenate([[0.0], self.bottoms]))
+
+    @property
+    def depth(self) -> float:
+        """Profile depth [cm] (bottom of the last cell)."""
+        return self.bottom[-1]
+
+
+# ------------------------------------------------------------------------ the RZWQM2-day grids
+def rzwqm_nodes(layer_bottom: Sequence[float] | np.ndarray, name: str = "rzwqm2_nodes") -> SoilGrid:
+    """The RZWQM2 node grid from the layer-bottom column ``TLT`` of the node records [cm]."""
+    return SoilGrid(name, tuple(np.asarray(layer_bottom, dtype=float).tolist()))
+
+
+def lyrset(
+    source: SoilGrid,
+    *,
+    fixed: Sequence[float] = LYRSET_FIXED,
+    step: float = LYRSET_STEP,
+    n_max: int = LYRSET_N_MAX,
+    name: str = "lyrset",
+) -> SoilGrid:
+    """Fixed crop layers cut at the source profile (DSSAT ``LYRSET``).
+
+    Candidate bottoms: ``fixed``, then ``+step`` up to ``n_max`` layers. Only the source cells whose
+    bottom lies within the deepest candidate take part (RZWQM2 ``DSSATDRV``); the first candidate
+    at or below the last of them becomes the last layer, its bottom set to that source bottom.
+    A last layer thinner than the one above and than 15 cm is merged with it: both get the mean
+    thickness.
+
+    Source: DSSAT-CSM v4.8.6.0 Soil/SoilUtilities/LMATCH.for, SUBROUTINE LYRSET (BSD-3); the
+    +30 cm step to 20 layers is RZWQM2's embedded-crop convention (DSSAT-CSM uses 60 cm from
+    layer 18 on, which only matters below 450 cm).
+    """
+    ds = list(float(x) for x in fixed)
+    while len(ds) < n_max:
+        ds.append(ds[-1] + float(step))
+    ds = ds[:n_max]
+    di = source.bottoms[source.bottoms <= ds[-1]]
+    if di.size == 0:
+        raise ValueError(f"no cell of {source.name!r} lies within the deepest layer bottom {ds[-1]} cm")
+    last = float(di[-1])
+    n = next(i for i, d in enumerate(ds) if d >= last) + 1
+    out = np.asarray(ds[:n], dtype=float)
+    out[-1] = last
+    dl = np.diff(np.concatenate([[0.0], out]))
+    if n > 1 and dl[-1] < dl[-2] and dl[-1] < LYRSET_MERGE_BELOW:
+        half = (dl[-1] + dl[-2]) / LYRSET_COEFFICIENTS.merge_divisor
+        out[-2] = (out[-3] if len(out) > 2 else 0.0) + half
+    return SoilGrid(name, tuple(out.tolist()))
+
+
+def rzwqm_lyrset(nodes: SoilGrid, name: str = "rzwqm2_lyrset") -> SoilGrid:
+    """The embedded crop's layers of RZWQM2 on the node grid ``nodes`` (:func:`lyrset`)."""
+    return lyrset(nodes, name=name)
+
+
+# ------------------------------------------------------------------------ operators
+def overlap(src: SoilGrid, dst: SoilGrid) -> np.ndarray:
+    """``O[i, j]`` = thickness [cm] of target cell ``i`` inside source cell ``j``, ``[dst.n, src.n]``."""
+    lo = np.maximum(dst.tops[:, None], src.tops[None, :])
+    hi = np.minimum(dst.bottoms[:, None], src.bottoms[None, :])
+    return np.clip(hi - lo, 0.0, None)
+
+
+@functools.lru_cache(maxsize=64)
+def _weights(src: SoilGrid, dst: SoilGrid, kind: Kind) -> np.ndarray:
+    o = overlap(src, dst)
+    if kind == "intensive":
+        cover = o.sum(axis=1, keepdims=True)
+        w = np.divide(o, cover, out=np.zeros_like(o), where=cover > 0.0)
+    elif kind == "extensive":
+        w = o / src.thickness[None, :]
+    else:
+        raise ValueError(f"kind must be 'intensive' or 'extensive', got {kind!r}")
+    w.setflags(write=False)
+    return w
+
+
+def remap_weights(src: SoilGrid, dst: SoilGrid, kind: Kind = "intensive") -> np.ndarray:
+    """The constant weight matrix ``W`` [dst.n, src.n] of :func:`remap` (``y = W x``), float64."""
+    return _weights(src, dst, kind)
+
+
+def remap(x: ArrayLike, src: SoilGrid, dst: SoilGrid, kind: Kind = "intensive") -> Array:
+    """Map ``x[..., src.n]`` to ``[..., dst.n]`` (``kind``: see the module docstring).
+
+    Linear with constant weights: leading axes are batch axes, gradients are ``W^T`` (finite).
+
+    Source: DSSAT-CSM v4.8.6.0 Soil/SoilUtilities/LMATCH.for (LMATCH, thickness-weighted mean).
+    """
+    x = jnp.asarray(x)
+    if x.shape[-1] != src.n:
+        raise ValueError(f"x has {x.shape[-1]} cells on its last axis, grid {src.name!r} has {src.n}")
+    w = jnp.asarray(
+        _weights(src, dst, kind), dtype=x.dtype if jnp.issubdtype(x.dtype, jnp.floating) else None
+    )
+    return jnp.einsum("ij,...j->...i", w, x)
+
+
+def remap_intensive(x: ArrayLike, src: SoilGrid, dst: SoilGrid) -> Array:
+    """Thickness-weighted means of ``x`` over each target cell (``LMATCH`` / ``REALMATCH``)."""
+    return remap(x, src, dst, "intensive")
+
+
+def remap_extensive(x: ArrayLike, src: SoilGrid, dst: SoilGrid) -> Array:
+    """Per-cell amounts of ``x`` redistributed by thickness fraction (column total preserved)."""
+    return remap(x, src, dst, "extensive")

@@ -1,0 +1,222 @@
+# Text of the Agri-JAX tutorial: one table per cell key of tutorial/source/tutorial.py, the English
+# text in `en`, the Chinese text in `zh`; [print.<key>] holds the printed messages (the same {placeholders}
+# in both languages); [comment.<key>] holds a code comment or docstring (`# @c:<key>` or a docstring
+# written as @c:<key> in tutorial.py), `en` and `zh` as above. Regenerate with python tutorial/build_notebooks.py
+
+[title]
+en = """
+# Agri-JAX tutorial: the DSSAT-CSM maize model in JAX
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial.ipynb) · [中文版](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial_zh.ipynb)
+
+Agri-JAX re-implements the DSSAT-CSM v4.8.6 maize model (soil water, evapotranspiration, root water uptake, CERES-Maize) from its published equations in JAX, and reads DSSAT's own experiment files; we use the original DSSAT program only as the reference to check against. It is an independent implementation from published equations, validated against DSSAT-CSM (BSD-3) and RZWQM2 outputs. DSSAT-CSM, its data and the example experiment are the work of the DSSAT Foundation and its contributors (BSD-3); this tutorial stands on that work.
+
+The example is DSSAT's experiment **UFGA8201** (Gainesville, Florida, 1982), treatment 4 (irrigated, high nitrogen); the model runs **nitrogen off**.
+
+1. **Run Agri-JAX**: install, read the experiment, simulate one season. No DSSAT program is involved.
+2. **Compare with DSSAT**: fetch the original DSSAT program (the validated v4.8.6.0 build) and overlay its run.
+3. **Batches and speed**: weather years × sowing dates × cultivar samples in one batched call, timed on this machine, and DSSAT on the same machine as the reference.
+4. **Calibration**: the cultivar coefficients fitted on treatment 4, treatment 6 held out, without DSSAT.
+5. **Round trip into DSSAT**: the calibrated `.CUL` row run in DSSAT.
+
+*Runtime → Run all* should take a few minutes on a free CPU runtime. Every time printed below is measured in this session, on the machine printed with it.
+"""
+zh = """
+# Agri-JAX 教程：基于 JAX 的 DSSAT-CSM 玉米模型
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial_zh.ipynb) · [English Version](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial.ipynb)
+
+Agri-JAX 基于已发表文献中的数学方程，在 JAX 中重新实现了 DSSAT-CSM v4.8.6 玉米模型（土壤水分、蒸腾蒸发、根系吸水、CERES-Maize），并可直接读取 DSSAT 原生试验文件；我们仅将 DSSAT 原始程序用作基准对齐与校验工具。本项目是基于已发表方程的独立实现，其模拟输出已通过 DSSAT-CSM（BSD-3 协议）和 RZWQM2 的对照验证。DSSAT-CSM 及其数据与示例试验归属于 DSSAT 基金会及各位贡献者（BSD-3 协议）；本教程建立在他们的工作基础之上。
+
+本教程选用的示例为 DSSAT 经典试验 **UFGA8201**（佛罗里达州盖恩斯维尔，1982 年）的处理 4（充分灌溉、高氮）；模型在**关闭氮素模拟**（nitrogen off）状态下运行。
+
+1. **运行 Agri-JAX**：安装依赖、读取试验数据并模拟单个生长季，全程不调用 DSSAT 原始程序。
+2. **与 DSSAT 对比**：获取 DSSAT 原生程序（经过验证的 v4.8.6.0 静态编译版本），叠加其模拟结果进行对照。
+3. **批处理与速度**：单次批处理调用同时模拟气象年份 × 播种日期 × 品种样本，在当前机器上测速，并以同机 DSSAT 作为基准。
+4. **参数校准**：完全在 Agri-JAX 内部基于处理 4 拟合品种遗传参数，处理 6 作为留出集（验证集）。
+5. **写回 DSSAT 验证**：将校准后的 `.CUL` 参数行放入 DSSAT 中运行核验。
+
+在免费 CPU 运行时环境下，*代码执行程序 → 全部运行*（Runtime → Run all）仅需数分钟。下方打印的所有耗时均在当前会话中测得，测试机器信息随耗时一并输出。
+"""
+
+[install]
+en = """
+## 1. Run Agri-JAX
+
+On Colab the next cell installs Agri-JAX from GitHub (the PyPI package is only a placeholder for now) with its plotting extra; elsewhere it does nothing (install with `pip install "agrijax[plot] @ git+https://github.com/juksentang/agri-jax"`). If Colab asks to restart the session after the install, restart and continue from the cell after it.
+"""
+zh = """
+## 1. 运行 Agri-JAX
+
+在 Colab 上，下一个单元格会从 GitHub 安装带有绘图附加组件（plotting extra）的 Agri-JAX（目前 PyPI 上的安装包仅为占位）；在其他环境中执行该单元格不会进行任何操作（可通过 `pip install "agrijax[plot] @ git+https://github.com/juksentang/agri-jax"` 安装）。若安装后 Colab 提示重启会话，请重启会话并从其后的单元格继续运行。
+"""
+
+[experiment]
+en = """
+`aj.dssat.experiment("UFGA8201")` reads DSSAT's example experiment. Its files are DSSAT's public data, downloaded once from DSSAT's own repositories at fixed versions and checked against their SHA-256: the FileX, the observations, the Gainesville weather of 1978–1987 and the soil file from `DSSAT/dssat-csm-data`, the maize cultivar, ecotype and species files and the standard data from `DSSAT/dssat-csm-os` v4.8.6.0 (BSD-3).
+
+The table lists the treatments with the cultivar, whether Agri-JAX can build the treatment's inputs, and how much DSSAT's own yield changes when nitrogen is simulated. The model here runs nitrogen off, so the treatments where nitrogen matters (1, 3, 5, the low-nitrogen ones, and 2) are not used for fitting; treatments 4 and 6 are.
+"""
+zh = """
+`aj.dssat.experiment("UFGA8201")` 用于读取 DSSAT 示例试验。其文件均来自 DSSAT 公开数据，以固定版本从 DSSAT 官方仓库下载一次，并通过 SHA-256 完整性校验：包括从 `DSSAT/dssat-csm-data` 下载的 FileX、实测数据、盖恩斯维尔 1978–1987 年气象数据及土壤文件，以及从 `DSSAT/dssat-csm-os` v4.8.6.0（BSD-3 协议）下载的玉米品种、生态型、物种参数文件和标准参考数据。
+
+表格列出了各试验处理及其对应品种、Agri-JAX 是否能直接构建该处理的输入，以及在开启氮素模拟时 DSSAT 原生模型的产量变动幅度。由于当前模型在关闭氮素模拟下运行，受氮素影响显著的处理（低氮处理 1、3、5 以及处理 2）不参与拟合；拟合使用的是处理 4 和处理 6。
+"""
+
+[run]
+en = """
+`exp.run(treatment=4)` simulates the season with Agri-JAX alone. The inputs are built from the experiment's files by Agri-JAX's implementation of DSSAT's input chain: the soil layers and initial water from the FileX and `.SOL`, the daily weather from the `.WTH`, the irrigation schedule, the cultivar, ecotype and species coefficients from the `.CUL` / `.ECO` / `.SPE`; the season runs from the simulation start to the crop's own maturity. The first run also compiles the model; that time is part of the cell's run time. The figure shows leaf area index, tops and grain weight and the soil water of the profile, with the observations of the experiment's T file (circles).
+"""
+zh = "`exp.run(treatment=4)` 仅使用 Agri-JAX 模拟该生长季。输入数据由 Agri-JAX 实现的 DSSAT 输入解析链直接从试验文件中构建：土壤分层及初始含水量提取自 FileX 与 `.SOL`，逐日气象提取自 `.WTH`，并读取灌溉计划，以及 `.CUL` / `.ECO` / `.SPE` 中的品种、生态型和物种参数；模拟从起始日一直推进至作物自身生理成熟。首次运行还会触发模型编译，该编译耗时计入单元格总运行时间。配图展示了叶面积指数、地上部生物量与籽粒干重，以及土壤剖面储水量，并叠加了试验 T 文件（时序实测）中的观测值（圆圈标记）。"
+
+[compare]
+en = """
+## 2. Compare with DSSAT
+
+`aj.dssat.install_reference()` fetches the original DSSAT program, `dscsm048` v4.8.6.0: the prebuilt, statically linked build that all of Agri-JAX's validation runs use (a release asset of the Agri-JAX repository, checked against its SHA-256; it carries DSSAT's licence and a provenance note). `exp.reference(treatment=4)` runs it on the same treatment, nitrogen off.
+
+The end-of-season values: silking (`ADAT`) and maturity (`MDAT`) dates, the difference in days; grain yield (`HWAM`) and tops weight (`CWAM`) at maturity, kg ha⁻¹, the relative difference.
+"""
+zh = """
+## 2. 与 DSSAT 对比
+
+`aj.dssat.install_reference()` 获取 DSSAT 原生程序 `dscsm048` v4.8.6.0：该预编译静态链接版本用于 Agri-JAX 所有的基准验证运行（作为 Agri-JAX 仓库的 Release 资源提供，经 SHA-256 校验；附带 DSSAT 开源许可及来源说明）。`exp.reference(treatment=4)` 在同一处理上运行该原生程序（关闭氮素模拟）。
+
+生长季末输出值：吐丝期（`ADAT`）与成熟期（`MDAT`）日期，以及相差天数；成熟期籽粒产量（`HWAM`）与成熟期地上部总重（`CWAM`），单位为 kg ha⁻¹，以及相对差异。
+"""
+
+[season_daily]
+en = """
+Day by day: leaf area index, tops and grain weight (`PlantGro.OUT`) and the soil water of the profile (`SoilWat.OUT`), on every day both report. DSSAT prints these values rounded (LAI to 0.01, weights to 1 kg ha⁻¹, soil water to 1 mm), which bounds the differences one can see. The figures overlay DSSAT's run (dashed) and plot Agri-JAX against DSSAT.
+"""
+zh = "逐日对比：在两者均有输出的每一天，比对叶面积指数、地上部总重与籽粒干重（`PlantGro.OUT`）以及土壤剖面储水量（`SoilWat.OUT`）。DSSAT 输出的这些数值经过了舍入截断（LAI 保留至 0.01，生物量保留至 1 kg ha⁻¹，土壤储水量保留至 1 mm），这决定了两者可见数值差异的理论下限。配图叠加了 DSSAT 的运行曲线（虚线），并绘制了 Agri-JAX 与 DSSAT 的散点对照图。"
+
+[scenarios]
+en = """
+## 3. Batches and speed
+
+The same treatment on other weather years and sowing dates: `exp.scenarios` moves the whole management calendar of the FileX (simulation start, planting, irrigation, fertilizer dates) to each weather year and by each sowing shift and builds each scenario's inputs, without running DSSAT. These scenarios are not part of the validation set, so they are checked against DSSAT below. They are nitrogen-off simulations of one cultivar at one site: an illustration of the workflow, not a recommendation for sowing dates.
+"""
+zh = """
+## 3. 批处理与速度
+
+将同一处理推广至其他气象年份与播种日期：`exp.scenarios` 将 FileX 中的整个农事管理日历（模拟起始、播种、灌溉、施肥日期）映射平移到各个气象年份并施加不同的播期偏移量，直接构建各情景的输入数据，全程无需运行 DSSAT。这些情景不属于原始验证集，因此在下文中会逐一与 DSSAT 进行对照核验。这仅是单站点下单品种在关闭氮素模拟下的批量推演：旨在演示工作流程，而非实际农艺播种期推荐。
+"""
+
+[samples]
+en = """
+`scen.run(cultivar)` simulates every cultivar sample on every scenario in one batched program: the model's `scan` over the days inside a `vmap` over the seasons, compiled once. Its `timing` separates the compilation (`compile_s`, 0 when the program was compiled before) from the run (`run_s`, with the results back on the host). The second call reuses the compiled program with new samples: its time is the steady-state cost. The figure shows the yield distribution of all samples per weather year.
+"""
+zh = "`scen.run(cultivar)` 在单次批处理程序中同时模拟所有情景下的所有品种样本：底层在时间维度上用 `scan` 沿天数迭代，外层在生长季维度上用 `vmap` 向量化，仅需编译一次。其计时逻辑（`timing`）将编译耗时（`compile_s`，若此前已编译则为 0）与纯运行耗时（`run_s`，包含将结果传回主机内存）区分开来。下方的第二次调用复用了已编译程序并传入新样本：该耗时代表了稳态开销（steady-state cost）。配图展示了各气象年份下所有样本的产量分布。"
+
+[check_scenarios]
+en = """
+`scen.reference()` runs DSSAT on every scenario at the published cultivar (one process per scenario). Sample 0 of each scenario is the published cultivar, so Agri-JAX and DSSAT must agree on every scenario.
+"""
+zh = "`scen.reference()` 使用已发表的基准品种在每个情景上运行 DSSAT（每个情景单独立进程）。每个情景中的样本 0 均为该基准品种，因此 Agri-JAX 与 DSSAT 在每个情景下的输出必须完全一致。"
+
+[race]
+en = """
+**Side by side with DSSAT on this machine.** `exp.dssat_batch` runs DSSAT on a set of perturbed cultivars of the 1982 season in one DSSAT batch run (one process; the time includes staging its run directory and writing its daily output files). Agri-JAX simulates the same written coefficients; the values must agree. The per-season times of both are then printed. The DSSAT time for the whole batch is an **extrapolation** from its measured per-season time, labelled as such; the two programs also do different amounts of work per season (DSSAT writes complete daily output files and runs modules the Agri-JAX day leaves out, Agri-JAX returns four values per season).
+"""
+zh = "**在当前机器上与 DSSAT 同机测速对比。** `exp.dssat_batch` 在单次 DSSAT 批处理运行中（单进程；耗时包含了准备运行目录及落盘写入逐日输出文件的时间），对 1982 生长季的一组扰动品种参数运行 DSSAT。Agri-JAX 对写入的同一组参数进行模拟；两者的数值必须保持一致。随后打印两者折算到单生长季的平均耗时。整个批次的 DSSAT 总耗时是由测得的单季耗时**外推估算**得出的，并已据此标明；此外，两个程序在每个生长季中所完成的工作量也有所不同（DSSAT 需要写入完整的逐日输出文件，并运行了 Agri-JAX 单日步长核心略去的模块，而 Agri-JAX 每个生长季仅返回 4 个标量值）。"
+
+[calibrate]
+en = """
+## 4. Calibration
+
+`aj.calibrate` fits the six `MZCER048.CUL` coefficients (P1, P2, P5, G2, G3, PHINT) of the cultivar to the observations of treatment 4 (silking and maturity dates, yield, tops weight and grain number at maturity, the LAI series), within the file's MINIMA / MAXIMA, by joint CMA-ES from several starts, with Agri-JAX alone; coefficients the observations carry no information on are fixed at the published value and reported. Treatment 6 is held out: evaluated, not fitted. The budget here is kept small for a free runtime (8 starts × 200 evaluations; a quick run uses less); the result is selected on the values a `.CUL` row can hold, and the published cultivar is kept when nothing beats it.
+"""
+zh = """
+## 4. 参数校准
+
+`aj.calibrate` 在参数文件规定的 MINIMA / MAXIMA 范围内，通过多起点联合 CMA-ES 算法，完全在 Agri-JAX 内部将品种的 6 个 `MZCER048.CUL` 遗传参数（P1、P2、P5、G2、G3、PHINT）拟合至处理 4 的观测数据（吐丝期与成熟期、收获期产量、地上部总重、收获期粒数以及逐日 LAI 时序）；若观测数据未包含某参数的有效约束信息，则该参数固定为文献公开发表值并在日志中报告。处理 6 作为留出集（held out）：仅用于泛化评估，不参与拟合。为了适配免费运行时环境，此处的计算预算设置较小（8 个起点 × 200 次评估；快速运行模式下评估次数更少）；最终结果在 `.CUL` 数据行所能容纳的数值精度内进行筛选，若没有优于基准的结果，则保留已发表的基准品种。
+"""
+
+[cul]
+en = """
+## 5. Round trip into DSSAT
+
+The calibrated row is written into a copy of DSSAT's `MZCER048.CUL`, and `check_dssat()` runs the original DSSAT program with that row on both treatments: DSSAT's silking and maturity dates must equal Agri-JAX's, and its yield must be within 0.1 %.
+"""
+zh = """
+## 5. 写回 DSSAT 验证
+
+将校准后的参数行写入 DSSAT `MZCER048.CUL` 的副本中，随后 `check_dssat()` 使用该参数行在两个处理上分别运行原生 DSSAT 程序：DSSAT 模拟的吐丝期与成熟期必须与 Agri-JAX 完全一致，且产量相对误差必须在 0.1% 以内。
+"""
+
+[next]
+en = """
+## Where to go next
+
+* `exp.run` and `exp.scenarios` take other DSSAT maize experiments too (`aj.dssat.experiment("path/to/EXP.MZX")`, its weather files in the data's `example_data/Weather`); treatments that need a DSSAT process Agri-JAX does not implement yet (automatic irrigation, the CENTURY organic matter with surface residue, tillage, a water table …) are refused with the reason. `aj.calibrate` is limited to treatments whose nitrogen effect has been measured (the DSSAT v4.8.6 maize example treatments). Only the DSSAT maize example treatments are validated; results on other experiments should be checked against DSSAT the way this notebook does.
+* The model runs nitrogen off: use treatments where nitrogen does not limit the crop (`exp.table()`).
+* Source, validation and the process rules: [github.com/juksentang/agri-jax](https://github.com/juksentang/agri-jax). DSSAT-CSM is © the DSSAT Foundation and its contributors (BSD-3); the example data come from `DSSAT/dssat-csm-data` and `DSSAT/dssat-csm-os`.
+"""
+zh = """
+## 后续探索
+
+- `exp.run` 与 `exp.scenarios` 同样支持其他 DSSAT 玉米试验（`aj.dssat.experiment("path/to/EXP.MZX")`，对应气象文件位于数据目录的 `example_data/Weather` 中）；若处理所依赖的 DSSAT 物理过程 Agri-JAX 尚未实现（如自动灌溉、带地表残茬的 CENTURY 有机质模型、耕作、地下水位等），程序会明确拒绝并说明原因。`aj.calibrate` 目前仅支持测定了氮素效应的处理（即 DSSAT v4.8.6 玉米示例处理）。由于目前仅对 DSSAT 玉米示例处理完成了验证，应用于其他试验时应参照本笔记本的方法与 DSSAT 进行对照核验。
+- 模型在关闭氮素模拟下运行：请选用氮素不对作物生长构成限制的处理（参考 `exp.table()`）。
+- 源码、验证与过程实现规则：[github.com/juksentang/agri-jax](https://github.com/juksentang/agri-jax)。DSSAT-CSM 版权所有 © DSSAT 基金会及其贡献者（BSD-3 协议）；示例数据来源于 `DSSAT/dssat-csm-data` 与 `DSSAT/dssat-csm-os`。
+"""
+
+[print.machine]
+en = "machine: {machine}"
+zh = "测试机器：{machine}"
+
+[print.season]
+en = "Agri-JAX, {treatment}: silking {adat}, maturity {mdat}, grain yield {hwam:.0f} kg/ha"
+zh = "Agri-JAX，{treatment}：吐丝期 {adat}，成熟期 {mdat}，籽粒产量 {hwam:.0f} kg/ha"
+
+[print.scenarios]
+en = "{n} scenarios built from DSSAT's files (no DSSAT run)"
+zh = "基于 DSSAT 文件构建了 {n} 个情景（未运行 DSSAT）"
+
+[print.check_yield]
+en = "published cultivar on {n} scenarios: Agri-JAX yield within {rel:.3%} of DSSAT"
+zh = "已发表品种在 {n} 个情景下：Agri-JAX 产量与 DSSAT 的相对误差在 {rel:.3%} 以内"
+
+[print.check_dates]
+en = "silking date equal on {adat} and maturity date on {mdat} of {n} scenarios"
+zh = "{n} 个情景中：吐丝期一致数 {adat}，成熟期一致数 {mdat}"
+
+[print.dssat_per_scenario]
+en = "DSSAT took {sec:.2f} s per scenario on this machine (one process each)"
+zh = "DSSAT 在当前机器上平均每情景耗时 {sec:.2f} s（每个情景单独立进程）"
+
+[print.batch_yield]
+en = "{n} cultivars, 1982: Agri-JAX yield within {rel:.3%} of DSSAT"
+zh = "1982 季，{n} 个品种：Agri-JAX 产量与 DSSAT 的相对误差在 {rel:.3%} 以内"
+
+[print.batch_dates]
+en = "maturity date equal on {same} of {n}"
+zh = "{n} 个品种中成熟期一致数：{same}"
+
+[print.dssat_speed]
+en = "DSSAT:    {ms:.2f} ms per season (measured: {n} seasons in {s:.2f} s, one batch run)"
+zh = "DSSAT:    每季 {ms:.2f} ms（实测：单次批处理运行 {s:.2f} s 完成 {n} 个生长季）"
+
+[print.ours_speed]
+en = "Agri-JAX: {ms:.2f} ms per season (measured: {n} seasons in {s:.2f} s)"
+zh = "Agri-JAX: 每季 {ms:.2f} ms（实测：{s:.2f} s 完成 {n} 个生长季）"
+
+[print.compile]
+en = "Agri-JAX compiled its batched program once, in {s:.1f} s (first call)"
+zh = "Agri-JAX 批处理程序单次编译耗时：{s:.1f} s（首次调用）"
+
+[print.extrapolated]
+en = "{n} seasons: DSSAT about {s:.0f} s (EXTRAPOLATED from its measured per-season time)"
+zh = "{n} 个生长季：DSSAT 预估耗时约 {s:.0f} s（根据单季实测耗时外推）"
+
+[comment.lang]
+en = "the language of this notebook's messages (\"en\" or \"zh\")"
+zh = "本笔记本输出信息的语言（\"en\" 或 \"zh\"）"
+
+[comment.small]
+en = "a quick run, used by the tests"
+zh = "快速运行，供测试使用"
+
+[comment.samples_doc]
+en = "K cultivars within +-10 % of the published one; sample 0 is the published cultivar."
+zh = "在已发表品种参数的 ±10% 范围内采样的 K 个品种；样本 0 为已发表的基准品种。"
