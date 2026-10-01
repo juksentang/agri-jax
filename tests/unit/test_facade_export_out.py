@@ -13,12 +13,13 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
-from .test_facade_export import _batch, _reference, _season
 
 import agrijax as aj
 from agrijax import dssat as ajd
 from agrijax import facade_export as fx
 from agrijax.io.dssat import read_plantgro, read_soilwat, read_summary
+
+from .test_facade_export import _batch, _reference, _season
 
 LABELS = {"experiment": "TEST8201MZ NIT X IRR, GAINESVILLE", "treatment": "IRRIGATED HIGH NITROGEN"}
 #: the stage output: emergence (code 1) on the fourth day
