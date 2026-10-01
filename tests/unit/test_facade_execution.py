@@ -254,6 +254,7 @@ class _Inputs:
     its ``simulate`` is called with."""
 
     key = "TEST_t01"
+    trno = 1
     n_days = 3
     nl = 2
     mesev = "S"

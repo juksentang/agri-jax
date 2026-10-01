@@ -24,7 +24,7 @@ import jax, jax.numpy as jnp
 from experiment_adaptive_richards import install_adaptive, R
 from agrijax.processes.soil_water import fixed_cn
 from agrijax.processes.soil_water.hydraulics import k_of_h, theta_of_h
-from .test_richards import CATPA_REC1, CATPA_REC2, SoilHydraulicParams, nodes
+from tests.unit.test_richards import CATPA_REC1, CATPA_REC2, SoilHydraulicParams, nodes
 
 stepping = R.FixedStepping(n_sub=24, n_iter=12, grad="implicit")
 soil = nodes(SoilHydraulicParams.from_rzwqm_records(CATPA_REC1[:1], CATPA_REC2[:1]), 3)
