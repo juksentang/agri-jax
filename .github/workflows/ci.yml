@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAX_PLATFORMS: cpu
+  UV_LOCKED: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev --extra port
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      # @process functions get every function rule (AJ001-AJ007, AJ020, AJ021), every other function
+      # under processes/ (the numerical kernels) AJ001-AJ003, AJ006, AJ007, AJ020 and AJ021, and the
+      # file rules AJ008-AJ012 check every file of their layers (AJ009 and AJ011 are reported but not
+      # enforced by --strict) (AJ020: a NumPy call on a traced value, use jnp; AJ021: an argument
+      # changed in place, return a new state; AJ006: a Python loop over a shape-derived range or
+      # an array, i.e. an unrolled layer loop; use depth_scan; AJ007: a bare numeric literal, use
+      # a labelled coefficient or a core.units adapter); the summary line prints how many
+      # functions were visited, and tests/unit/test_lint.py fails if the process code is not covered
+      - run: uv run python -m agrijax.core.lint src/agrijax --strict
+
+  unit:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+        x64: ["1"]
+        include:
+          # second pass with float32 only, tolerance relaxed inside the tests (doc 05 section 4)
+          - python: "3.12"
+            x64: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --extra dev --extra port
+      # the unit tier is data-free (tests/conftest.py rejects a unit test that asks for data_dir);
+      # AGRI_JAX_NO_SKIP=1 turns any skip not marked @pytest.mark.allow_skip into a failure, so
+      # a reader test cannot silently skip here
+      - run: uv run pytest tests/unit -q -rs --cov=agrijax --cov-report=xml
+        env:
+          AGRI_JAX_X64: ${{ matrix.x64 }}
+          AGRI_JAX_CHECK: "1"
+          AGRI_JAX_NO_SKIP: "1"
+      - uses: codecov/codecov-action@v4
+        if: matrix.python == '3.12' && matrix.x64 == '1'
+        with:
+          files: coverage.xml
+        continue-on-error: true

@@ -1,0 +1,231 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ajfig ajfig" viewBox="0 0 1000 640" role="img" aria-labelledby="swap-soil-evaporation-en-t swap-soil-evaporation-en-d">
+<title id="swap-soil-evaporation-en-t">Swapping the soil-evaporation process of the DSSAT day</title>
+<desc id="swap-soil-evaporation-en-d">Left, season soil evaporation with the own method against the swapped method for 65 runs. Right, the change in grain yield: Ritchie to SALUS median -0.07 percent, range -27.7 to 6.9; SALUS to Ritchie median -0.12 percent, range -3.2 to 16.1.</desc>
+<style>
+svg.ajfig.ajfig{--f-bg:var(--panel,#E6E9E3);--f-ink:var(--ink,#16201C);--f-mut:var(--muted,#56625D);--f-rule:var(--rule,#C8CEC7);--f-neu:var(--neutral,#B9C0B7);--f-teal:var(--teal,#0F8A66);--f-rust:var(--rust,#C2591A);--f-violet:var(--violet,#6B4FBB);font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){svg.ajfig.ajfig{--f-bg:var(--panel,#1A201D);--f-ink:var(--ink,#E8EBE5);--f-mut:var(--muted,#97A29C);--f-rule:var(--rule,#2E3632);--f-neu:var(--neutral,#48504C);--f-teal:var(--teal,#2FA582);--f-rust:var(--rust,#D96A28);--f-violet:var(--violet,#8E78D8)}}
+.ajfig.ajfig text{font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;fill:var(--f-mut);font-size:15px;white-space:pre}
+.ajfig.ajfig text.k{fill:var(--f-ink)}
+.ajfig.ajfig text.m{fill:var(--f-mut)}
+.ajfig.ajfig text.n{font-family:"IBM Plex Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.ajfig.ajfig text.b{font-weight:700}
+.ajfig.ajfig text.w{font-weight:500}
+.ajfig.ajfig text.h{paint-order:stroke;stroke:var(--f-bg);stroke-width:4px;stroke-linejoin:round}
+.ajfig.ajfig text.s17{font-size:17px}
+.ajfig.ajfig text.s20{font-size:20px}
+.ajfig.ajfig text.s26{font-size:26px}
+.ajfig.ajfig .bg{fill:var(--f-bg)}
+.ajfig.ajfig .grid{stroke:var(--f-rule);stroke-width:1;fill:none}
+.ajfig.ajfig .axis{stroke:var(--f-mut);stroke-width:1;fill:none}
+.ajfig.ajfig .ink{stroke:var(--f-ink);stroke-width:1;fill:none}
+.ajfig.ajfig .ink2{stroke:var(--f-ink);stroke-width:2;fill:none;stroke-linejoin:round}
+.ajfig.ajfig .fteal{fill:var(--f-teal)}
+.ajfig.ajfig .frust{fill:var(--f-rust)}
+.ajfig.ajfig .fneu{fill:var(--f-neu)}
+.ajfig.ajfig .fink{fill:var(--f-ink)}
+.ajfig.ajfig .steal{stroke:var(--f-teal);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ajfig.ajfig .srust{stroke:var(--f-rust);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ajfig.ajfig .ring{stroke:var(--f-bg);stroke-width:2}
+.ajfig.ajfig .w4{stroke-width:4}
+.ajfig.ajfig .w15{stroke-width:1.5}
+.ajfig.ajfig .soft{opacity:.55}
+</style>
+<rect width="1000" height="640" rx="2" class="bg"/>
+<text x="28.0" y="40.0" class="s20 k b">Swapping the soil-evaporation process of the DSSAT day</text>
+<text x="28.0" y="64.0" class="m">Each of the 65 runs is simulated with its own method and with the other one, Ritchie or SALUS.</text>
+<text x="28.0" y="96.0" class="s17 k w">Season soil evaporation (mm)</text>
+<text x="28.0" y="118.0" class="m">own method on x, the other method on y; points on the line</text>
+<text x="28.0" y="138.0" class="m">are unchanged; key: median change</text>
+<line x1="86.0" y1="424.0" x2="336.0" y2="424.0" class="grid"/>
+<line x1="86.0" y1="174.0" x2="86.0" y2="424.0" class="grid"/>
+<text x="77.0" y="429.0" text-anchor="end" class="n">0</text>
+<text x="86.0" y="446.0" text-anchor="middle" class="n">0</text>
+<line x1="86.0" y1="374.0" x2="336.0" y2="374.0" class="grid"/>
+<line x1="136.0" y1="174.0" x2="136.0" y2="424.0" class="grid"/>
+<text x="77.0" y="379.0" text-anchor="end" class="n">100</text>
+<text x="136.0" y="446.0" text-anchor="middle" class="n">100</text>
+<line x1="86.0" y1="324.0" x2="336.0" y2="324.0" class="grid"/>
+<line x1="186.0" y1="174.0" x2="186.0" y2="424.0" class="grid"/>
+<text x="77.0" y="329.0" text-anchor="end" class="n">200</text>
+<text x="186.0" y="446.0" text-anchor="middle" class="n">200</text>
+<line x1="86.0" y1="274.0" x2="336.0" y2="274.0" class="grid"/>
+<line x1="236.0" y1="174.0" x2="236.0" y2="424.0" class="grid"/>
+<text x="77.0" y="279.0" text-anchor="end" class="n">300</text>
+<text x="236.0" y="446.0" text-anchor="middle" class="n">300</text>
+<line x1="86.0" y1="224.0" x2="336.0" y2="224.0" class="grid"/>
+<line x1="286.0" y1="174.0" x2="286.0" y2="424.0" class="grid"/>
+<text x="77.0" y="229.0" text-anchor="end" class="n">400</text>
+<text x="286.0" y="446.0" text-anchor="middle" class="n">400</text>
+<line x1="86.0" y1="174.0" x2="336.0" y2="174.0" class="grid"/>
+<line x1="336.0" y1="174.0" x2="336.0" y2="424.0" class="grid"/>
+<text x="77.0" y="179.0" text-anchor="end" class="n">500</text>
+<text x="336.0" y="446.0" text-anchor="middle" class="n">500</text>
+<line x1="86.0" y1="424.0" x2="336.0" y2="174.0" class="ink"/>
+<text x="211.0" y="468.0" text-anchor="middle" class="m">own method, mm</text>
+<text x="86.0" y="166.0" class="m">other method, mm</text>
+<circle cx="148.0" cy="326.2" r="4.5" class="fteal ring"/>
+<circle cx="151.4" cy="321.9" r="4.5" class="fteal ring"/>
+<circle cx="149.9" cy="324.1" r="4.5" class="fteal ring"/>
+<circle cx="150.9" cy="323.3" r="4.5" class="fteal ring"/>
+<circle cx="172.0" cy="315.2" r="4.5" class="fteal ring"/>
+<circle cx="179.7" cy="305.7" r="4.5" class="fteal ring"/>
+<circle cx="180.1" cy="306.4" r="4.5" class="fteal ring"/>
+<circle cx="181.8" cy="304.7" r="4.5" class="fteal ring"/>
+<circle cx="141.8" cy="368.8" r="4.5" class="fteal ring"/>
+<circle cx="140.8" cy="380.6" r="4.5" class="fteal ring"/>
+<circle cx="128.0" cy="351.0" r="4.5" class="fteal ring"/>
+<circle cx="130.5" cy="349.0" r="4.5" class="fteal ring"/>
+<circle cx="127.9" cy="351.4" r="4.5" class="fteal ring"/>
+<circle cx="130.4" cy="349.7" r="4.5" class="fteal ring"/>
+<circle cx="127.6" cy="351.1" r="4.5" class="fteal ring"/>
+<circle cx="130.3" cy="350.0" r="4.5" class="fteal ring"/>
+<circle cx="141.9" cy="359.6" r="4.5" class="fteal ring"/>
+<circle cx="141.9" cy="359.6" r="4.5" class="fteal ring"/>
+<circle cx="141.9" cy="359.6" r="4.5" class="fteal ring"/>
+<circle cx="143.6" cy="357.9" r="4.5" class="fteal ring"/>
+<circle cx="143.6" cy="357.9" r="4.5" class="fteal ring"/>
+<circle cx="143.6" cy="357.9" r="4.5" class="fteal ring"/>
+<circle cx="222.9" cy="273.9" r="4.5" class="fteal ring"/>
+<circle cx="221.9" cy="275.8" r="4.5" class="fteal ring"/>
+<circle cx="201.4" cy="295.7" r="4.5" class="fteal ring"/>
+<circle cx="202.3" cy="294.7" r="4.5" class="fteal ring"/>
+<circle cx="131.7" cy="358.0" r="4.5" class="fteal ring"/>
+<circle cx="131.7" cy="358.0" r="4.5" class="fteal ring"/>
+<circle cx="126.7" cy="366.6" r="4.5" class="fteal ring"/>
+<circle cx="126.7" cy="366.6" r="4.5" class="fteal ring"/>
+<circle cx="130.9" cy="363.0" r="4.5" class="fteal ring"/>
+<circle cx="130.9" cy="363.0" r="4.5" class="fteal ring"/>
+<circle cx="145.6" cy="362.1" r="4.5" class="fteal ring"/>
+<circle cx="161.2" cy="338.3" r="4.5" class="fteal ring"/>
+<circle cx="153.2" cy="338.5" r="4.5" class="fteal ring"/>
+<circle cx="156.0" cy="336.3" r="4.5" class="fteal ring"/>
+<circle cx="171.0" cy="332.1" r="4.5" class="fteal ring"/>
+<circle cx="158.0" cy="332.3" r="4.5" class="fteal ring"/>
+<circle cx="132.2" cy="367.6" r="4.5" class="fteal ring"/>
+<path d="M310.3,252.8L316.4,258.9L310.3,265.0L304.2,258.9Z" class="fteal ring"/>
+<path d="M303.9,256.5L310.0,262.5L303.9,268.6L297.9,262.5Z" class="fteal ring"/>
+<path d="M303.9,256.5L310.0,262.5L303.9,268.6L297.9,262.5Z" class="fteal ring"/>
+<path d="M307.9,255.1L314.0,261.1L307.9,267.2L301.8,261.1Z" class="fteal ring"/>
+<path d="M277.5,271.5L283.6,277.6L277.5,283.7L271.5,277.6Z" class="fteal ring"/>
+<path d="M277.5,271.5L283.6,277.6L277.5,283.7L271.5,277.6Z" class="fteal ring"/>
+<path d="M308.8,254.4L314.8,260.5L308.8,266.6L302.7,260.5Z" class="fteal ring"/>
+<path d="M284.8,266.6L290.9,272.7L284.8,278.7L278.7,272.7Z" class="fteal ring"/>
+<path d="M282.9,267.7L289.0,273.8L282.9,279.8L276.9,273.8Z" class="fteal ring"/>
+<path d="M130.2,379.0L136.3,385.1L130.2,391.2L124.2,385.1Z" class="fteal ring"/>
+<path d="M133.7,374.4L139.8,380.5L133.7,386.6L127.7,380.5Z" class="fteal ring"/>
+<path d="M116.6,390.2L122.7,396.3L116.6,402.4L110.5,396.3Z" class="fteal ring"/>
+<path d="M137.2,372.4L143.2,378.5L137.2,384.5L131.1,378.5Z" class="fteal ring"/>
+<path d="M118.6,387.5L124.6,393.5L118.6,399.6L112.5,393.5Z" class="fteal ring"/>
+<path d="M136.1,373.5L142.2,379.6L136.1,385.7L130.1,379.6Z" class="fteal ring"/>
+<path d="M133.4,370.4L139.5,376.5L133.4,382.6L127.3,376.5Z" class="fteal ring"/>
+<path d="M120.3,387.3L126.4,393.3L120.3,399.4L114.2,393.3Z" class="fteal ring"/>
+<path d="M135.8,375.0L141.8,381.0L135.8,387.1L129.7,381.0Z" class="fteal ring"/>
+<path d="M136.8,377.0L142.9,383.0L136.8,389.1L130.7,383.0Z" class="fteal ring"/>
+<path d="M134.4,369.3L140.5,375.4L134.4,381.5L128.3,375.4Z" class="fteal ring"/>
+<path d="M134.8,376.5L140.9,382.6L134.8,388.6L128.7,382.6Z" class="fteal ring"/>
+<path d="M135.7,375.4L141.7,381.4L135.7,387.5L129.6,381.4Z" class="fteal ring"/>
+<path d="M128.5,376.2L134.6,382.3L128.5,388.4L122.4,382.3Z" class="fteal ring"/>
+<path d="M137.0,375.1L143.1,381.1L137.0,387.2L130.9,381.1Z" class="fteal ring"/>
+<path d="M141.2,363.1L147.3,369.2L141.2,375.3L135.2,369.2Z" class="fteal ring"/>
+<path d="M125.2,380.5L131.2,386.6L125.2,392.7L119.1,386.6Z" class="fteal ring"/>
+<circle cx="360.0" cy="187.0" r="4.5" class="fteal ring"/>
+<text x="374.0" y="192.0" class="k">Ritchie → SALUS</text>
+<text x="374.0" y="212.0" class="m">39 runs</text>
+<text x="374.0" y="232.0" class="n k">median +26 %</text>
+<path d="M360.0,264.9L366.1,271.0L360.0,277.1L353.9,271.0Z" class="fteal ring"/>
+<text x="374.0" y="276.0" class="k">SALUS → Ritchie</text>
+<text x="374.0" y="296.0" class="m">26 runs</text>
+<text x="374.0" y="316.0" class="n k">median −14 %</text>
+<text x="514.0" y="96.0" class="s17 k w">Grain yield, change when swapped</text>
+<text x="514.0" y="118.0" class="m">runs with a yield above 0; percent of the run's own-method</text>
+<text x="514.0" y="138.0" class="m">yield; label: largest change</text>
+<line x1="530.0" y1="172.0" x2="530.0" y2="434.0" class="grid"/>
+<line x1="616.4" y1="172.0" x2="616.4" y2="434.0" class="grid"/>
+<line x1="702.8" y1="172.0" x2="702.8" y2="434.0" class="grid"/>
+<line x1="789.2" y1="172.0" x2="789.2" y2="434.0" class="ink"/>
+<line x1="875.6" y1="172.0" x2="875.6" y2="434.0" class="grid"/>
+<line x1="962.0" y1="172.0" x2="962.0" y2="434.0" class="grid"/>
+<text x="530.0" y="186.0" class="k w">Ritchie → SALUS</text>
+<text x="665.1" y="186.0" class="m">33 runs</text>
+<g class="soft"><circle cx="636.3" cy="227.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="549.6" cy="239.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="585.5" cy="251.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="575.2" cy="230.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="791.8" cy="242.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="791.8" cy="254.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="792.4" cy="233.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="793.4" cy="245.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="788.7" cy="257.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="848.4" cy="236.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="782.0" cy="248.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="782.0" cy="227.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="782.0" cy="239.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="788.6" cy="251.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="788.6" cy="230.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="788.6" cy="242.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="788.6" cy="254.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="788.6" cy="233.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.1" cy="245.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.0" cy="257.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="701.5" cy="236.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="701.5" cy="248.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.2" cy="227.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.2" cy="239.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.3" cy="251.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.3" cy="230.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="807.6" cy="242.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="619.7" cy="254.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="723.7" cy="233.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="763.2" cy="245.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="754.4" cy="257.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="698.4" cy="236.0" r="4" class="fteal ring"/></g>
+<g class="soft"><circle cx="789.2" cy="248.0" r="4" class="fteal ring"/></g>
+<text x="549.6" y="226.0" text-anchor="middle" class="n k">−27.7 %</text>
+<text x="962.0" y="186.0" text-anchor="end" class="n k">median −0.07 %</text>
+<text x="530.0" y="330.0" class="k w">SALUS → Ritchie</text>
+<text x="665.1" y="330.0" class="m">26 runs</text>
+<g class="soft"><path d="M785.8,365.6L791.2,371.0L785.8,376.4L780.4,371.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M786.0,377.6L791.4,383.0L786.0,388.4L780.6,383.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M786.0,389.6L791.4,395.0L786.0,400.4L780.6,395.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M786.0,368.6L791.4,374.0L786.0,379.4L780.6,374.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M787.1,380.6L792.5,386.0L787.1,391.4L781.7,386.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M787.1,392.6L792.5,398.0L787.1,403.4L781.7,398.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M785.9,371.6L791.3,377.0L785.9,382.4L780.5,377.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M786.8,383.6L792.2,389.0L786.8,394.4L781.4,389.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M786.8,395.6L792.2,401.0L786.8,406.4L781.4,401.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M789.2,374.6L794.6,380.0L789.2,385.4L783.8,380.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M773.1,386.6L778.5,392.0L773.1,397.4L767.7,392.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M928.2,365.6L933.6,371.0L928.2,376.4L922.8,371.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M790.9,377.6L796.3,383.0L790.9,388.4L785.5,383.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M795.5,389.6L800.9,395.0L795.5,400.4L790.1,395.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M791.3,368.6L796.7,374.0L791.3,379.4L785.9,374.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M769.2,380.6L774.6,386.0L769.2,391.4L763.8,386.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M807.1,392.6L812.5,398.0L807.1,403.4L801.7,398.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M789.2,371.6L794.6,377.0L789.2,382.4L783.8,377.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M795.4,383.6L800.8,389.0L795.4,394.4L790.0,389.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M783.4,395.6L788.8,401.0L783.4,406.4L778.0,401.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M797.8,374.6L803.2,380.0L797.8,385.4L792.4,380.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M835.4,386.6L840.8,392.0L835.4,397.4L830.0,392.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M789.2,365.6L794.6,371.0L789.2,376.4L783.8,371.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M831.8,377.6L837.2,383.0L831.8,388.4L826.4,383.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M761.9,389.6L767.3,395.0L761.9,400.4L756.5,395.0Z" class="fteal ring"/></g>
+<g class="soft"><path d="M815.3,368.6L820.7,374.0L815.3,379.4L809.9,374.0Z" class="fteal ring"/></g>
+<text x="928.2" y="358.0" text-anchor="middle" class="n k">+16.1 %</text>
+<text x="962.0" y="330.0" text-anchor="end" class="n k">median −0.12 %</text>
+<line x1="530.0" y1="434.0" x2="962.0" y2="434.0" class="axis"/>
+<line x1="530.0" y1="434.0" x2="530.0" y2="439.0" class="axis"/>
+<text x="530.0" y="456.0" text-anchor="middle" class="n">−30 %</text>
+<line x1="616.4" y1="434.0" x2="616.4" y2="439.0" class="axis"/>
+<text x="616.4" y="456.0" text-anchor="middle" class="n">−20 %</text>
+<line x1="702.8" y1="434.0" x2="702.8" y2="439.0" class="axis"/>
+<text x="702.8" y="456.0" text-anchor="middle" class="n">−10 %</text>
+<line x1="789.2" y1="434.0" x2="789.2" y2="439.0" class="axis"/>
+<text x="789.2" y="456.0" text-anchor="middle" class="n">0</text>
+<line x1="875.6" y1="434.0" x2="875.6" y2="439.0" class="axis"/>
+<text x="875.6" y="456.0" text-anchor="middle" class="n">+10 %</text>
+<line x1="962.0" y1="434.0" x2="962.0" y2="439.0" class="axis"/>
+<text x="962.0" y="456.0" text-anchor="middle" class="n">+20 %</text>
+<text x="28.0" y="530.0" class="m">The daily water ledger closes in both layouts (largest residual 6.6e-14 mm with the own method, 5.9e-14 mm swapped) and all</text>
+<text x="28.0" y="550.0" class="m">65 runs are finite. With its own method every run is within 1.5 % of the DSSAT yield. The swapped run is a different</text>
+<text x="28.0" y="570.0" class="m">model: only finiteness and the closed ledger are asserted for it, not agreement with DSSAT.</text>
+</svg>

@@ -1,0 +1,641 @@
+"""Process registry: versioned keys, duplicate detection, provenance metadata."""
+
+from __future__ import annotations
+
+import ast
+import importlib
+import re
+from pathlib import Path
+
+import pytest
+
+import agrijax
+from agrijax.core.process import (
+    FAITHFUL,
+    GRIDS,
+    PROVENANCE,
+    Deviation,
+    DuplicateProcessError,
+    MissingFaithfulError,
+    Process,
+    ProcessKey,
+    ProcessRegistry,
+    Source,
+    list_processes,
+    lookup,
+    metadata_problems,
+    process,
+    registry,
+)
+
+#: every module of the package that defines processes
+PROCESS_MODULES = (
+    "agrijax.processes.soil_water.richards",
+    "agrijax.processes.soil_water.day",
+    "agrijax.processes.water_supply.rootwu",
+    "agrijax.processes.water_supply.uptake_limit",
+    "agrijax.processes.water_supply.publish",
+    "agrijax.processes.water_supply.season",
+    "agrijax.processes.pet.daily",
+    "agrijax.processes.pet.eop",
+    "agrijax.processes.pet.spam_dssat",
+    "agrijax.processes.soil_water.bucket_evap.process",
+    "agrijax.processes.soil_water.bucket_evap.xtract",
+    "agrijax.processes.soil_water.bucket_evap.albedo",
+    "agrijax.processes.crop.ceres_maize.phenology",
+    "agrijax.processes.crop.ceres_maize.growth",
+    "agrijax.processes.crop.ceres_maize.roots",
+    "agrijax.processes.crop.ceres_maize.model",
+    "agrijax.processes.crop.ceres_maize.season",
+    "agrijax.processes.n_supply.replay",
+    "agrijax.processes.snow.prms",
+    "agrijax.models.catpa_pet_demo",
+    "agrijax.models.tobacco_demo",
+)
+
+EXPECTED = {
+    "soil_water/richards@rzwqm2-4.6:faithful": (
+        "richards_redistribution",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/day@rzwqm2-4.6:faithful": ("soil_water_day", "reference_only_conventions", "rzwqm2_nodes"),
+    "soil_water/day@rzwqm2-4.6:replay_flux": (
+        "soil_water_day_replay",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/infiltration_ga@rzwqm2-4.6:faithful": (
+        "infiltration_ga",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/day@rzwqm2-4.6:drain_cap": (
+        "soil_water_day_drain_cap",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/day@rzwqm2-4.6:flux_evap": (
+        "soil_water_day_flux_evap",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/day@rzwqm2-4.6:rzwqm2_conventions": (
+        "soil_water_day_rzwqm2_conventions",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "soil_water/day@rzwqm2-4.6:replay_flux_conventions": (
+        "soil_water_day_replay_conventions",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "water_supply/rootwu@dssat-4.8.6.0:faithful": ("rootwu_supply", "translated_bsd3", "dssat_layers"),
+    "water_supply/rootwu_season_end@rzwqm2-4.6:faithful": (
+        "rootwu_season_end",
+        "reference_only_conventions",
+        "dssat_layers",
+    ),
+    "soil_water/tipping_bucket.rate@dssat-4.8.6.0:faithful": (
+        "bucket_rate",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    "soil_water/tipping_bucket.integrate@dssat-4.8.6.0:faithful": (
+        "bucket_integrate",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    "soil_water/wuf@rzwqm2-4.6:faithful": (
+        "rzwqm_uptake_limit",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "crop_iface/publish_uptake@rzwqm2-4.6:faithful": (
+        "rzwqm_publish_uptake",
+        "reference_only_conventions",
+        "rzwqm2_nodes",
+    ),
+    "water_supply/forcing_replay@none:replay": ("ceres_water_replay", "equations_only", "dssat_layers"),
+    "pet/shuttleworth_wallace@rzwqm2-4.6:faithful": (
+        "pet_shuttleworth_wallace",
+        "reference_only_conventions",
+        "point",
+    ),
+    "pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy": (
+        "sw_pet_from_forcing",
+        "reference_only_conventions",
+        "point",
+    ),
+    "pet/asce_reference@asce-ewri-2005:faithful": ("pet_asce_reference", "equations_only", "point"),
+    "crop_iface/eop_from_pet@rzwqm2-4.6:faithful": ("eop_from_pet", "reference_only_conventions", "point"),
+    "pet/priestley_taylor@dssat-4.8.6.0:faithful": ("pet_priestley_taylor", "translated_bsd3", "point"),
+    # DSSAT SPAM partition and soil / mulch evaporation
+    "pet/spam_pse@dssat-4.8.6.0:faithful": ("spam_potential_soil_evaporation", "translated_bsd3", "point"),
+    "pet/spam_trans@dssat-4.8.6.0:faithful": ("spam_potential_transpiration", "translated_bsd3", "point"),
+    "soil_water/mulch_evap@dssat-4.8.6.0:faithful": ("soil_evaporation_mulch", "translated_bsd3", "point"),
+    "soil_water/soilev@dssat-4.8.6.0:faithful": (
+        "soil_evaporation_soilev",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    "soil_water/esr_soilevap@dssat-4.8.6.0:faithful": (
+        "soil_evaporation_esr",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    # DSSAT day free run: XTRACT, the SOILDYN soil albedo, PETPT on the daily albedo
+    "soil_water/xtract@dssat-4.8.6.0:faithful": ("spam_xtract", "translated_bsd3", "dssat_layers"),
+    "soil_water/soil_albedo@dssat-4.8.6.0:faithful": ("soil_albedo_rate", "translated_bsd3", "point"),
+    "pet/priestley_taylor@dssat-4.8.6.0:port_soil_albedo": (
+        "spam_priestley_taylor",
+        "translated_bsd3",
+        "point",
+    ),
+    "snow/prms@rzwqm2-4.6:faithful": ("snow_prms", "reference_only_conventions", "point"),
+    "crop/ceres_maize.phenology@dssat-4.8.6.0:faithful": (
+        "ceres_phenology",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    "crop/ceres_maize.stress@dssat-4.8.6.0:faithful": ("ceres_stress", "translated_bsd3", "dssat_layers"),
+    "crop/ceres_maize.growth@dssat-4.8.6.0:faithful": ("ceres_growth", "translated_bsd3", "point"),
+    "crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay": (
+        "ceres_growth_nstress_replay",
+        "translated_bsd3",
+        "point",
+    ),
+    "n_supply/forcing_replay@none:replay": ("crop_n_replay", "equations_only", "point"),
+    "crop/ceres_maize.roots@dssat-4.8.6.0:faithful": ("ceres_roots", "translated_bsd3", "dssat_layers"),
+    "crop/ceres_maize.publish@dssat-4.8.6.0:faithful": ("ceres_publish", "translated_bsd3", "dssat_layers"),
+    "crop/ceres_maize.season_init@dssat-4.8.6.0:faithful": (
+        "ceres_season_init",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    "crop/ceres_maize.canopy@rzwqm2-4.6:faithful": (
+        "ceres_canopy",
+        "reference_only_conventions",
+        "point",
+    ),
+    "crop/ceres_maize.harvest@rzwqm2-4.6:faithful": (
+        "ceres_harvest",
+        "reference_only_conventions",
+        "dssat_layers",
+    ),
+    "diagnostic/catpa_pet_totals@none:demo": ("accumulate_totals", "equations_only", "point"),
+    "crop/tobacco_demo.calendar@none:demo": ("crop_calendar", "equations_only", "point"),
+    "crop/tobacco_demo.leaves@none:demo": ("leaf_appearance_growth", "equations_only", "point"),
+    "crop/tobacco_demo.management@none:demo": ("management", "equations_only", "point"),
+}
+
+META = {
+    "provenance": "equations_only",
+    "sources": (("test equation", "unit test"),),
+    "grid": "point",
+    "deviates": (),
+}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _import_process_modules() -> None:
+    for m in PROCESS_MODULES:
+        importlib.import_module(m)
+
+
+def _noop(state, params, forcing_t):
+    return state
+
+
+# ---------------------------------------------------------------------------------- the package
+
+
+def test_every_package_process_has_complete_metadata() -> None:
+    own = [p for p in registry.values() if getattr(p.fn, "__module__", "").startswith("agrijax.")]
+    assert len(own) >= len(EXPECTED)
+    bad = {p.name: metadata_problems(p) for p in own if metadata_problems(p)}
+    assert not bad, bad
+    for p in own:
+        assert p.info is not None
+        assert p.info.provenance in PROVENANCE
+        assert p.info.grid in GRIDS
+        assert p.info.sources and all(s.what and s.ref for s in p.info.sources)
+        assert registry.lookup(str(p.info.key)) is p
+
+
+def _decorated_processes(root: Path) -> list[tuple[str, str, set[str]]]:
+    out = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            for dec in node.decorator_list:
+                call = dec if isinstance(dec, ast.Call) else None
+                target = call.func if call is not None else dec
+                if isinstance(target, ast.Name) and target.id == "process":
+                    kws = {k.arg for k in call.keywords if k.arg} if call is not None else set()
+                    out.append((str(path.relative_to(root)), node.name, kws))
+    return out
+
+
+def test_every_decorated_process_in_the_source_is_keyed() -> None:
+    """Static guard: a new ``@process`` in the package cannot land without registry metadata."""
+    root = Path(agrijax.__file__).parent
+    found = _decorated_processes(root)
+    assert len(found) == len(EXPECTED)
+    required = {"key", "provenance", "sources", "grid", "deviates"}
+    missing = [(f, n, sorted(required - kws)) for f, n, kws in found if not required <= kws]
+    assert not missing, missing
+
+
+@pytest.mark.parametrize("key", sorted(EXPECTED))
+def test_expected_keys_registered(key: str) -> None:
+    name, prov, grid = EXPECTED[key]
+    p = lookup(key)
+    assert p.name == name and p.key == key
+    assert registry[name] is p and registry[key] is p
+    assert p.info is not None and p.info.provenance == prov and p.info.grid == grid
+
+
+def test_reference_versions_and_builds() -> None:
+    for p in list_processes(ref_version="dssat-4.8.6.0"):
+        assert p.info is not None and p.info.provenance == "translated_bsd3" and p.info.ref_build
+    for p in list_processes(ref_version="rzwqm2-4.6"):
+        # RZWQM2 source has no licence file: it is read for conventions only, never translated
+        assert p.info is not None and p.info.provenance == "reference_only_conventions" and p.info.ref_build
+    for p in list_processes(ref_version="none"):
+        assert p.info is not None and p.info.variant != FAITHFUL
+
+
+def test_variants_list_their_deviations() -> None:
+    for p in list_processes():
+        i = p.info
+        assert i is not None
+        if i.variant != FAITHFUL and i.ref_version != "none":
+            assert i.deviates
+            faithful = lookup(ProcessKey(i.slot, i.impl, i.ref_version, FAITHFUL))
+            assert faithful is not p
+
+
+def test_list_processes_filters() -> None:
+    ceres = list_processes(slot="crop", impl="ceres_maize")
+    assert [p.info.impl for p in ceres if p.info] == [
+        "ceres_maize.canopy",
+        "ceres_maize.growth",
+        "ceres_maize.growth",
+        "ceres_maize.harvest",
+        "ceres_maize.phenology",
+        "ceres_maize.publish",
+        "ceres_maize.roots",
+        "ceres_maize.season_init",
+        "ceres_maize.stress",
+    ]
+    assert {p.name for p in list_processes(slot="pet", variant=FAITHFUL)} == {
+        "pet_shuttleworth_wallace",
+        "pet_asce_reference",
+        "pet_priestley_taylor",
+        "spam_potential_soil_evaporation",
+        "spam_potential_transpiration",
+    }
+    assert {p.name for p in list_processes(grid="rzwqm2_nodes")} == {
+        "richards_redistribution",
+        "soil_water_day",
+        "soil_water_day_replay",
+        "soil_water_day_drain_cap",
+        "soil_water_day_flux_evap",
+        "soil_water_day_rzwqm2_conventions",
+        "soil_water_day_replay_conventions",
+        "infiltration_ga",
+        "rzwqm_uptake_limit",
+        "rzwqm_publish_uptake",
+    }
+    assert {p.name for p in list_processes(slot="soil_water", impl="day")} == {
+        "soil_water_day",
+        "soil_water_day_replay",
+        "soil_water_day_drain_cap",
+        "soil_water_day_flux_evap",
+        "soil_water_day_rzwqm2_conventions",
+        "soil_water_day_replay_conventions",
+    }
+    assert {p.name for p in list_processes(slot="water_supply")} == {
+        "rootwu_supply",
+        "rootwu_season_end",
+        "ceres_water_replay",
+    }
+    keys = [str(p.key) for p in list_processes()]
+    assert keys == sorted(keys) and set(EXPECTED) <= set(keys)
+
+
+def test_m3_variants_and_their_faithful_siblings() -> None:
+    """The M1 replay day is a variant of the faithful RZWQM2 day, and says how it deviates."""
+    replay = lookup("soil_water/day@rzwqm2-4.6:replay_flux")
+    faithful = lookup("soil_water/day@rzwqm2-4.6:faithful")
+    assert replay.info is not None and faithful.info is not None
+    assert replay.info.deviates and faithful.info.deviates
+    assert replay.writes == faithful.writes == ("soil_water",)
+    ga = lookup("soil_water/infiltration_ga@rzwqm2-4.6:faithful")
+    assert ga.info is not None and ga.fortran_name == "EVNTRO"
+    rootwu = lookup("water_supply/rootwu@dssat-4.8.6.0:faithful")
+    assert rootwu.info is not None and rootwu.info.ref_build and rootwu.info.deviates
+    for key in ("crop/ceres_maize.publish@dssat-4.8.6.0:faithful", "water_supply/forcing_replay@none:replay"):
+        p = lookup(key)
+        assert p.info is not None and p.writes and metadata_problems(p) == []
+
+
+def test_lookup_unknown_key_hints_at_siblings() -> None:
+    with pytest.raises(KeyError, match=re.escape("shuttleworth_wallace@rzwqm2-4.6:faithful")):
+        lookup("pet/shuttleworth_wallace@rzwqm2-4.6:does_not_exist")
+    with pytest.raises(ValueError, match="invalid process key"):
+        lookup("richards_redistribution")
+
+
+def test_as_dict_round_trip() -> None:
+    p = lookup("soil_water/richards@rzwqm2-4.6:faithful")
+    assert p.info is not None
+    d = p.info.as_dict()
+    assert d["key"] == p.key and d["slot"] == "soil_water" and d["variant"] == FAITHFUL
+    assert d["provenance"] == "reference_only_conventions" and d["deviates"] and d["sources"]
+    assert all(set(s) == {"what", "ref"} for s in d["sources"])
+
+
+# ---------------------------------------------------------------------------------- keys
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "soil_water/richards@rzwqm2-4.6:faithful",
+        "soil_water/richards@rzwqm2-4.6:implicit_tile",
+        "crop/ceres_maize.phenology@dssat-4.8.6.0:faithful",
+        "pet/asce_reference@asce-ewri-2005:faithful",
+        "diagnostic/totals@none:demo",
+    ],
+)
+def test_key_round_trip(text: str) -> None:
+    k = ProcessKey.parse(text)
+    assert str(k) == text and ProcessKey.parse(k) is k
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "richards",
+        "soil_water/richards",
+        "soil_water/richards@rzwqm2-4.6",
+        "soil_water/richards:faithful",
+        "Soil_water/richards@rzwqm2-4.6:faithful",
+        "soil_water/richards@rzwqm2-4.6:",
+        "soil_water/richards@-4.6:faithful",
+        "soil/water/richards@rzwqm2-4.6:faithful",
+        "soil_water/richards@rzwqm2:4.6:faithful",
+        "soil_water/.richards@rzwqm2-4.6:faithful",
+    ],
+)
+def test_invalid_keys_raise(text: str) -> None:
+    with pytest.raises(ValueError):
+        ProcessKey.parse(text)
+
+
+def test_key_constructor_validates() -> None:
+    assert str(ProcessKey("pet", "x", "dssat-4.8.6.0")) == "pet/x@dssat-4.8.6.0:faithful"
+    with pytest.raises(ValueError):
+        ProcessKey("pet", "x", "DSSAT")
+
+
+# ---------------------------------------------------------------------------------- duplicates
+
+
+def test_duplicate_key_raises_and_keeps_the_first() -> None:
+    key = "test_slot/dup@none:demo"
+
+    @process(writes=("water",), key=key, **META)
+    def first_dup(state, params, forcing_t):
+        return state
+
+    try:
+        with pytest.raises(DuplicateProcessError, match=re.escape(key)):
+
+            @process(writes=("water",), key=key, **META)
+            def second_dup(state, params, forcing_t):
+                return state
+
+        assert lookup(key) is first_dup
+        assert "second_dup" not in registry
+    finally:
+        registry.pop("first_dup", None)
+    assert key not in registry and "first_dup" not in registry
+
+
+def test_duplicate_name_raises() -> None:
+    """Today's bug: a second process with the same function name silently replaced the first."""
+
+    @process(writes=("water",))
+    def same_name(state, params, forcing_t):
+        return state
+
+    try:
+        with pytest.raises(DuplicateProcessError, match="same_name"):
+
+            @process(writes=("biomass",))
+            def same_name(state, params, forcing_t):
+                return state
+
+        assert registry["same_name"].writes == ("water",)
+    finally:
+        registry.pop("same_name", None)
+
+
+def test_duplicate_name_of_a_package_process_raises() -> None:
+    with pytest.raises(DuplicateProcessError, match="richards_redistribution"):
+        process(_noop, name="richards_redistribution", writes=("soil_water",))
+    with pytest.raises(DuplicateProcessError):
+        process(_noop, name="other_name", key="soil_water/richards@rzwqm2-4.6:faithful", **META)
+    assert lookup("soil_water/richards@rzwqm2-4.6:faithful").name == "richards_redistribution"
+    assert "other_name" not in registry
+
+
+def test_same_definition_again_replaces() -> None:
+    """A module reload re-executes the decorator on the same definition: not a duplicate."""
+    key = "test_slot/reload@none:demo"
+    a = process(_noop, name="reloaded", key=key, **META)
+    try:
+        b = process(_noop, name="reloaded", key=key, **META)
+        assert a is not b
+        assert registry["reloaded"] is b and lookup(key) is b
+    finally:
+        registry.pop("reloaded", None)
+    assert key not in registry
+
+
+def test_register_false_skips_duplicate_check() -> None:
+    p = process(_noop, name="richards_redistribution", writes=("soil_water",), register=False)
+    assert p.name == "richards_redistribution"
+    assert registry["richards_redistribution"] is not p
+
+
+def test_local_registry_mapping_protocol() -> None:
+    reg = ProcessRegistry()
+    p = process(_noop, name="local", key="test_slot/local@none:demo", register=False, **META)
+    reg["local"] = p
+    assert len(reg) == 1 and list(reg) == ["local"]
+    assert reg["test_slot/local@none:demo"] is p and "local" in reg
+    with pytest.raises(ValueError):
+        reg["other"] = p
+    q = process(_noop, name="local2", key="test_slot/local2@none:demo", register=False, **META)
+    reg.add(q)
+    assert {x.name for x in reg.select(slot="test_slot")} == {"local", "local2"}
+    del reg["test_slot/local@none:demo"]
+    assert "local" not in reg and len(reg) == 1
+    unkeyed = process(_noop, name="plain", register=False)
+    reg.add(unkeyed)
+    assert unkeyed.key is None and reg["plain"] is unkeyed
+    assert reg.select() == [q] and reg.select(include_unkeyed=True) == [q, unkeyed]
+    assert set(reg.keyed()) == {"test_slot/local2@none:demo"}
+
+
+# ---------------------------------------------------------------------------------- metadata checks
+
+
+def test_metadata_requires_a_key() -> None:
+    with pytest.raises(ValueError, match="without a key"):
+        process(_noop, provenance="equations_only", register=False)
+
+
+@pytest.mark.parametrize("missing", ["provenance", "sources", "grid", "deviates"])
+def test_key_requires_all_metadata(missing: str) -> None:
+    meta = {k: v for k, v in META.items() if k != missing}
+    with pytest.raises(ValueError, match=missing):
+        process(_noop, key="test_slot/m@none:demo", register=False, **meta)
+
+
+@pytest.mark.parametrize(
+    ("key", "overrides", "match"),
+    [
+        ("test_slot/m@none:demo", {"provenance": "copied"}, "provenance"),
+        ("test_slot/m@none:demo", {"grid": "hexagons"}, "grid"),
+        ("test_slot/m@none:demo", {"sources": ()}, "no sources"),
+        ("test_slot/m@none:demo", {"sources": (("", "x"),)}, "incomplete source"),
+        ("test_slot/m@none:demo", {"deviates": (("a", "", "c"),)}, "incomplete deviation"),
+        ("test_slot/m@none:faithful", {}, "without reference"),
+        ("test_slot/m@none:demo", {"provenance": "translated_bsd3"}, "needs a reference"),
+        ("test_slot/m@dssat-4.8.6.0:improved", {}, "lists no deviations"),
+    ],
+)
+def test_incomplete_metadata_raises(key: str, overrides: dict, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        process(_noop, key=key, register=False, **{**META, **overrides})
+
+
+def test_malformed_source_and_deviation_entries() -> None:
+    with pytest.raises(TypeError):
+        process(_noop, key="test_slot/m@none:demo", register=False, **{**META, "sources": ("just a string",)})
+    with pytest.raises(TypeError):
+        process(_noop, key="test_slot/m@none:demo", register=False, **{**META, "deviates": (("a", "b"),)})
+
+
+def test_variant_with_deviations_accepted() -> None:
+    p = process(
+        _noop,
+        key="test_slot/m@dssat-4.8.6.0:improved",
+        register=False,
+        provenance="translated_bsd3",
+        sources=[Source("eq. 1", "DSSAT-CSM X.for")],
+        grid="dssat_layers",
+        deviates=[Deviation("jacobi order", "order independence", "unit test")],
+        ref_build="dscsm048",
+    )
+    assert isinstance(p, Process) and p.info is not None
+    assert p.key == "test_slot/m@dssat-4.8.6.0:improved"
+    assert (p.info.slot, p.info.impl, p.info.ref_version, p.info.variant) == (
+        "test_slot",
+        "m",
+        "dssat-4.8.6.0",
+        "improved",
+    )
+    assert metadata_problems(p) == []
+
+
+def test_unkeyed_process_reports_missing_metadata() -> None:
+    p = process(_noop, name="adhoc", register=False)
+    assert p.key is None and p.info is None
+    assert metadata_problems(p)
+
+
+# ---------------------------------------------------------------------------------- faithful siblings
+
+
+def test_variant_without_faithful_sibling_is_refused_at_registration() -> None:
+    """Registering a non-faithful variant of a reference needs its faithful
+    sibling in the registry (plugins register through the same registry, so they are bound too)."""
+    key = "test_slot/orphan@dssat-4.8.6.0:tuned"
+    meta = {**META, "deviates": (("tuned", "test", "unit test"),)}
+    with pytest.raises(MissingFaithfulError, match=re.escape("test_slot/orphan@dssat-4.8.6.0:faithful")):
+        process(_noop, name="orphan_tuned", key=key, **meta)
+    assert "orphan_tuned" not in registry and key not in registry
+    # register=False (a throwaway process) is not registered, so not checked
+    assert process(_noop, name="orphan_tuned", key=key, register=False, **meta).key == key
+    # ref_version none has no faithful version and stays exempt
+    free = process(_noop, name="free_demo", key="test_slot/free@none:demo", **META)
+    try:
+        assert lookup("test_slot/free@none:demo") is free
+    finally:
+        registry.pop("free_demo", None)
+
+
+def test_variant_after_its_faithful_sibling_registers_and_pins_it() -> None:
+    fkey, vkey = "test_slot/sib@dssat-4.8.6.0:faithful", "test_slot/sib@dssat-4.8.6.0:tuned"
+    meta_v = {**META, "deviates": (("tuned", "test", "unit test"),)}
+    faithful = process(_noop, name="sib_faithful", key=fkey, **META)
+    variant = process(lambda s, p, f: s, name="sib_tuned", key=vkey, **meta_v)
+    try:
+        assert ProcessKey.parse(vkey).faithful == ProcessKey.parse(fkey)
+        assert ProcessKey.parse(vkey).needs_faithful_sibling
+        assert not ProcessKey.parse(fkey).needs_faithful_sibling
+        assert not ProcessKey.parse("test_slot/sib@none:demo").needs_faithful_sibling
+        assert lookup(vkey) is variant and lookup(fkey) is faithful
+        # the faithful entry cannot be removed while a variant depends on it
+        with pytest.raises(MissingFaithfulError, match=re.escape(vkey)):
+            del registry[fkey]
+        assert lookup(fkey) is faithful
+        # re-registering the same faithful definition (a module reload) keeps the variant valid
+        again = process(_noop, name="sib_faithful", key=fkey, **META)
+        assert lookup(fkey) is again and lookup(vkey) is variant
+    finally:
+        registry.pop("sib_tuned", None)
+        registry.pop("sib_faithful", None)
+    assert fkey not in registry and vkey not in registry
+
+
+def test_local_registry_enforces_the_sibling_rule() -> None:
+    reg = ProcessRegistry()
+    meta_v = {**META, "deviates": (("tuned", "test", "unit test"),)}
+    v = process(_noop, name="loc_tuned", key="test_slot/loc@rzwqm2-4.6:tuned", register=False, **meta_v)
+    with pytest.raises(MissingFaithfulError):
+        reg.add(v)
+    f = process(_noop, name="loc_faithful", key="test_slot/loc@rzwqm2-4.6:faithful", register=False, **META)
+    reg.add(f)
+    reg.add(v)
+    assert set(reg.keyed()) == {"test_slot/loc@rzwqm2-4.6:faithful", "test_slot/loc@rzwqm2-4.6:tuned"}
+    del reg["loc_tuned"]
+    del reg["loc_faithful"]
+    assert len(reg) == 0
+
+
+def test_every_registered_variant_has_its_faithful_sibling() -> None:
+    for p in list_processes():
+        i = p.info
+        assert i is not None
+        if i.key.needs_faithful_sibling:
+            assert lookup(i.key.faithful).info is not None
+
+
+def test_nstress_replay_key_is_the_growth_variant() -> None:
+    """The NSTRES replay is a variant of the CERES growth process, next to
+    its faithful sibling; its producer has no reference (a replay) and is exempt."""
+    v = lookup("crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay")
+    f = lookup("crop/ceres_maize.growth@dssat-4.8.6.0:faithful")
+    assert v.info is not None and v.info.deviates and v.info.ref_build
+    assert v.writes == f.writes and set(v.reads) == {*f.reads, "n_in"}
+    prod = lookup("n_supply/forcing_replay@none:replay")
+    assert prod.writes == ("n_out",) and prod.reads == ()
