@@ -62,6 +62,12 @@ LAI_DAYS = (20, 40, 60, 80)
 I_LAI, I_GWAD, I_CWAD, I_GAD = (OUT_NAMES.index(n) for n in ("lai", "gwad", "cwad", "g_ad"))
 
 
+def needs_x64(fn):
+    """``calibrate`` runs in float64 only (the CI float32 pass skips these)."""
+    fn = pytest.mark.skipif(not jax.config.jax_enable_x64, reason="calibrate runs in float64 only")(fn)
+    return pytest.mark.allow_skip(reason="calibrate is float64-only (CI float32 pass)")(fn)
+
+
 def twin_values(xp, theta, kind, out, t, env):
     """Entry values of the twin (module docstring); ``xp`` is numpy or jax.numpy, arrays broadcast."""
     p1, p5, g2, g3, phint = (
@@ -268,6 +274,7 @@ def test_staged_method():
     assert res.loss["written"] < 0.2 * res.loss["published"]
 
 
+@needs_x64
 def test_adam_only_on_trusted_gradients():
     assert jax.config.jax_enable_x64
     pb = make_problem()
@@ -359,6 +366,7 @@ def test_unreadable_observed_date_is_an_observation_error(tmp_path, monkeypatch)
     assert not errors2
 
 
+@needs_x64
 def test_calibrate_reports_an_unreadable_date(tmp_path, monkeypatch):
     import agrijax.io.dssat.observed as observed_mod
     from agrijax.calib import calibrate
@@ -448,6 +456,7 @@ def test_nitrogen_warning_band(monkeypatch):
     assert w5 is not None and "-3.0%" in w5 and "MDAT" in w5
 
 
+@needs_x64
 def test_calibrate_warns_in_the_band_and_refuses_above(tmp_path, monkeypatch):
     """A treatment in the 2-5 % band, or whose dates change with nitrogen on, is calibrated with a
     warning; above 5 % it is refused. ``targets=('HWUM',)`` stops the call right after the scope and
@@ -728,6 +737,7 @@ def _fake_setup(tmp_path, monkeypatch):
     return eng, data
 
 
+@needs_x64
 def test_calibrate_end_to_end_on_the_twin(tmp_path, monkeypatch):
     from agrijax.calib import calibrate
 
@@ -757,6 +767,7 @@ def test_calibrate_end_to_end_on_the_twin(tmp_path, monkeypatch):
         calibrate("UFGA8201", treatments=[4], write_cul=cul, data_dir=data, engine=eng)
 
 
+@needs_x64
 def test_calibrate_refusals_without_dssat(tmp_path, monkeypatch):
     from agrijax.calib import calibrate
     from agrijax.calib.workflow import ObservationError, ScopeError
@@ -776,6 +787,7 @@ def test_calibrate_refusals_without_dssat(tmp_path, monkeypatch):
         calibrate("UFGA8201", treatments=[4], data_dir=data, engine=tmp_path / "none")
 
 
+@needs_x64
 def test_calibrate_input_sources(tmp_path, monkeypatch):
     """``inputs="auto"`` takes the tables when every treatment has them, the native inputs otherwise;
     the native scope check names the unported DSSAT process."""
@@ -814,6 +826,7 @@ def test_calibrate_input_sources(tmp_path, monkeypatch):
         calibrate("UFGA8201", inputs="native", **kw)
 
 
+@needs_x64
 def test_result_writes_the_row_and_checks_dssat_afterwards(tmp_path, monkeypatch):
     from agrijax.calib import calibrate
 
@@ -834,6 +847,7 @@ def test_result_writes_the_row_and_checks_dssat_afterwards(tmp_path, monkeypatch
     assert "context" not in res.to_dict()
 
 
+@needs_x64
 def test_native_calibration_does_not_look_for_dssat(tmp_path, monkeypatch):
     """``inputs="native"`` without ``engine=``: the DSSAT program is not looked for (the framing:
     Agri-JAX runs without DSSAT; only the DSSAT check fetches it)."""
