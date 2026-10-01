@@ -36,6 +36,7 @@ port = ["fparser>=0.2.5"]
 dev = [
   "pytest",
   "pytest-cov",
+  "pytest-xdist",
   "pytest-regressions",
   "hypothesis",
   "pytest-benchmark",

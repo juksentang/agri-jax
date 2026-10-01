@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import inspect
 import json
 import re
 from pathlib import Path
@@ -182,7 +183,8 @@ def test_comment_markers_are_replaced_by_the_text_of_each_language():
     # the result is valid Python with the docstrings of the language
     ns: dict = {}
     exec(compile(en, "localized", "exec"), ns)
-    assert ns["f"].__doc__ == "EN docstring" and ns["g"].__doc__ == "EN first\n\n    EN third\n    "
+    # (Python 3.13 strips the common indentation of docstrings at compile time: compare cleaned)
+    assert ns["f"].__doc__ == "EN docstring" and inspect.cleandoc(ns["g"].__doc__) == "EN first\n\nEN third"
 
 
 def test_comment_markers_in_a_notebook_cell_but_not_in_the_header():
