@@ -46,11 +46,16 @@ labels, from the gradient-trust check of :mod:`agrijax.calib.trust` run at the e
   (emergence, silking, maturity: when a stage is reached). **Derivatives through phenology events are
   experimental**: the stage changes of the CERES-Maize phenology are selections on integer days
   (``jnp.where``, no :func:`~agrijax.core.grad.event_ste` ramp), so AD keeps every stage on its day
-  and misses the jumps of a stage moving by a day (``ad`` equals ``ad_exact`` for these
-  coefficients; the line scan finds the jumps, class ``jumpy`` or ``step``). The calibration does not
-  trust them either (they are derivative-free by default there). ``derivative`` is that AD value; the
-  central difference is in column ``fd`` to compare with, and the class and level the check found
-  stay in the table.
+  and misses the jumps of a stage moving by a day (the line scan finds them, class ``jumpy`` or
+  ``step``). In a season that is not water limited this is the whole story (``ad`` equals ``ad_exact``;
+  the experiment's own season: the factor 2.4 between ``ad`` and ``fd`` for ``PHINT`` is the stage days
+  moving). In a water-limited season their straight-through derivative also carries the quantiser
+  paths, the TURFAC truncation and the soil-water rounding as well as RLV, and differs from the exact
+  one by 5 to 15 % for ``P5`` and 5 to 157 % for ``PHINT`` (with a change of sign in 1982 -14 days:
+  ``ste`` +0.117, exact -0.205 on grain weight; independent review of this branch). The calibration
+  does not trust them either (they are derivative-free by default there). ``derivative`` is that AD
+  value; the central difference is in column ``fd`` to compare with, and the class and level the check
+  found stay in the table.
 
 A coefficient's label is the weakest of its pairs (over outputs, and over scenarios in a batch).
 The labels are about the derivative, not the model: they say whether the local slope can be used,
@@ -66,9 +71,12 @@ identity) taken along the rounded trajectory; ``ad_exact`` is the derivative of 
 (exact mode: 0 through every quantum) and ``ad_unrounded`` that of the unrounded model along its own
 trajectory. In a water-limited season the effect of ``G2`` / ``G3`` on root growth reaches yield
 through root water uptake and ``ad`` differs from ``ad_exact`` (0.3 to 2.8 % for yield, up to 8 % for
-tops weight). Level 2 tests both paths ``ad`` is made of, each against a small-step (1e-5) central
-difference of a real function: ``ad_exact`` against the model's (``err_small_exact``), ``ad_unrounded``
-against the unrounded model's (``err_small_unrounded``); ``err_small`` is the larger. ``ste_offset`` =
+tops weight); with every registered site traced in the exact mode the ``ste`` derivative equals the
+exact one bit for bit (all six coefficients, nine scenarios; ``tests/integration/test_facade_grad.py``),
+so the registered sites are the whole difference; for ``G2`` / ``G3`` the RLV truncation alone is.
+Level 2 tests both paths ``ad`` is made of, each against a small-step (1e-5) central difference of a
+real function: ``ad_exact`` against the model's (``err_small`` = ``err_small_exact``, to 1e-3),
+``ad_unrounded`` against the unrounded model's (``err_small_unrounded``, to 1 %). ``ste_offset`` =
 ``ad / ad_unrounded - 1`` (0 to 1.1 % here) is the trajectory offset: the unrounded model's states drift
 off the rounded ones by up to a quantum a day, so the two derivatives are not equal and are not
 compared. The 2 % step and the line scan test ``ad`` on the real model (level 3), as
@@ -96,7 +104,8 @@ scenarios 15 of the 36 (scenario, output, coefficient) pairs of ``HWAM`` / ``CWA
 are validated: all of 1982 at 0 and +14 days, 1982 -14 ``HWAM``, 1979 +14 ``HWAM``/``G2``, 1985 at 0
 days ``G3``, 1985 +14 ``G2``. The other 21 fall back:
 
-* the unrounded model's 1e-5 difference crosses one of its jumps (level 1): 1979 -14 (all four),
+* the unrounded model's 1e-5 difference crosses one of its jumps (level 1; the exact path agrees to
+  1e-10 there): 1979 -14 (all four),
   1979 +14 ``HWAM``/``G3`` and ``CWAM``/``G3``, 1985 -14 (all four), 1985 at 0 days ``HWAM``/``G2`` and
   ``CWAM``/``G2``;
 * the model's own 1e-5 difference straddles a quantum (level 1, 0.6 to 9 % off): 1979 at 0 days (all
@@ -106,8 +115,9 @@ days ``G3``, 1985 +14 ``G2``. The other 21 fall back:
   ``CWAM``/``G3`` (a jump in the scan).
 
 Over the batch ``G2`` and ``G3`` fall back. For ``PHINT`` the AD value and the finite difference over
-+-2 % of the range differ by a factor of 2.4 on the experiment's own season (by sign in some scenarios):
-the stage days moving, which AD does not see (above); hence ``experimental``.
++-2 % of the range differ by a factor of 2.4 on the experiment's own season (the stage days moving, which
+AD does not see) and by sign in some scenarios (where the quantiser paths add to it, above); hence
+``experimental``.
 
 Runs in float64 on the host's JAX devices (set ``XLA_FLAGS=--xla_force_host_platform_device_count=<cores>``
 before importing JAX to use every CPU core). The cost is three batched forward-mode programs (the
@@ -466,7 +476,7 @@ def _analyse(
         fd_u = ((yb_u[:, :, 0] - yb_u[:, :, 1]) / (fwd[0] + bwd[0])[None, :, None]).transpose(0, 2, 1)
         y0_u = y_u[:n_a, :e_n].reshape(s_n, p_n, e_n)[:, 0]
         for s in range(s_n):
-            rel_u[s], agree_u[s] = fd_agreement(ad_u[s], fd_u[s], y0_u[s], w, 0, cfg)
+            rel_u[s], agree_u[s] = fd_agreement(ad_u[s], fd_u[s], y0_u[s], w, 0, cfg, cfg.fd_rtol_unrounded)
     fds = [
         ((y_b[:, :, st, 0, :] - y_b[:, :, st, 1, :]) / (fwd[st] + bwd[st])[None, :, None]).transpose(0, 2, 1)
         for st in range(2)
@@ -479,7 +489,6 @@ def _analyse(
                 (ad_exact if st == 0 else ad)[s], fds[st][s], y0[s], w, st, cfg
             )
     rel_x = rel[0]
-    rel[0] = np.maximum(rel[0], rel_u)
     agree[0] = agree[0] & agree_u
     cls = np.empty(shape, dtype=object)
     level = np.zeros(shape, dtype=int)

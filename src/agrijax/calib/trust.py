@@ -13,20 +13,25 @@ Three levels of trust in a derivative:
 **Straight-through derivatives.** A function bound to the ``ste`` gradient mode
 (:func:`agrijax.core.grad.bind_gradient_mode`) differentiates on purpose not its own staircase:
 through every quantiser of :mod:`agrijax.core.grad` (``trunc_st``, ``round_st``: Fortran's
-``REAL(INT(x*1000))/1000``, ``ANINT(x*1E6)/1E6``; ``real4_store``) the derivative is the identity.
-It is the derivative of the **unrounded model** (:func:`agrijax.core.grad.unrounded`: every
-quantiser the identity) evaluated along the rounded trajectory; it differs from the derivative of the
-forward program (0 through every quantum, the ``exact`` mode). A small-step finite difference of the
-forward program (short of crossing a quantum) measures the exact one, so for such a function level 2
-tests both paths the straight-through derivative is made of, each against finite differences of a
-real function: the **exact-mode** derivative (``ad_exact``) against the small-step difference of the
-model, and the derivative of the **unrounded model** (``ad_unrounded``) against the small-step
-difference of the unrounded model. Both counterparts are derived from a
-:class:`~agrijax.core.grad.ModeBound` ``f`` (:func:`counterparts`). The straight-through value itself
-and the unrounded derivative differ by the trajectory offset (the unrounded model's states are off
-the rounded ones by up to a quantum per step), reported as ``ste_offset`` and not tested; level 3
-tests the straight-through value against the optimiser-step secant and the scan of the real model.
-Measured case: the CERES-Maize ``G2`` / ``G3`` derivatives of the DSSAT day (:mod:`agrijax.facade_grad`).
+``REAL(INT(x*1000))/1000``, ``ANINT(x*1E6)/1E6``) the derivative is the identity (and through
+``real4_store`` the cast's, the tangent rounded to binary32). It is the derivative of the
+**unrounded model** (:func:`agrijax.core.grad.unrounded`: every quantiser, ``real4_store`` included,
+the identity) evaluated along the rounded trajectory, and differs from the derivative of the forward
+program (0 through every quantum: the ``exact`` mode). For such a function, **level 2 means** that
+both paths the surrogate is made of are computed correctly, each tested against finite differences
+of a real function: the **exact-mode** derivative (``ad_exact``) against the small-step central
+difference of the model (``cfg.fd_rtol[0]``), and the **unrounded model's** derivative
+(``ad_unrounded``) against the unrounded model's small-step central difference
+(``cfg.fd_rtol_unrounded``, looser: the unrounded model is not smooth at that scale either). Both
+counterparts are derived from a :class:`~agrijax.core.grad.ModeBound` ``f`` (:func:`counterparts`).
+That nothing else differs between the surrogate and the exact derivative is a property of the code,
+tested once rather than at every point: with every registered straight-through call site
+(:class:`agrijax.core.process.GradientConvention`) traced in the exact mode, the ``ste`` derivative
+equals the exact one bit for bit (``tests/integration/test_facade_grad.py``). The surrogate value
+and the unrounded derivative differ by the trajectory offset (the unrounded model's states drift
+off the rounded ones by up to a quantum per step), reported as ``ste_offset`` and not tested.
+Level 3 tests the surrogate value itself against the optimiser-step secant and the line scan of the
+real model. Measured case: the CERES-Maize derivatives of the DSSAT day (:mod:`agrijax.facade_grad`).
 
 Tools, all batched with ``vmap`` (one call per step size / scan):
 
@@ -87,6 +92,11 @@ class TrustConfig:
     * ``fd_rtol`` - relative AD / FD agreement at each step: the small step tests the derivative
       of the program; the large step (looser: a smooth response has O(h^2) curvature error)
       tests that the derivative predicts an optimiser-sized step;
+    * ``fd_rtol_unrounded`` - the small-step agreement of the unrounded model's derivative (the
+      straight-through path of a surrogate derivative): looser, because the unrounded model is
+      not smooth at that scale either (comparisons the rounding held exactly switch, REAL*4
+      comparisons; on the DSSAT maize day, where no jump is crossed, 1e-10 to about 1e-3 at a 1e-5
+      step);
     * ``abs_floor`` - derivatives with ``|d y| * width`` below ``abs_floor * max(|y|, 1)`` count
       as zero;
     * ``jump_frac`` - a grid interval of a line scan is a jump when the change the AD derivative
@@ -99,6 +109,7 @@ class TrustConfig:
 
     fd_steps: tuple[float, float] = (1e-5, 2e-2)
     fd_rtol: tuple[float, float] = (1e-3, 5e-2)
+    fd_rtol_unrounded: float = 1e-2
     abs_floor: float = 1e-10
     jump_frac: float = 0.01
     n_scan: int = 41
@@ -143,8 +154,9 @@ def fd_check(
     For an ``f`` whose derivative is straight-through (module docstring): ``f_exact`` (the same
     function in the ``exact`` mode) gives ``ad_exact``, compared with the small-step difference of
     ``f``; ``f_unrounded`` (the unrounded model) gives ``ad_unrounded`` and its own small-step
-    difference ``fdu0``; ``agree0`` needs both agreements (``rel_err0``: the larger of the two
-    disagreements). The large step is compared with ``ad``. Without them ``ad_exact`` is ``ad`` and
+    difference ``fdu0`` (to ``cfg.fd_rtol_unrounded``); ``agree0`` needs both agreements
+    (``rel_err0``: the exact path's disagreement, ``rel_erru0``: the unrounded path's). The large
+    step is compared with ``ad``. Without them ``ad_exact`` is ``ad`` and
     the unrounded keys are absent."""
     x = jnp.asarray(x, dtype=float)
     width = np.asarray(width, dtype=float)
@@ -170,27 +182,33 @@ def fd_check(
         adu = np.asarray(jax.jit(lambda z: _jac(f_unrounded, z))(x))
         yu = np.asarray(jax.jit(f_unrounded)(x))
         fdu = central(jax.jit(jax.vmap(f_unrounded)), cfg.fd_steps[0])
-        relu, agu = fd_agreement(adu, fdu, yu, width, 0, cfg)
+        relu, agu = fd_agreement(adu, fdu, yu, width, 0, cfg, cfg.fd_rtol_unrounded)
         out.update(ad_unrounded=adu, fdu0=fdu, rel_erru0=relu, agreeu0=agu)
-        out["rel_err0"] = np.maximum(out["rel_err0"], relu)
         out["agree0"] = out["agree0"] & agu
     return out
 
 
 def fd_agreement(
-    ad: Any, fd: Any, y0: Any, width: Any, k: int, cfg: TrustConfig = DEFAULT_TRUST
+    ad: Any,
+    fd: Any,
+    y0: Any,
+    width: Any,
+    k: int,
+    cfg: TrustConfig = DEFAULT_TRUST,
+    rtol: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Relative AD / finite-difference disagreement and whether they agree, ``[m, n]``, at step
     ``k`` of ``cfg.fd_steps`` (the comparison of :func:`fd_check`: ``ad``, ``fd`` ``[m, n]``,
     ``y0`` ``[m]``, ``width`` ``[n]``; both derivatives zero within ``cfg.abs_floor`` count as
-    agreeing)."""
+    agreeing). ``rtol`` overrides ``cfg.fd_rtol[k]``."""
     ad, fd = np.asarray(ad), np.asarray(fd)
     y0, width = np.asarray(y0), np.asarray(width)
     den = np.maximum(np.maximum(np.abs(ad), np.abs(fd)), _TINY)
     rel = np.abs(ad - fd) / den
     floor = cfg.abs_floor * np.maximum(np.abs(y0), 1.0)[:, None] / width[None, :]
     both_zero = (np.abs(ad) <= floor) & (np.abs(fd) <= floor)
-    return np.where(both_zero, 0.0, rel), both_zero | (rel <= cfg.fd_rtol[k])
+    tol = cfg.fd_rtol[k] if rtol is None else rtol
+    return np.where(both_zero, 0.0, rel), both_zero | (rel <= tol)
 
 
 # ------------------------------------------------------------------------------ line scans
@@ -344,9 +362,9 @@ def trust_report(
 
     ``f_exact``, ``f_unrounded``: the counterparts of a straight-through ``f`` (:func:`fd_check`);
     default :func:`counterparts` of ``f`` (for a ``ModeBound`` in the ``ste`` / ``implicit`` mode).
-    Each output then also reports ``ad_exact``, ``ad_unrounded``, ``fd_small_unrounded`` and
-    ``ste_offset`` (``ad / ad_unrounded - 1``), and ``rel_err_small`` is the larger of the two level-2
-    disagreements."""
+    Each output then also reports ``ad_exact`` (``rel_err_small`` is measured on it),
+    ``ad_unrounded``, ``fd_small_unrounded``, ``rel_err_small_unrounded`` and ``ste_offset``
+    (``ad / ad_unrounded - 1``)."""
     x = np.asarray(x, dtype=float)
     lo = np.asarray(lower, dtype=float)
     hi = np.asarray(upper, dtype=float)
@@ -375,6 +393,7 @@ def trust_report(
                     {
                         "ad_unrounded": float(fd["ad_unrounded"][j, i]),
                         "fd_small_unrounded": float(fd["fdu0"][j, i]),
+                        "rel_err_small_unrounded": float(fd["rel_erru0"][j, i]),
                         "ste_offset": float(fd["ad"][j, i] / fd["ad_unrounded"][j, i] - 1.0)
                         if fd["ad_unrounded"][j, i] != 0.0
                         else 0.0,

@@ -1,7 +1,6 @@
 """D3-1: staged calibration of CERES-Maize cultivar coefficients on the validated free-run DSSAT day.
 
-Plan 15 section 9.20 items 3, 4, 6, 9-13 and section 9.21 items 1-4 (PoC acceptance 3; the first paper's
-condition (a)). Measurement / driver only; nothing in ``src/`` changes.
+Measurement / driver only; nothing in ``src/`` changes.
 
 **Model.** :mod:`agrijax.models.day_dssat486` exactly as the D2-1a acceptance runs it (configuration
 ``free`` of ``tests/integration/day_dssat486_free_harness.py``: every entry its own process, REAL*4 soil
@@ -80,7 +79,7 @@ for _p in (REPO / "src", REPO / "tests" / "integration"):
 
 # ============================================================================ settings (harness choices)
 PARAMS = ("P1", "P2", "P5", "PHINT", "G2", "G3")
-PHEN = ("P1", "P2", "P5", "PHINT")  # stage 1 (derivative-free by default, plan 15 section 9.20 item 11)
+PHEN = ("P1", "P2", "P5", "PHINT")  # stage 1 (derivative-free by default)
 GROWTH = ("G2", "G3")  # stage 2 (gradient plan)
 I_PHEN = tuple(PARAMS.index(n) for n in PHEN)
 I_GROWTH = tuple(PARAMS.index(n) for n in GROWTH)
@@ -163,7 +162,7 @@ REAL: dict[str, list[str]] = {
 JVP_COST = 2.0
 #: the CUL MINIMA / MAXIMA of the grain coefficients (the contour box)
 CERES_BOX = {"G2": (248.0, 990.0), "G3": (5.0, 16.5)}
-#: identifiability case (plan 15 section 9.22 item 9): UFGA8201 calibrated on t02 / t04, t06 held out
+#: identifiability case: UFGA8201 calibrated on t02 / t04, t06 held out
 UFGA_CAL: dict[str, list[str]] = {"UFGA8201/IB0035": ["UFGA8201_t02", "UFGA8201_t04"]}
 UFGA_ALL: dict[str, list[str]] = {"UFGA8201/IB0035": ["UFGA8201_t02", "UFGA8201_t04", "UFGA8201_t06"]}
 UFGA_HOLDOUT = "UFGA8201_t06"
@@ -1470,7 +1469,7 @@ def run_method(a: argparse.Namespace) -> None:
     r_n = rows_prob.size
     tracker = Tracker(r_n, T_START)
     # coefficients the data carry no information on (check step): fixed at the reference value (the
-    # truth of the twin, the published value of the real problems; plan 15 section 9.20 item 5)
+    # truth of the twin, the published value of the real problems)
     fixed_th = truth[rows_prob].copy()
     start_mode = "perturb"  # twin: around the truth; real: around the published cultivar
 
@@ -2383,7 +2382,7 @@ def per_code(pb: Problem, theta: np.ndarray, pidx: int) -> dict[str, dict[str, f
 
 
 def step_ident(a: argparse.Namespace) -> None:
-    """Identifiability case (plan 15 section 9.22 item 9) on UFGA8201 t02 / t04 / t06, forward only:
+    """Identifiability case on UFGA8201 t02 / t04 / t06, forward only:
     G2 x G3 loss contours (a conditional slice: the other coefficients at the calibrated best, written
     values) of the objective without and with grain number, and the simulated grain number; the points
     of the real-data calibration and of the ``ufga`` recalibrations (base / gn, 3 seeds, t06 held out)."""

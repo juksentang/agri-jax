@@ -73,6 +73,7 @@ __all__ = [
     "PROVENANCE",
     "QUANTISERS",
     "STE_CONVENTION",
+    "STE_HELPERS",
     "Deviation",
     "DuplicateProcessError",
     "GradientConvention",
@@ -230,10 +231,13 @@ class Deviation:
     evidence: str
 
 
-#: the quantisers of :mod:`agrijax.core.grad` whose derivative is a convention (identity in ``ste``,
-#: 0 in ``exact``, the identity itself under ``unrounded``); every call site is registered as a
-#: :class:`GradientConvention` of the process that runs it
+#: the quantisers of :mod:`agrijax.core.grad` (identity derivative in ``ste``, 0 in ``exact``, the
+#: identity itself under ``unrounded``; ``real4_store``: the cast's derivative in every mode)
 QUANTISERS: tuple[str, ...] = ("trunc_st", "round_st", "real4_store")
+#: every helper of :mod:`agrijax.core.grad` whose derivative is a convention: the quantisers and the
+#: event surrogates (``event_ste`` ramp, ``select_ste`` jump); every call site is registered as a
+#: :class:`GradientConvention` of the process that runs it
+STE_HELPERS: tuple[str, ...] = (*QUANTISERS, "event_ste", "select_ste")
 #: the derivative convention of trunc_st / round_st, for the ``what`` of a :class:`GradientConvention`
 STE_CONVENTION = (
     "ste / implicit modes: identity (straight-through: the derivative of the model without the "
@@ -246,7 +250,7 @@ STE_CONVENTION = (
 class GradientConvention:
     """How the derivative is taken through one quantiser call site (the forward value is the
     reference's, so this is not a :class:`Deviation`): ``site`` is the function that calls it
-    (``module.function``), ``helper`` the quantiser (:data:`QUANTISERS`), ``what`` the quantity and
+    (``module.function``), ``helper`` the helper (:data:`STE_HELPERS`), ``what`` the quantity and
     the reference statement, ``why`` the reason for the convention and ``evidence`` where it is
     measured."""
 
@@ -303,8 +307,8 @@ class ProcessInfo:
         for g in self.gradient_conventions:
             if not all(x.strip() for x in (g.site, g.what, g.why, g.evidence)):
                 out.append(f"incomplete gradient convention {g!r}")
-            if g.helper not in QUANTISERS:
-                out.append(f"gradient convention helper {g.helper!r} not in {QUANTISERS}")
+            if g.helper not in STE_HELPERS:
+                out.append(f"gradient convention helper {g.helper!r} not in {STE_HELPERS}")
         if self.ref_version == NO_REFERENCE:
             if self.variant == FAITHFUL:
                 out.append("a process without reference cannot be the 'faithful' variant")
