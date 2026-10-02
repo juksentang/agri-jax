@@ -1,13 +1,14 @@
 #!/bin/bash
 # D3-1 before / after of the level-2 trust test (wt/grad_gap) on rorqual: the same twin study (11 problems x
 # 8 starts x 3 seeds) and the real-data round trip (11 problems x staged / cma -> .CUL -> dscsm048), once
-# with the legacy level-2 test (AJ_D31_TRUST=legacy) and once with the split one (exact + unrounded paths).
+# with the legacy level-2 test (AJ_D31_TRUST=legacy), with the split one (exact + unrounded paths) and with
+# the three-valued one (phase "three": exact path at three adjacent small steps, secants at 1 / 2 / 5 %).
 # CMA-ES does not use the trust report: it runs once and is shared. Usage: d3_1_before_after.sh [phase]
 set -u
 DRV="python scripts/bench/calib/d3_1_staged.py"
 D=$AGRI_JAX_DATA/validation/aj_d31_gradgap
-L=$D/legacy; S=$D/split
-mkdir -p "$L" "$S"
+L=$D/legacy; S=$D/split; V=$D/three
+mkdir -p "$L" "$S" "$V"
 phase=${1:-all}
 if [ "$phase" = all ] || [ "$phase" = prep ]; then
   AJ_D31_DIR=$L $DRV prep --jobs 32 && AJ_D31_DIR=$L $DRV check || exit 1
@@ -31,4 +32,15 @@ if [ "$phase" = all ] || [ "$phase" = tables ]; then
     AJ_D31_DIR=$d $DRV table3 --methods staged,cma --variants base --seeds 0,1,2
     echo "=== $t"; cat "$d"/tables_twin3.md
   done
+fi
+if [ "$phase" = three ]; then
+  cp "$L"/inputs.pkl "$L"/inputs_meta.json "$L"/check_*.json "$L"/twin_cma_base_s*.json "$L"/real_cma_base_s0.json "$V"/
+  for sd in 0 1 2; do
+    AJ_D31_DIR=$V AJ_D31_TRUST=three $DRV runs --kind twin --methods staged --variants base --seed $sd
+  done
+  AJ_D31_DIR=$V AJ_D31_TRUST=three $DRV runs --kind real --methods staged --variants base --seed 0
+  AJ_D31_DIR=$V $DRV roundtrip --kind real --method staged
+  AJ_D31_DIR=$V $DRV roundtrip --kind real --method cma
+  AJ_D31_DIR=$V $DRV table3 --methods staged,cma --variants base --seeds 0,1,2
+  echo "=== three"; cat "$V"/tables_twin3.md
 fi

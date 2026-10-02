@@ -31,14 +31,18 @@ labels, from the gradient-trust check of :mod:`agrijax.calib.trust` run at the e
 (the same check, thresholds and per-coefficient plan the calibration uses,
 :func:`agrijax.calib.ceres.ceres_gradient_plan`):
 
-* ``"validated gradient"`` - the AD derivative agrees with central finite differences at two steps
-  (1e-5 and 2 % of the coefficient's ``MINIMA`` - ``MAXIMA`` range, to 1e-3 and 5 %; at the 1e-5
-  step each of the two paths of the straight-through derivative is tested on its own model, see
-  **Straight-through derivatives** below), and a line scan
-  of ``scan_points`` points over +-10 % of the range finds no jump and no flat stretch the derivative
-  does not explain (class ``smooth``, trust level 3), or the output does not move at all (``inert``).
-  It holds at this point and at the scan's resolution: a jump narrower than the grid spacing can fall
-  between two scan points and go unseen (the calibration scans 201 points for that reason);
+* ``"validated gradient"`` - trust level 3 (class ``smooth``), or the output does not move at all
+  (``inert``). Level 2 (column ``level2``) is three-valued: the central differences at 1e-4, 1e-5
+  and 1e-6 of the coefficient's ``MINIMA`` - ``MAXIMA`` range agree with each other and with the
+  derivative (``pass``), with each other but not with it (``fail``: a derivative error, level 1),
+  or not with each other (``undecidable (FD unreliable)``: they straddle a quantum or a jump and do
+  not veto the derivative). Level 3: the derivative agrees with the central secants at 1, 2 and 5 %
+  of the range (to 5 %) and a line scan of ``scan_points`` points over +-10 % of the range finds no
+  jump and no flat stretch the derivative does not explain; where level 2 is undecidable, level 3
+  alone decides. It holds at this point and at the scan's resolution: a jump narrower than the grid
+  spacing can fall between two scan points and go unseen (the calibration scans 201 points for that
+  reason). For the straight-through derivative level 2 judges the exact path, see
+  **Straight-through derivatives** below;
 * ``"falls back"`` - the check failed (jumps, a flat stretch while the output moves, a kink, or an
   AD / finite-difference disagreement): ``derivative`` is then the central finite difference over
   +-2 % of the range, not the AD value (which stays in column ``ad``);
@@ -74,47 +78,41 @@ through root water uptake and ``ad`` differs from ``ad_exact`` (0.3 to 2.8 % for
 tops weight); with every registered site traced in the exact mode the ``ste`` derivative equals the
 exact one bit for bit (all six coefficients, nine scenarios; ``tests/integration/test_facade_grad.py``),
 so the registered sites are the whole difference; for ``G2`` / ``G3`` the RLV truncation alone is.
-Level 2 tests both paths ``ad`` is made of, each against a small-step (1e-5) central difference of a
-real function: ``ad_exact`` against the model's (``err_small`` = ``err_small_exact``, to 1e-3),
-``ad_unrounded`` against the unrounded model's (``err_small_unrounded``, to 1 %). ``ste_offset`` =
-``ad / ad_unrounded - 1`` (0 to 1.1 % here) is the trajectory offset: the unrounded model's states drift
-off the rounded ones by up to a quantum a day, so the two derivatives are not equal and are not
-compared. The 2 % step and the line scan test ``ad`` on the real model (level 3), as
-:func:`agrijax.calib.trust.trust_report` does for a mode-bound function. Where a difference does not
-cross a discontinuity, ``ad_exact`` and ``ad_unrounded`` equal their central differences to 1e-9; the
-unrounded model is not smooth either: in water-limited seasons its comparisons that the rounding held
-exactly (a water content at the lower limit, for instance) switch at tiny steps, and its small-step
-difference crosses such a jump in about a third of the cases (``scripts/diag/dssat_grad_gap.py
---sweep``), where level 2 cannot verify the path and the pair falls back.
+Level 2 judges ``ad_exact`` (column ``err_small``: its disagreement with the 1e-5 difference); ``ad`` is
+then correct by the three-link argument of :mod:`agrijax.calib.trust` (exact path checked here; the
+registered sites are the whole difference, bit for bit; each site's derivative is 1 by its registered
+convention). The unrounded model is a diagnostic only: ``ad_unrounded``, ``err_small_unrounded`` and
+``ste_offset`` = ``ad / ad_unrounded - 1`` (0 to 1.1 % here, the drift between the rounded and the
+unrounded trajectories). It is not smooth either: in water-limited seasons its comparisons that the
+rounding held exactly switch at tiny steps, and its 1e-5 difference crosses such a jump in about a
+third of the pairs (``err_small_unrounded`` near 1). The secants at 1, 2 and 5 % and the line scan test
+``ad`` on the real model (level 3).
 
-**The large step.** 2 % of the range is the scale of the optimisers' steps: Adam (``calib.fit``, rate
+**The large steps.** 1, 2 and 5 % of the range bracket the optimisers' steps: Adam (``calib.fit``, rate
 0.05 in the logit coordinate) moves ``0.05 u (1 - u)`` of the range per step (at most 1.25 %, 0.40 % for
 ``G2`` and 1.00 % for ``G3`` at the published cultivar), the staged Levenberg-Marquardt's secants span
-``+-0.1 u (1 - u)`` (0.8 % and 2.0 %). With the large step at 1 % of the range the same 15 of the 36
-pairs below are validated as at 2 %; at 5 % also 15, one gained (1979 +14 ``CWAM``/``G2``) and one lost
-(1985 +14 ``CWAM``/``G2``, whose 5 % secant crosses a jump): the labels do not hinge on the number.
+``+-0.1 u (1 - u)`` (0.8 % and 2.0 %). Level 3 needs all three; with any one of them alone 24 (1 %),
+25 (2 %) or 24 (5 %) pairs of the 36 below would be validated instead of 23.
 
 Measured on rorqual (the tables ``tests/integration/test_facade_grad.py`` and
 ``scripts/diag/dssat_grad_gap.py --facade`` / ``--secant`` print; UFGA8201 treatment 4, published
 cultivar, 201 scan points): for the experiment's own season (1982, planting as in the file) the AD
 derivatives of ``HWAM``, ``CWAM`` and ``H#AM`` with respect to ``G2`` and ``G3`` are validated (no
-straight-through path reaches them: ``ad`` equals ``ad_exact`` and ``ad_unrounded``; they equal the
-central difference at a 1e-5 step to 1e-10). Over the 1979 / 1982 / 1985 x sowing -14 / 0 / +14 days
-scenarios 15 of the 36 (scenario, output, coefficient) pairs of ``HWAM`` / ``CWAM`` x ``G2`` / ``G3``
-are validated: all of 1982 at 0 and +14 days, 1982 -14 ``HWAM``, 1979 +14 ``HWAM``/``G2``, 1985 at 0
-days ``G3``, 1985 +14 ``G2``. The other 21 fall back:
+straight-through path reaches them: ``ad`` equals ``ad_exact``). Over the 1979 / 1982 / 1985 x sowing
+-14 / 0 / +14 days scenarios, of the 36 (scenario, output, coefficient) pairs of ``HWAM`` / ``CWAM`` x
+``G2`` / ``G3``, level 2 passes for 18, is undecidable for 18 (the 1e-4 difference, or all of them in
+1979 at 0 days, straddle a quantum) and fails for none; 23 are validated. The other 13 fail level 3:
 
-* the unrounded model's 1e-5 difference crosses one of its jumps (level 1; the exact path agrees to
-  1e-10 there): 1979 -14 (all four),
-  1979 +14 ``HWAM``/``G3`` and ``CWAM``/``G3``, 1985 -14 (all four), 1985 at 0 days ``HWAM``/``G2`` and
-  ``CWAM``/``G2``;
-* the model's own 1e-5 difference straddles a quantum (level 1, 0.6 to 9 % off): 1979 at 0 days (all
-  four);
-* a real non-smoothness at the optimiser's scale (level 2): 1979 +14 ``CWAM``/``G2`` (2 % secant 7 %
-  off), 1982 -14 ``CWAM``/``G2`` and ``CWAM``/``G3`` (30 % off), 1985 +14 ``HWAM``/``G3`` and
-  ``CWAM``/``G3`` (a jump in the scan).
+* level 2 passed, level 3 failed (level 2): 1979 -14 ``CWAM``/``G2`` (a jump in the scan, 5 % secant
+  11 % off), 1979 +14 ``CWAM``/``G2`` (secants 7 % off), 1985 +14 ``HWAM``/``G3`` (a jump),
+  ``CWAM``/``G2`` (5 % secant 7 % off), ``CWAM``/``G3`` (a jump, 5 % secant 27 % off);
+* level 2 undecidable, level 3 failed (level 1): 1979 -14 ``HWAM``/``G3`` and ``CWAM``/``G3`` (jumps),
+  1979 at 0 days ``HWAM``/``G3`` and ``CWAM``/``G3`` (jumps), 1979 +14 ``CWAM``/``G3`` (5 % secant 7.5 %
+  off), 1982 -14 ``CWAM``/``G2`` and ``CWAM``/``G3`` (secants 30 % off), 1985 -14 ``CWAM``/``G2`` (a
+  jump).
 
-Over the batch ``G2`` and ``G3`` fall back. For ``PHINT`` the AD value and the finite difference over
+Over the batch ``HWAM``/``G2`` is validated in all nine scenarios, but ``G2`` and ``G3`` fall back. For
+``PHINT`` the AD value and the finite difference over
 +-2 % of the range differ by a factor of 2.4 on the experiment's own season (the stage days moving, which
 AD does not see) and by sign in some scenarios (where the quantiser paths add to it, above); hence
 ``experimental``.
@@ -122,7 +120,8 @@ AD does not see) and by sign in some scenarios (where the quantiser paths add to
 Runs in float64 on the host's JAX devices (set ``XLA_FLAGS=--xla_force_host_platform_device_count=<cores>``
 before importing JAX to use every CPU core). The cost is three batched forward-mode programs (the
 ``ste`` and ``exact`` modes and the unrounded model): per coefficient and scenario, three derivative
-points, six finite-difference points and ``scan_points`` scan points.
+points, 14 finite-difference points (six steps, two of them also on the unrounded model) and
+``scan_points`` scan points.
 """
 
 from __future__ import annotations
@@ -392,19 +391,21 @@ def _analyse(
 
     The same quantities and thresholds as :func:`agrijax.calib.trust.trust_report`, which makes
     them one parameter at a time for one function: the AD derivative (forward mode along each
-    ``e_i``), central differences at the two ``cfg.fd_steps`` (one-sided where the step would leave
-    the bounds), a line scan of ``cfg.n_scan`` points over ``+- cfg.scan_frac`` of the width (clipped
-    to the bounds), and :func:`~agrijax.calib.trust.classify_pair`. The bounds are widened to hold
-    ``x`` if it lies outside them. Arrays are ``[S, E, P]`` (``y0``: ``[S, E]``).
+    ``e_i``), central differences at the small and large step sets ``cfg.fd_small_steps`` /
+    ``cfg.fd_large_steps`` (one-sided where a step would leave the bounds) and their verdicts
+    (:func:`~agrijax.calib.trust.fd_diagnostics`: the three-valued level 2), a line scan of
+    ``cfg.n_scan`` points over ``+- cfg.scan_frac`` of the width (clipped to the bounds), and
+    :func:`~agrijax.calib.trust.classify_pair`. The bounds are widened to hold ``x`` if it lies outside
+    them. Arrays are ``[S, E, P]`` (``y0``: ``[S, E]``).
 
     ``evaluate_exact``, ``evaluate_unrounded``: for an ``evaluate`` whose derivative is
     straight-through, the same evaluation in the ``exact`` mode and on the unrounded model (as
-    :func:`~agrijax.calib.trust.fd_check`'s ``f_exact`` / ``f_unrounded``): level 2 then needs the
-    exact-mode derivative (``ad_exact``, on the AD rows) to agree with the small-step difference
-    and the unrounded model's derivative (``ad_unrounded``) with the unrounded model's small-step
-    difference (``fd_small_unrounded``); the large step and the scan test ``ad``. Without them
-    ``ad_exact`` is ``ad`` and the unrounded arrays are NaN."""
-    from agrijax.calib.trust import classify_pair, fd_agreement, scan_summary
+    :func:`~agrijax.calib.trust.fd_check`'s ``f_exact`` / ``f_unrounded``): level 2 judges the
+    exact-mode derivative (``ad_exact``, on the AD rows); the large steps and the scan judge ``ad``;
+    the unrounded model's derivative (``ad_unrounded``) and its small-step difference
+    (``fd_small_unrounded``, at ``cfg.fd_steps[0]``) are diagnostics only. Without them ``ad_exact``
+    is ``ad`` and the unrounded arrays are NaN."""
+    from agrijax.calib.trust import classify_pair, fd_agreement, fd_diagnostics, scan_summary
 
     x = np.asarray(x, dtype=float)
     k, p_n, s_n = x.shape[0], len(idx), int(n_scn)
@@ -416,9 +417,12 @@ def _analyse(
     scn = np.arange(s_n)
     n_scan = int(cfg.n_scan)
 
-    # rows A: the AD derivative; B: central differences at the two steps (x + fwd e_i, x - bwd e_i);
-    # C: the scan points with their directional derivatives
-    h = np.stack([f * w for f in cfg.fd_steps])  # [2, P]
+    # rows A: the AD derivative; B: central differences at every small and large step (x + fwd e_i,
+    # x - bwd e_i); C: the scan points with their directional derivatives
+    steps = (*cfg.fd_small_steps, *cfg.fd_large_steps)
+    n_st, n_small = len(steps), len(cfg.fd_small_steps)
+    st0 = steps.index(cfg.fd_steps[0])
+    h = np.stack([f * w for f in steps])  # [n_st, P]
     fwd = np.where(x[ix] + h <= hi[ix], h, 0.0)
     bwd = np.where(x[ix] - h >= lo[ix], h, 0.0)
     if np.any(fwd + bwd <= 0.0):
@@ -429,15 +433,15 @@ def _analyse(
 
     th_a = np.broadcast_to(x, (s_n, p_n, k)).copy()
     tan_a = np.broadcast_to(eye, (s_n, p_n, k)).copy()
-    th_b = np.broadcast_to(x, (s_n, p_n, 2, 2, k)).copy()
+    th_b = np.broadcast_to(x, (s_n, p_n, n_st, 2, k)).copy()
     th_c = np.broadcast_to(x, (s_n, p_n, n_scan, k)).copy()
     for p in range(p_n):
-        for step in range(2):
+        for step in range(n_st):
             th_b[:, p, step, 0, ix[p]] += fwd[step, p]
             th_b[:, p, step, 1, ix[p]] -= bwd[step, p]
         th_c[:, p, :, ix[p]] = grid[p][None, :]
     tan_c = np.broadcast_to(eye[None, :, None, :], (s_n, p_n, n_scan, k))
-    n_a, n_b = s_n * p_n, s_n * p_n * 4
+    n_a, n_b = s_n * p_n, s_n * p_n * n_st * 2
 
     def ids(shape: tuple[int, ...]) -> np.ndarray:
         return np.broadcast_to(scn.reshape((-1,) + (1,) * (len(shape) - 1)), shape).reshape(-1)
@@ -445,13 +449,13 @@ def _analyse(
     y, dy = evaluate(
         np.concatenate([th_a.reshape(-1, k), th_b.reshape(-1, k), th_c.reshape(-1, k)]),
         np.concatenate([tan_a.reshape(-1, k), np.zeros((n_b, k)), tan_c.reshape(-1, k)]),
-        np.concatenate([ids((s_n, p_n)), ids((s_n, p_n, 4)), ids((s_n, p_n, n_scan))]),
+        np.concatenate([ids((s_n, p_n)), ids((s_n, p_n, n_st * 2)), ids((s_n, p_n, n_scan))]),
     )
     e_n = int(n_out)
     e_all = y.shape[1]
     y_a = y[:n_a].reshape(s_n, p_n, e_all)
     dy_a = dy[:n_a, :e_n].reshape(s_n, p_n, e_n)
-    y_b = y[n_a : n_a + n_b, :e_n].reshape(s_n, p_n, 2, 2, e_n)
+    y_b = y[n_a : n_a + n_b, :e_n].reshape(s_n, p_n, n_st, 2, e_n)
     y_c = y[n_a + n_b :, :e_n].reshape(s_n, p_n, n_scan, e_n)
     g_c = dy[n_a + n_b :, :e_n].reshape(s_n, p_n, n_scan, e_n)
 
@@ -466,30 +470,28 @@ def _analyse(
     ad_u = np.full(shape, np.nan)
     fd_u = np.full(shape, np.nan)
     rel_u = np.zeros(shape)
-    agree_u = np.ones(shape, dtype=bool)
     if evaluate_unrounded is not None:
-        th_u = np.concatenate([th_a.reshape(-1, k), th_b[:, :, 0].reshape(-1, k)])
+        th_u = np.concatenate([th_a.reshape(-1, k), th_b[:, :, st0].reshape(-1, k)])
         tan_u = np.concatenate([tan_a.reshape(-1, k), np.zeros((2 * n_a, k))])
         y_u, dy_u = evaluate_unrounded(th_u, tan_u, np.concatenate([ids((s_n, p_n)), ids((s_n, p_n, 2))]))
         ad_u = dy_u[:n_a, :e_n].reshape(s_n, p_n, e_n).transpose(0, 2, 1)
         yb_u = y_u[n_a:, :e_n].reshape(s_n, p_n, 2, e_n)
-        fd_u = ((yb_u[:, :, 0] - yb_u[:, :, 1]) / (fwd[0] + bwd[0])[None, :, None]).transpose(0, 2, 1)
+        fd_u = ((yb_u[:, :, 0] - yb_u[:, :, 1]) / (fwd[st0] + bwd[st0])[None, :, None]).transpose(0, 2, 1)
         y0_u = y_u[:n_a, :e_n].reshape(s_n, p_n, e_n)[:, 0]
         for s in range(s_n):
-            rel_u[s], agree_u[s] = fd_agreement(ad_u[s], fd_u[s], y0_u[s], w, 0, cfg, cfg.fd_rtol_unrounded)
+            rel_u[s], _ = fd_agreement(ad_u[s], fd_u[s], y0_u[s], w, 0, cfg, cfg.fd_rtol_unrounded)
     fds = [
         ((y_b[:, :, st, 0, :] - y_b[:, :, st, 1, :]) / (fwd[st] + bwd[st])[None, :, None]).transpose(0, 2, 1)
-        for st in range(2)
+        for st in range(n_st)
     ]
-    rel = [np.zeros(shape), np.zeros(shape)]
-    agree = [np.zeros(shape, dtype=bool), np.zeros(shape, dtype=bool)]
+    keys = ("fd0", "fd1", "rel_err0", "status0", "agree0", "spread0", "rel_err1", "rel_err1_max", "agree1")
+    dg = {kk: np.empty(shape, dtype=object if kk == "status0" else float) for kk in keys}
     for s in range(s_n):
-        for st in range(2):
-            rel[st][s], agree[st][s] = fd_agreement(
-                (ad_exact if st == 0 else ad)[s], fds[st][s], y0[s], w, st, cfg
-            )
-    rel_x = rel[0]
-    agree[0] = agree[0] & agree_u
+        d = fd_diagnostics(
+            ad[s], ad_exact[s], [f[s] for f in fds[:n_small]], [f[s] for f in fds[n_small:]], y0[s], w, cfg
+        )
+        for kk in keys:
+            dg[kk][s] = d[kk]
     cls = np.empty(shape, dtype=object)
     level = np.zeros(shape, dtype=int)
     jumps = np.zeros(shape, dtype=int)
@@ -500,7 +502,11 @@ def _analyse(
             sc = scan_summary(grid[p], y_c[s, p], g_c[s, p], w[p], cfg)
             for e in range(e_n):
                 cls[s, e, p], level[s, e, p] = classify_pair(
-                    (bool(agree[0][s, e, p]), bool(agree[1][s, e, p])), sc, e, cfg
+                    (bool(dg["agree0"][s, e, p]), bool(dg["agree1"][s, e, p])),
+                    sc,
+                    e,
+                    cfg,
+                    status=str(dg["status0"][s, e, p]),
                 )
             jumps[s, :, p] = sc["n_jumps"]
             zero_frac[s, :, p] = sc["zero_frac"]
@@ -512,12 +518,14 @@ def _analyse(
         "ad_exact": ad_exact,
         "ad_unrounded": ad_u,
         "fd_small_unrounded": fd_u,
-        "rel_err_small_exact": rel_x,
         "rel_err_small_unrounded": rel_u,
-        "fd_small": fds[0],
-        "fd_large": fds[1],
-        "rel_err_small": rel[0],
-        "rel_err_large": rel[1],
+        "fd_small": dg["fd0"],
+        "fd_large": dg["fd1"],
+        "rel_err_small": dg["rel_err0"],
+        "level2": dg["status0"],
+        "fd_spread_small": dg["spread0"],
+        "rel_err_large": dg["rel_err1"],
+        "rel_err_large_max": dg["rel_err1_max"],
         "class": cls,
         "level": level,
         "n_jumps": jumps,
@@ -603,11 +611,13 @@ class Gradient:
     central finite difference over +-2 % of the range), ``trust`` (``"validated gradient"``,
     ``"falls back"`` or ``"experimental"``: see :mod:`agrijax.facade_grad`), and the check's
     ``class`` (``smooth``, ``kinked``, ``jumpy``, ``step``, ``inert``), trust ``level`` (0-3: 0 = a
-    non-finite value, 1 = the exact-mode derivative ``ad_exact`` and the 1e-5 central difference
-    disagree, 2 = they
-    agree but the 2 % step or the scan finds a difference, 3 = all agree), the ``jumps`` its scan
-    found and ``err_small`` / ``err_large`` (the relative AD / finite-difference disagreement at the
-    two steps).
+    non-finite value, 1 = level 2 failed, or was undecidable and level 3 failed, 2 = level 2 passed
+    but a secant or the scan finds a difference, 3 = level 3 passed), ``level2`` (``pass``,
+    ``fail``, ``undecidable (FD unreliable)``), the ``jumps`` its scan found, ``err_small`` (the
+    exact-mode derivative against the 1e-5 difference), ``fd_spread_small`` (the spread of the
+    1e-4 / 1e-5 / 1e-6 differences), ``err_large`` / ``err_large_max`` (against the 2 % secant / the
+    worst of 1, 2, 5 %), and the diagnostics ``ad_unrounded``, ``ste_offset``,
+    ``err_small_unrounded``.
     :attr:`trust` is the label of each coefficient (the weakest over the outputs), :attr:`reasons`
     why a coefficient is not validated, :attr:`point` the cultivar coefficients the derivatives are
     taken at, :attr:`timing` the cost."""
@@ -802,10 +812,12 @@ def _tables(
                         "class": str(raw["class"][s, e, i]),
                         "level": int(raw["level"][s, e, i]),
                         "jumps": int(raw["n_jumps"][s, e, i]),
+                        "level2": str(raw["level2"][s, e, i]),
                         "err_small": float(raw["rel_err_small"][s, e, i]),
-                        "err_small_exact": float(raw["rel_err_small_exact"][s, e, i]),
+                        "fd_spread_small": float(raw["fd_spread_small"][s, e, i]),
                         "err_small_unrounded": float(raw["rel_err_small_unrounded"][s, e, i]),
                         "err_large": float(raw["rel_err_large"][s, e, i]),
+                        "err_large_max": float(raw["rel_err_large_max"][s, e, i]),
                     }
                 )
     return pd.DataFrame(rows)
@@ -894,7 +906,9 @@ def _run(
         "compile_s": rows.compile_s - c0,
         "run_s": rows.run_s - r0,
         "wall_s": time.perf_counter() - t0,
-        "rows": int(len(runs) * len(idx) * (9 + cfg.n_scan)),
+        "rows": int(
+            len(runs) * len(idx) * (5 + 2 * (len(cfg.fd_small_steps) + len(cfg.fd_large_steps)) + cfg.n_scan)
+        ),
     }
     point = dict(zip(CUL_ORDER, x.tolist(), strict=True))
     return table, trust, reasons, timing, point
