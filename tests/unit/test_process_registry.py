@@ -669,9 +669,10 @@ class _QuantiserCalls(ast.NodeVisitor):
 
 
 def _quantiser_call_sites(root: Path) -> set[tuple[str, str]]:
-    """``(module.function, helper)`` of every call of a quantiser of ``agrijax.core.grad``
-    (:data:`agrijax.core.process.QUANTISERS`) in the package, outside ``core/grad.py`` itself."""
-    from agrijax.core.process import QUANTISERS
+    """``(module.function, helper)`` of every call of a helper of ``agrijax.core.grad`` whose derivative
+    is a convention (:data:`agrijax.core.process.STE_HELPERS`: the quantisers and the event surrogates)
+    in the package, outside ``core/grad.py`` itself."""
+    from agrijax.core.process import STE_HELPERS
 
     sites: set[tuple[str, str]] = set()
     for path in sorted(root.rglob("*.py")):
@@ -679,15 +680,15 @@ def _quantiser_call_sites(root: Path) -> set[tuple[str, str]]:
         if rel.as_posix() == "agrijax/core/grad.py":
             continue
         module = ".".join(rel.with_suffix("").parts).removesuffix(".__init__")
-        v = _QuantiserCalls(module, QUANTISERS)
+        v = _QuantiserCalls(module, STE_HELPERS)
         v.visit(ast.parse(path.read_text(encoding="utf-8")))
         sites |= v.sites
     return sites
 
 
 def test_every_quantiser_call_site_is_a_registered_gradient_convention() -> None:
-    """Static guard: a truncation, rounding or REAL*4 store (``trunc_st``, ``round_st``, ``real4_store``)
-    cannot land in the package without a :class:`~agrijax.core.process.GradientConvention` on the
+    """Static guard: a truncation, rounding, REAL*4 store or event surrogate (``trunc_st``, ``round_st``,
+    ``real4_store``, ``event_ste``, ``select_ste``) cannot land in the package without a :class:`~agrijax.core.process.GradientConvention` on the
     process that runs it (how its derivative is taken: identity in ``ste``, 0 in ``exact``), and a
     registered convention cannot outlive its call site."""
     root = Path(agrijax.__file__).parent

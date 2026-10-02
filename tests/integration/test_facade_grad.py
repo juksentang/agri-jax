@@ -18,6 +18,8 @@ data; no DSSAT run: the reference program is not used).
 
 from __future__ import annotations
 
+import contextlib
+
 import jax
 import numpy as np
 import pytest
@@ -355,3 +357,51 @@ def _same_as_the_trust_report(scen, sens, s, params, outputs):
             assert mine["ad_exact"] == pytest.approx(r["ad_exact"], rel=1e-9, abs=1e-12), (p, o)
             assert mine["ad_unrounded"] == pytest.approx(r["ad_unrounded"], rel=1e-9, abs=1e-12), (p, o)
             assert mine["fd"] == pytest.approx(r["fd_large"], rel=1e-9, abs=1e-9), (p, o)
+
+
+@contextlib.contextmanager
+def _registered_sites_exact():
+    """Every registered straight-through call site (``GradientConvention``) traced in the exact mode:
+    its helper, in the site's module, bound to ``mode="exact"`` (``real4_store`` has the cast's
+    derivative in every mode)."""
+    import functools
+    import importlib
+
+    from agrijax.core.process import registry
+
+    saved = []
+    try:
+        for p in list(registry.values()):
+            for g in () if p.info is None else p.info.gradient_conventions:
+                if g.helper == "real4_store":
+                    continue
+                mod = importlib.import_module(g.site.rsplit(".", 1)[0])
+                saved.append((mod, g.helper, getattr(mod, g.helper)))
+                setattr(mod, g.helper, functools.partial(getattr(mod, g.helper), mode="exact"))
+        yield len(saved)
+    finally:
+        for mod, name, fn in reversed(saved):
+            setattr(mod, name, fn)
+
+
+def test_the_registered_sites_are_the_whole_straight_through_derivative(exp):
+    """No unregistered straight-through path: with every registered site in the exact mode, the ste
+    program's values and derivatives equal the exact program's bit for bit, on the nine weather-year x
+    sowing scenarios and all six coefficients (and without that, the two differ: the sites matter)."""
+    scen = exp.scenarios(treatment=4, years=[1979, 1982, 1985], sowing_shift=[-14, 0, 14])
+    outs = ["HWAM", "CWAM", "H#AM"]
+    entries = [fg._entries(outs, r) for r in scen.runs]
+    x = fg._point(scen.published, None)
+    n = len(scen.runs)
+    th = np.repeat(x[None], 6 * n, axis=0)
+    tan = np.tile(np.eye(6), (n, 1))
+    scn = np.repeat(np.arange(n), 6)
+    with _registered_sites_exact() as n_sites:
+        assert n_sites >= 4
+        rows = fg._Rows(scen.runs, entries)  # programs traced inside the context
+        y_s, d_s = rows(th, tan, scn)
+        y_x, d_x = rows.exact(th, tan, scn)
+    assert np.array_equal(y_s, y_x)
+    assert np.array_equal(d_s, d_x), float(np.max(np.abs(d_s - d_x)))
+    _, d_ste = fg._Rows(scen.runs, entries)(th, tan, scn)
+    assert not np.array_equal(d_ste, d_x)
