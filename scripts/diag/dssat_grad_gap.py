@@ -9,6 +9,7 @@ gradient modes ``ste`` (the facade's) and ``exact``.
     python scripts/diag/dssat_grad_gap.py --year 1979 --shift 0 --param G2   # first departing day
     python scripts/diag/dssat_grad_gap.py --sweep    # 9 scenarios: ste / exact / per-site AD vs FD steps
     python scripts/diag/dssat_grad_gap.py --facade   # the same scenarios through scen.sensitivity
+    python scripts/diag/dssat_grad_gap.py --secant   # classification with the large step at 1 / 2 / 5 %
 
 Prints the end-of-season HWAM derivative at several steps, then the first day and state leaf where
 the AD tangent departs from the finite difference (relative to the leaf's own scale).
@@ -151,7 +152,35 @@ def sweep(years, shifts, params) -> None:
                         float(fj(jnp.asarray(x + h * np.eye(6)[k])))
                         - float(fj(jnp.asarray(x - h * np.eye(6)[k])))
                     ) / (2 * h)
+                # the unrounded model (every quantiser the identity): its finite differences and its AD
+                from agrijax.core.grad import bind_unrounded
+
+                fu = jax.jit(bind_unrounded(lambda th, f=f, gw=gw: f(th)[-1, gw]))
+                fd_u = {}
+                for fr in (1e-7, 1e-6, 1e-5):
+                    h = fr * w
+                    fd_u[fr] = (
+                        float(fu(jnp.asarray(x + h * np.eye(6)[k])))
+                        - float(fu(jnp.asarray(x - h * np.eye(6)[k])))
+                    ) / (2 * h)
+                gu = jax.jit(
+                    bind_gradient_mode(
+                        bind_unrounded(
+                            lambda th, f=f, gw=gw, e=e: jax.jvp(lambda z: f(z)[-1, gw], (th,), (e,))[1]
+                        ),
+                        "ste",
+                    )
+                )
+                ad_u = float(gu(jnp.asarray(x)))
+                y_u = float(fu(jnp.asarray(x)))
                 rel = lambda a, b: (a - b) / abs(b)  # noqa: E731
+                print(
+                    f"      unrounded: y={y_u:.6f} (rounded {y0:.6f}) AD={ad_u:.7g} "
+                    + " ".join(f"FD{fr:.0e}:{v:.7g}" for fr, v in fd_u.items())
+                    + f" rel(ste vs FDu1e-6)={rel(ad['ste'], fd_u[1e-6]):+.2e}"
+                    f" rel(ADu vs FDu1e-6)={rel(ad_u, fd_u[1e-6]):+.2e}"
+                    f" rel(ste vs ADu)={rel(ad['ste'], ad_u):+.2e}"
+                )
                 print(
                     f"{yr} {sh:+3d} {p:3s} y={y0:9.4f} " + " ".join(f"{k_}={v:.7g}" for k_, v in ad.items())
                 )
@@ -177,11 +206,67 @@ def facade(years, shifts) -> None:
     sens = scen.sensitivity(outputs=["HWAM", "CWAM"], params=["G2", "G3"])
     t = sens.table.copy()
     t["ste/exact-1"] = t["ad"] / t["ad_exact"] - 1.0
-    cols = ["year", "sowing_shift", "output", "param", "ad", "ad_exact", "ste/exact-1", "fd"]
+    cols = ["year", "sowing_shift", "output", "param", "ad", "ad_exact", "ad_unrounded", "ste_offset"]
+    cols += ["ste/exact-1", "fd"]
     cols += ["err_small", "err_large", "class", "level", "jumps", "trust"]
     print(t[cols].to_string(float_format=lambda v: f"{v:.5g}"))
     print(sens.summary.to_string())
     print(sens.trust)
+
+
+def secant_scales(years, shifts, fracs=(0.01, 0.02, 0.05)) -> None:
+    """The trust check's classification of HWAM / CWAM x G2 / G3 on every scenario with the large step
+    (the optimiser-step secant) at each of ``fracs`` of the range, and the step an optimiser takes: Adam
+    (``agrijax.calib.fit.ADAM_LR`` in the logit coordinate z: d theta = lr u (1 - u) width) and the
+    staged LM's central secant (``SECANT_DZ`` 0.1 in z of scripts/bench/calib/d3_1_staged.py)."""
+    import agrijax as aj
+    from agrijax import facade_grad as fg
+    from agrijax.calib.ceres import ceres_space
+    from agrijax.calib.dssat_day import CUL_ORDER
+    from agrijax.calib.fit import ADAM_LR
+    from agrijax.calib.trust import TrustConfig
+    from agrijax.port.run_fortran import DSSAT_ENGINE
+
+    exp = aj.dssat.experiment("UFGA8201", data_root=DSSAT_ENGINE)
+    scen = exp.scenarios(treatment=4, years=list(years), sowing_shift=list(shifts))
+    outs, params = ["HWAM", "CWAM"], ["G2", "G3"]
+    rows = fg._Rows(scen.runs, [fg._entries(outs, r) for r in scen.runs])
+    sp = ceres_space(CUL_ORDER)
+    x = fg._point(scen.published, None)
+    idx = [CUL_ORDER.index(p) for p in params]
+    for p, i in zip(params, idx, strict=True):
+        u = (x[i] - sp.lower[i]) / (sp.upper[i] - sp.lower[i])
+        print(
+            f"{p}: u = {u:.3f}; Adam step lr*u*(1-u) = {ADAM_LR * u * (1 - u) * 100:.2f} % of the range "
+            f"(at mid-box {ADAM_LR * 25:.2f} %); LM secant half-width 0.1*u*(1-u) = {10 * u * (1 - u):.2f} %"
+        )
+    names = [fg._scenario_name(r) for r in fg_rows(scen)]
+    for fr in fracs:
+        cfg = TrustConfig(n_scan=201, fd_steps=(1e-5, fr))
+        raw = fg._analyse(
+            rows, x, idx, sp.lower, sp.upper, len(scen.runs), len(outs), cfg, rows.exact, rows.unrounded
+        )
+        lab, _, _ = fg._labels(raw, params, outs, names)
+        n_val = int((lab == fg.LABEL_VALIDATED).sum())
+        print(f"--- large step {fr:.0%} of the range: {n_val} of {lab.size} validated")
+        for s, nm in enumerate(names):
+            cells = []
+            for e, o in enumerate(outs):
+                for k, p in enumerate(params):
+                    cells.append(
+                        f"{o}/{p} {raw['class'][s, e, k]:6s} L{raw['level'][s, e, k]} "
+                        f"err_l={raw['rel_err_large'][s, e, k]:.3f} "
+                        f"{'V' if lab[s, e, k] == fg.LABEL_VALIDATED else 'F'}"
+                    )
+            print(f"  {nm:10s} " + " | ".join(cells))
+
+
+def fg_rows(scen):
+    t = scen.table
+    return [
+        {"year": int(t.loc[i, "year"]), "sowing_shift": int(t.loc[i, "sowing_shift"])}
+        for i in range(len(scen.runs))
+    ]
 
 
 def main() -> None:
@@ -197,7 +282,11 @@ def main() -> None:
     ap.add_argument("--rtol", type=float, default=1e-6)
     ap.add_argument("--sweep", action="store_true")
     ap.add_argument("--facade", action="store_true")
+    ap.add_argument("--secant", action="store_true")
     a = ap.parse_args()
+    if a.secant:
+        secant_scales((1979, 1982, 1985), (-14, 0, 14))
+        return
     if a.facade:
         facade((1979, 1982, 1985), (-14, 0, 14))
         return

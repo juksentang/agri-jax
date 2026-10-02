@@ -639,3 +639,69 @@ def test_nstress_replay_key_is_the_growth_variant() -> None:
     assert v.writes == f.writes and set(v.reads) == {*f.reads, "n_in"}
     prod = lookup("n_supply/forcing_replay@none:replay")
     assert prod.writes == ("n_out",) and prod.reads == ()
+
+
+# ---------------------------------------------------------------------------------- gradient conventions
+
+
+class _QuantiserCalls(ast.NodeVisitor):
+    """Collects ``(module.function, helper)`` of the quantiser calls of one module."""
+
+    def __init__(self, module: str, names: tuple[str, ...]) -> None:
+        self.module, self.names = module, names
+        self.stack: list[str] = []
+        self.sites: set[tuple[str, str]] = set()
+
+    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> None:
+        self.stack.append(node.name)
+        self.generic_visit(node)
+        self.stack.pop()
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_ClassDef = visit_FunctionDef
+
+    def visit_Call(self, node: ast.Call) -> None:
+        f = node.func
+        name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+        if name in self.names:
+            self.sites.add((".".join([self.module, *self.stack]), name))
+        self.generic_visit(node)
+
+
+def _quantiser_call_sites(root: Path) -> set[tuple[str, str]]:
+    """``(module.function, helper)`` of every call of a quantiser of ``agrijax.core.grad``
+    (:data:`agrijax.core.process.QUANTISERS`) in the package, outside ``core/grad.py`` itself."""
+    from agrijax.core.process import QUANTISERS
+
+    sites: set[tuple[str, str]] = set()
+    for path in sorted(root.rglob("*.py")):
+        rel = path.relative_to(root.parent)
+        if rel.as_posix() == "agrijax/core/grad.py":
+            continue
+        module = ".".join(rel.with_suffix("").parts).removesuffix(".__init__")
+        v = _QuantiserCalls(module, QUANTISERS)
+        v.visit(ast.parse(path.read_text(encoding="utf-8")))
+        sites |= v.sites
+    return sites
+
+
+def test_every_quantiser_call_site_is_a_registered_gradient_convention() -> None:
+    """Static guard: a truncation, rounding or REAL*4 store (``trunc_st``, ``round_st``, ``real4_store``)
+    cannot land in the package without a :class:`~agrijax.core.process.GradientConvention` on the
+    process that runs it (how its derivative is taken: identity in ``ste``, 0 in ``exact``), and a
+    registered convention cannot outlive its call site."""
+    root = Path(agrijax.__file__).parent
+    for f, _, _ in _decorated_processes(root):  # every module with a process: the registry is complete
+        importlib.import_module("agrijax." + f[: -len(".py")].replace("/", "."))
+    found = _quantiser_call_sites(root)
+    assert found, "no quantiser call found: the scan is broken"
+    registered = {
+        (g.site, g.helper)
+        for p in registry.values()
+        if p.info is not None
+        for g in p.info.gradient_conventions
+    }
+    assert not found - registered, (
+        f"quantiser calls without a GradientConvention: {sorted(found - registered)}"
+    )
+    assert not registered - found, f"GradientConventions without a call site: {sorted(registered - found)}"
