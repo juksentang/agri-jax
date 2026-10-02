@@ -100,6 +100,7 @@ from agrijax.calib.fit import (
     _yrdoy_days_between,
     fit_cultivar,
 )
+from agrijax.calib.observations import ObservationError
 
 __all__ = [
     "BASE_TARGETS",
@@ -218,10 +219,6 @@ INPUTS = ("auto", "native", "tables")
 
 class ScopeError(ValueError):
     """The experiment or a treatment is outside the supported scope (the message says why)."""
-
-
-class ObservationError(ValueError):
-    """An observed target cannot be used (e.g. it lies outside the simulated days)."""
 
 
 # ------------------------------------------------------------------ result

@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from agrijax.calib import observations as obs_mod
 from agrijax.calib.dssat_day import CUL_ORDER, E_DATE, E_DAY, E_FINAL, OUT_NAMES, Entry, entry_values
 from agrijax.calib.fit import (
     PROBES,
@@ -349,15 +350,29 @@ def test_observations_outside_the_season_are_loud(tmp_path):
     assert not errors3
 
 
+def _unreadable_in_the_workflow_layer(monkeypatch):
+    """``reada_date`` that reads nothing, in the one place ``workflow._observations`` takes it from.
+
+    ``_observations`` imports ``reada_date`` from ``agrijax.io.dssat.observed`` when it is called, so that
+    is the name to patch for its own check; ``agrijax.calib.observations`` bound the function by name
+    when it was first imported, so a patch of the ``observed`` module does not reach it - unless that
+    first import happens under the patch (a test run alone), which would bind the stub for the rest of
+    the process. This test module therefore imports ``observations`` at the top (``obs_mod``) and the
+    precondition below says so. The layer of ``observations`` has its own test below."""
+    import agrijax.io.dssat.observed as observed_mod
+
+    assert obs_mod.reada_date is observed_mod.reada_date, "observations.reada_date must be the real reader"
+    monkeypatch.setattr(observed_mod, "reada_date", lambda *a, **k: None)
+
+
 def test_unreadable_observed_date_is_an_observation_error(tmp_path, monkeypatch):
     """An A-file date that cannot be placed and that ``reada_date`` cannot read is reported as
     "not a readable date" (an ``ObservationError`` naming the treatment and code), never dropped.
     With the real ``reada_date`` this record is defensive: the function returns ``None`` only for
-    values the preceding positive-date test already skips, so the test substitutes it."""
-    import agrijax.io.dssat.observed as observed_mod
-
+    values the preceding positive-date test already skips, so the test substitutes it (in the
+    workflow layer; see :func:`_unreadable_in_the_workflow_layer`)."""
     obs = read_observed(_write_observed(tmp_path))
-    monkeypatch.setattr(observed_mod, "reada_date", lambda *a, **k: None)
+    _unreadable_in_the_workflow_layer(monkeypatch)
     # treatment 1: MDAT 200 lies after the last simulated day (190), so it is not placed as a target
     _, errors, _, _, _ = _observations(obs, _run(1), None)
     assert errors == [{"treatment": "TEST8201_t01", "code": "MDAT", "observed": 200.0, "unreadable": True}]
@@ -366,9 +381,34 @@ def test_unreadable_observed_date_is_an_observation_error(tmp_path, monkeypatch)
     assert not errors2
 
 
+def test_observation_targets_unreadable_date_is_an_observation_error(tmp_path, monkeypatch):
+    """The layer below: ``observation_targets`` raises ``ObservationError`` (treatment key and code, the
+    wording of the workflow's) where it used to ``assert``; the stub is patched where it is used
+    (``agrijax.calib.observations.reada_date``), whatever the order of the tests or their imports."""
+    obs = read_observed(_write_observed(tmp_path))
+    days = np.asarray(yrdoy_range(1982056, 1982190), dtype=np.int64)
+    monkeypatch.setattr(obs_mod, "reada_date", lambda *a, **k: None)
+    # ADAT 132 and MDAT 200 are positive dates on both treatments: the first one read is treatment 1's ADAT
+    with pytest.raises(ObservationError, match=r"^TEST8201_t01: observed ADAT 132 is not a readable date$"):
+        obs_mod.observation_targets(obs, [1, 2], np.stack([days, days]))
+    with pytest.raises(ObservationError, match=r"^TEST8201_t02: observed MDAT 185 is not a readable date$"):
+        obs_mod.observation_targets(obs, [2], days[None], codes=["MDAT"])
+    # a date code left out of ``codes`` raises nothing, nor does a file without date observations
+    ot = obs_mod.observation_targets(obs, [1, 2], np.stack([days, days]), codes=["HWAM", "H#AM"])
+    assert {t.name for t in ot.targets} == {"HWAM", "H#AM"}
+
+
+def test_observation_error_is_one_class_in_every_import_path():
+    import agrijax.calib as calib_pkg
+    from agrijax.calib import workflow
+
+    assert obs_mod.ObservationError is workflow.ObservationError is calib_pkg.ObservationError
+    assert issubclass(ObservationError, ValueError) and ObservationError is obs_mod.ObservationError
+    assert calib_pkg.ScopeError is workflow.ScopeError
+
+
 @needs_x64
 def test_calibrate_reports_an_unreadable_date(tmp_path, monkeypatch):
-    import agrijax.io.dssat.observed as observed_mod
     from agrijax.calib import calibrate
 
     eng, data = _fake_setup(tmp_path, monkeypatch)
@@ -379,7 +419,7 @@ def test_calibrate_reports_an_unreadable_date(tmp_path, monkeypatch):
         "*EXP. DATA (A): UFGA8201MZ synthetic\n\n@TRNO   ADAT  MDAT   HWAM   CWAM   H#AM\n"
         f"{4:6d}{int(_T0 % 1000 + o['ADAT']):6d}{300:6d}{o['HWAM']:7.1f}{o['CWAM']:7.1f}{o['H#AM']:7.1f}\n"
     )
-    monkeypatch.setattr(observed_mod, "reada_date", lambda *a, **k: None)
+    _unreadable_in_the_workflow_layer(monkeypatch)
     with pytest.raises(
         ObservationError, match=r"UFGA8201_t04: observed MDAT 300 is not a readable date"
     ) as exc:
