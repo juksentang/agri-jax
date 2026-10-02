@@ -77,10 +77,19 @@ from agrijax.io.dssat.observed import ObservedData, reada_date, y4k_date
 __all__ = [
     "DSSAT_TARGETS",
     "UNSUPPORTED_REASONS",
+    "ObservationError",
     "ObservationTargets",
     "TargetMap",
     "observation_targets",
 ]
+
+
+class ObservationError(ValueError):
+    """An observed target cannot be used (it lies outside the simulated days, or its date is unreadable).
+
+    Defined here (the lowest layer that raises it) and re-exported by :mod:`agrijax.calib.workflow` and
+    :mod:`agrijax.calib`."""
+
 
 #: first day of silking in the model output ``istage``: ``ISTAGE = 4`` (end of leaf growth,
 #: ``processes/crop/ceres_maize/constants.py`` ``ISTAGE_END_LEAF_GROWTH``, MZ_PHENOL.for:783); the
@@ -350,7 +359,10 @@ def observation_targets(
             if not have[b]:
                 continue
             d = reada_date(float(vals[b]), starts[b], fws[b])
-            assert d is not None
+            if d is None:  # defensive: ``have`` kept only finite values with a positive integer part
+                raise ObservationError(
+                    f"{obs.experiment}_t{trn[b]:02d}: observed {m.code} {vals[b]:g} is not a readable date"
+                )
             hit = np.nonzero(days[b] == _yrdoy_int(d))[0]
             if hit.size:
                 idx[b] = float(hit[0])
