@@ -46,8 +46,9 @@ __all__ = [
 #: the calibrated coefficients in ``MZCER048.CUL`` column order (``theta`` columns)
 CUL_ORDER: tuple[str, ...] = ("P1", "P2", "P5", "G2", "G3", "PHINT")
 _FIELDS = {"P1": "p1", "P2": "p2", "P5": "p5", "G2": "g2", "G3": "g3", "PHINT": "phint"}
-#: gradient mode of every program (``ste``, the straight-through estimate at events; forward values do not
-#: depend on the mode)
+#: gradient mode of every program (``ste``: identity derivative through Fortran's truncations and roundings,
+#: e.g. RLV to 1e-3 and SW to 1e-6, and the straight-through ramp of ``event_ste`` events; the CERES-Maize
+#: stage changes are plain selections, the same in every mode; forward values do not depend on the mode)
 GRADIENT_MODE = "ste"
 #: days of forcing added past the longest season of a batch group (the last day repeated, rain and
 #: irrigation 0), so a candidate cultivar that matures later than the reference season still
