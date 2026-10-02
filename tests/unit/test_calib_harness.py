@@ -223,25 +223,31 @@ def _quantised(theta):
 
 @pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")
 @pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)")
-def test_a_straight_through_derivative_is_checked_against_the_exact_mode_derivative():
-    """The ste derivative of a quantised function is the slope without the quantum (2x + 1), not the
-    program's own (2x, which a small-step difference between two quanta sees): the small-step test
-    takes the exact-mode counterpart of a mode-bound function, the large step and the scan the
-    surrogate (the G2 / G3 case of the DSSAT day, agrijax.facade_grad)."""
-    from agrijax.calib.trust import exact_counterpart
-    from agrijax.core.grad import bind_gradient_mode
+def test_a_straight_through_derivative_is_checked_on_both_of_its_paths():
+    """The ste derivative of a quantised function is the derivative of the unrounded model (2x + 1),
+    not the program's own (2x, which a small-step difference between two quanta sees): level 2 tests
+    the exact-mode derivative against the model's small-step difference and the unrounded model's
+    derivative against the unrounded model's; the large step and the scan test the straight-through
+    value on the real model (the G2 / G3 case of the DSSAT day, agrijax.facade_grad)."""
+    from agrijax.calib.trust import counterparts
+    from agrijax.core.grad import bind_gradient_mode, bind_unrounded
 
     x, lo, hi = np.array([0.4305]), np.zeros(1), np.ones(1) * 2.0
     bound = bind_gradient_mode(_quantised, "ste")
-    assert exact_counterpart(_quantised) is None and exact_counterpart(bound) is not None
+    assert counterparts(_quantised) == (None, None)
+    fx, fu = counterparts(bound)
+    assert fx is not None and fu is not None
+    assert float(jax.jit(bind_unrounded(_quantised))(jnp.asarray(x))[0]) == pytest.approx(0.4305**2 + 0.4305)
     r = trust_report(bound, x, lo, hi, ["x"], ["y"])["params"]["x"]["outputs"]["y"]
     assert r["ad"] == pytest.approx(2 * 0.4305 + 1.0) and r["ad_exact"] == pytest.approx(2 * 0.4305)
+    assert r["ad_unrounded"] == pytest.approx(r["ad"]) and abs(r["ste_offset"]) < 1e-12
     assert r["fd_small"] == pytest.approx(2 * 0.4305, rel=1e-6)  # between two quanta: the exact slope
+    assert r["fd_small_unrounded"] == pytest.approx(2 * 0.4305 + 1.0, rel=1e-6)
     assert r["rel_err_small"] < 1e-6 and r["rel_err_large"] < 0.05
     assert (r["class"], r["level"]) == ("smooth", 3)
-    # unbound (no exact counterpart to test the program with): the surrogate fails the small step
+    # unbound (no counterparts to test the program with): the surrogate fails the small step
     plain = trust_report(_quantised, x, lo, hi, ["x"], ["y"])["params"]["x"]["outputs"]["y"]
-    assert plain["ad_exact"] == plain["ad"] and plain["level"] == 1
+    assert plain["ad_exact"] == plain["ad"] and "ad_unrounded" not in plain and plain["level"] == 1
 
 
 @pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")

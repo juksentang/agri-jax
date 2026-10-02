@@ -5,26 +5,28 @@ Three levels of trust in a derivative:
 1. **plausible outputs** - every output is finite along every line scan;
 2. **correct derivatives** - the AD derivative equals a central finite difference at a small
    step (the derivative of the forward program is computed correctly);
-
-**Surrogate (straight-through) derivatives.** A function bound to the ``ste`` gradient mode
-(:func:`agrijax.core.grad.bind_gradient_mode`) differentiates on purpose not its own staircase
-but the model without its quantisation steps: :func:`~agrijax.core.grad.trunc_st` /
-:func:`~agrijax.core.grad.round_st` pass the tangent through Fortran's ``REAL(INT(x*1000))/1000``
-and ``ANINT(x*1E6)/1E6`` (identity derivative) and :func:`~agrijax.core.grad.event_ste` ramps
-across an event. Such a derivative is not the derivative of the forward program, which is 0 through
-every quantum, so a small-step finite difference (which, short of crossing a quantum, sees that
-staircase) cannot test it. For such a function the level-2 test compares the finite difference
-with the **exact-mode derivative** of the same function (``f_exact``: the same program traced in
-the ``exact`` mode, derived automatically from a :class:`~agrijax.core.grad.ModeBound` ``f``):
-that the program's derivative is computed correctly, no path missing. The large-step and scan
-tests of level 3 stay on the surrogate itself: that it predicts the response at an optimiser's
-step. Measured case: the CERES-Maize ``G2`` / ``G3`` derivatives of the DSSAT day, whose
-straight-through path through the root length density truncation (``MZ_ROOTS``) differs from the
-exact one by 0.3 to 8 % (yield and tops weight) in water-limited seasons (:mod:`agrijax.facade_grad`).
 3. **fit for inference** - the AD derivative also predicts the response at a step of the size
    an optimiser takes: it agrees with the central secant at a large step, and a line scan along
    the parameter shows no jumps the derivative does not explain and no stretches where the
    derivative is 0 while the output still moves.
+
+**Straight-through derivatives.** A function bound to the ``ste`` gradient mode
+(:func:`agrijax.core.grad.bind_gradient_mode`) differentiates on purpose not its own staircase:
+through every quantiser of :mod:`agrijax.core.grad` (``trunc_st``, ``round_st``: Fortran's
+``REAL(INT(x*1000))/1000``, ``ANINT(x*1E6)/1E6``; ``real4_store``) the derivative is the identity.
+It is the derivative of the **unrounded model** (:func:`agrijax.core.grad.unrounded`: every
+quantiser the identity) evaluated along the rounded trajectory; it differs from the derivative of the
+forward program (0 through every quantum, the ``exact`` mode). A small-step finite difference of the
+forward program (short of crossing a quantum) measures the exact one, so for such a function level 2
+tests both paths the straight-through derivative is made of, each against finite differences of a
+real function: the **exact-mode** derivative (``ad_exact``) against the small-step difference of the
+model, and the derivative of the **unrounded model** (``ad_unrounded``) against the small-step
+difference of the unrounded model. Both counterparts are derived from a
+:class:`~agrijax.core.grad.ModeBound` ``f`` (:func:`counterparts`). The straight-through value itself
+and the unrounded derivative differ by the trajectory offset (the unrounded model's states are off
+the rounded ones by up to a quantum per step), reported as ``ste_offset`` and not tested; level 3
+tests the straight-through value against the optimiser-step secant and the scan of the real model.
+Measured case: the CERES-Maize ``G2`` / ``G3`` derivatives of the DSSAT day (:mod:`agrijax.facade_grad`).
 
 Tools, all batched with ``vmap`` (one call per step size / scan):
 
@@ -64,7 +66,7 @@ __all__ = [
     "GradientPlan",
     "TrustConfig",
     "classify_pair",
-    "exact_counterpart",
+    "counterparts",
     "fd_agreement",
     "fd_check",
     "gradient_plan",
@@ -112,15 +114,18 @@ def _jac(f: Callable[[Array], Array], x: Array) -> Array:
     return jax.jacfwd(f)(x)
 
 
-def exact_counterpart(f: Callable[[Array], Array]) -> Callable[[Array], Array] | None:
-    """The same function traced in the ``exact`` gradient mode when ``f`` is a
-    :class:`~agrijax.core.grad.ModeBound` of another mode (its derivative is a surrogate: see the
-    module docstring), else ``None`` (``f``'s derivative is already the program's own)."""
-    from agrijax.core.grad import ModeBound, bind_gradient_mode
+def counterparts(
+    f: Callable[[Array], Array],
+) -> tuple[Callable[[Array], Array] | None, Callable[[Array], Array] | None]:
+    """``(f_exact, f_unrounded)`` of a :class:`~agrijax.core.grad.ModeBound` ``f`` of a mode other
+    than ``exact`` (its derivative is straight-through: module docstring): the same function in the
+    ``exact`` mode, and the unrounded model (:func:`agrijax.core.grad.bind_unrounded`) in ``f``'s
+    mode; ``(None, None)`` for any other ``f`` (its derivative is already the program's own)."""
+    from agrijax.core.grad import ModeBound, bind_gradient_mode, bind_unrounded
 
     if isinstance(f, ModeBound) and f.mode != "exact":
-        return bind_gradient_mode(f.fn, "exact")
-    return None
+        return bind_gradient_mode(f.fn, "exact"), bind_gradient_mode(bind_unrounded(f.fn), f.mode)
+    return None, None
 
 
 def fd_check(
@@ -130,14 +135,17 @@ def fd_check(
     cfg: TrustConfig = DEFAULT_TRUST,
     *,
     f_exact: Callable[[Array], Array] | None = None,
+    f_unrounded: Callable[[Array], Array] | None = None,
 ) -> dict[str, np.ndarray]:
     """AD Jacobian ``[m, n]`` and central differences at the two ``cfg.fd_steps`` (fractions of
     ``width``), all points of one step size in one ``vmap`` call.
 
-    ``f_exact``: the same function in the ``exact`` gradient mode, for an ``f`` whose derivative is
-    a straight-through surrogate (module docstring); its Jacobian ``ad_exact`` is the one compared
-    with the small-step difference (``rel_err0`` / ``agree0``), the large step is compared with
-    ``ad``. Without it ``ad_exact`` is ``ad``."""
+    For an ``f`` whose derivative is straight-through (module docstring): ``f_exact`` (the same
+    function in the ``exact`` mode) gives ``ad_exact``, compared with the small-step difference of
+    ``f``; ``f_unrounded`` (the unrounded model) gives ``ad_unrounded`` and its own small-step
+    difference ``fdu0``; ``agree0`` needs both agreements (``rel_err0``: the larger of the two
+    disagreements). The large step is compared with ``ad``. Without them ``ad_exact`` is ``ad`` and
+    the unrounded keys are absent."""
     x = jnp.asarray(x, dtype=float)
     width = np.asarray(width, dtype=float)
     n = x.shape[0]
@@ -146,14 +154,26 @@ def fd_check(
     y0 = np.asarray(jax.jit(f)(x))
     fv = jax.jit(jax.vmap(f))
     out: dict[str, np.ndarray] = {"ad": ad, "ad_exact": ad_exact, "y0": y0}
-    for k, frac in enumerate(cfg.fd_steps):
+
+    def central(fn: Any, frac: float) -> np.ndarray:
         h = frac * width
         pts = np.concatenate([np.asarray(x) + np.diag(h), np.asarray(x) - np.diag(h)])
-        vals = np.asarray(fv(jnp.asarray(pts)))
-        fd = ((vals[:n] - vals[n:]) / (2 * h[:, None])).T  # [m, n]
+        vals = np.asarray(fn(jnp.asarray(pts)))
+        return ((vals[:n] - vals[n:]) / (2 * h[:, None])).T  # [m, n]
+
+    for k, frac in enumerate(cfg.fd_steps):
+        fd = central(fv, frac)
         out[f"fd{k}"] = fd
-        out[f"h{k}"] = h
+        out[f"h{k}"] = frac * width
         out[f"rel_err{k}"], out[f"agree{k}"] = fd_agreement(ad_exact if k == 0 else ad, fd, y0, width, k, cfg)
+    if f_unrounded is not None:
+        adu = np.asarray(jax.jit(lambda z: _jac(f_unrounded, z))(x))
+        yu = np.asarray(jax.jit(f_unrounded)(x))
+        fdu = central(jax.jit(jax.vmap(f_unrounded)), cfg.fd_steps[0])
+        relu, agu = fd_agreement(adu, fdu, yu, width, 0, cfg)
+        out.update(ad_unrounded=adu, fdu0=fdu, rel_erru0=relu, agreeu0=agu)
+        out["rel_err0"] = np.maximum(out["rel_err0"], relu)
+        out["agree0"] = out["agree0"] & agu
     return out
 
 
@@ -314,6 +334,7 @@ def trust_report(
     cfg: TrustConfig = DEFAULT_TRUST,
     *,
     f_exact: Callable[[Array], Array] | None = None,
+    f_unrounded: Callable[[Array], Array] | None = None,
 ) -> dict[str, Any]:
     """The gradient-trust report of ``f`` at ``x`` (JSON-serialisable dict).
 
@@ -321,14 +342,24 @@ def trust_report(
     the bounds); for every (parameter, output) the FD agreement at both steps, the scan
     diagnostics, the normalised sensitivity, the class and the trust level (0-3).
 
-    ``f_exact``: the exact-mode counterpart of a surrogate-derivative ``f`` (:func:`fd_check`);
-    default :func:`exact_counterpart` of ``f`` (for a ``ModeBound`` in the ``ste`` / ``implicit``
-    mode). Each output then also reports ``ad_exact``, and ``rel_err_small`` is measured on it."""
+    ``f_exact``, ``f_unrounded``: the counterparts of a straight-through ``f`` (:func:`fd_check`);
+    default :func:`counterparts` of ``f`` (for a ``ModeBound`` in the ``ste`` / ``implicit`` mode).
+    Each output then also reports ``ad_exact``, ``ad_unrounded``, ``fd_small_unrounded`` and
+    ``ste_offset`` (``ad / ad_unrounded - 1``), and ``rel_err_small`` is the larger of the two level-2
+    disagreements."""
     x = np.asarray(x, dtype=float)
     lo = np.asarray(lower, dtype=float)
     hi = np.asarray(upper, dtype=float)
     width = hi - lo
-    fd = fd_check(f, x, width, cfg, f_exact=exact_counterpart(f) if f_exact is None else f_exact)
+    dx, du = counterparts(f)
+    fd = fd_check(
+        f,
+        x,
+        width,
+        cfg,
+        f_exact=dx if f_exact is None else f_exact,
+        f_unrounded=du if f_unrounded is None else f_unrounded,
+    )
     sens = sensitivity(fd["ad"], fd["y0"], width)
     params: dict[str, Any] = {}
     for i, pn in enumerate(param_names):
@@ -340,6 +371,17 @@ def trust_report(
             outs[on] = {
                 "ad": float(fd["ad"][j, i]),
                 "ad_exact": float(fd["ad_exact"][j, i]),
+                **(
+                    {
+                        "ad_unrounded": float(fd["ad_unrounded"][j, i]),
+                        "fd_small_unrounded": float(fd["fdu0"][j, i]),
+                        "ste_offset": float(fd["ad"][j, i] / fd["ad_unrounded"][j, i] - 1.0)
+                        if fd["ad_unrounded"][j, i] != 0.0
+                        else 0.0,
+                    }
+                    if "ad_unrounded" in fd
+                    else {}
+                ),
                 "fd_small": float(fd["fd0"][j, i]),
                 "fd_large": float(fd["fd1"][j, i]),
                 "rel_err_small": float(fd["rel_err0"][j, i]),
