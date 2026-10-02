@@ -3,40 +3,53 @@
 Three levels of trust in a derivative:
 
 1. **plausible outputs** - every output is finite along every line scan;
-2. **correct derivatives** - the AD derivative equals a central finite difference at a small
-   step (the derivative of the forward program is computed correctly);
-3. **fit for inference** - the AD derivative also predicts the response at a step of the size
-   an optimiser takes: it agrees with the central secant at a large step, and a line scan along
-   the parameter shows no jumps the derivative does not explain and no stretches where the
-   derivative is 0 while the output still moves.
+2. **correct derivatives** - the AD derivative equals the central finite differences at small
+   steps (the derivative of the forward program is computed correctly). Three-valued: the
+   differences at the adjacent steps ``fd_small_steps`` (1e-4, 1e-5, 1e-6 of the width, fixed in
+   advance) agree with each other and with the derivative (**pass**), with each other but not with
+   it (**fail**: a derivative error, level 1), or not with each other (**undecidable**: the
+   differences straddle a quantum or a jump and may not veto the derivative; no step is picked);
+3. **fit for inference** - the AD derivative also predicts the response at the steps an
+   optimiser takes: it agrees with the central secants at 1, 2 and 5 % of the width
+   (``fd_large_steps``), and a line scan along the parameter shows no jumps the derivative does not
+   explain and no stretches where the derivative is 0 while the output still moves. Where level 2
+   is undecidable, level 3 alone decides (passing it gives level 3, failing it level 1): it is the
+   gate the calibration relies on in any case.
 
 **Straight-through derivatives.** A function bound to the ``ste`` gradient mode
 (:func:`agrijax.core.grad.bind_gradient_mode`) differentiates on purpose not its own staircase:
 through every quantiser of :mod:`agrijax.core.grad` (``trunc_st``, ``round_st``: Fortran's
-``REAL(INT(x*1000))/1000``, ``ANINT(x*1E6)/1E6``) the derivative is the identity (and through
-``real4_store`` the cast's, the tangent rounded to binary32). It is the derivative of the
-**unrounded model** (:func:`agrijax.core.grad.unrounded`: every quantiser, ``real4_store`` included,
-the identity) evaluated along the rounded trajectory, and differs from the derivative of the forward
-program (0 through every quantum: the ``exact`` mode). For such a function, **level 2 means** that
-both paths the surrogate is made of are computed correctly, each tested against finite differences
-of a real function: the **exact-mode** derivative (``ad_exact``) against the small-step central
-difference of the model (``cfg.fd_rtol[0]``), and the **unrounded model's** derivative
-(``ad_unrounded``) against the unrounded model's small-step central difference
-(``cfg.fd_rtol_unrounded``, looser: the unrounded model is not smooth at that scale either). Both
-counterparts are derived from a :class:`~agrijax.core.grad.ModeBound` ``f`` (:func:`counterparts`).
-That nothing else differs between the surrogate and the exact derivative is a property of the code,
-tested once rather than at every point: with every registered straight-through call site
-(:class:`agrijax.core.process.GradientConvention`) traced in the exact mode, the ``ste`` derivative
-equals the exact one bit for bit (``tests/integration/test_facade_grad.py``). The surrogate value
-and the unrounded derivative differ by the trajectory offset (the unrounded model's states drift
-off the rounded ones by up to a quantum per step), reported as ``ste_offset`` and not tested.
-Level 3 tests the surrogate value itself against the optimiser-step secant and the line scan of the
-real model. Measured case: the CERES-Maize derivatives of the DSSAT day (:mod:`agrijax.facade_grad`).
+``REAL(INT(x*1000))/1000``, ``ANINT(x*1E6)/1E6``) the derivative is 1 (through ``real4_store`` the
+cast's, the tangent rounded to binary32), where the forward program's own derivative (the ``exact``
+mode) is 0. Level 2 of such a surrogate is decided on the exact path, and the surrogate is then
+correct by a three-link argument, each link tested:
+
+(a) the exact-mode derivative ``ad_exact`` agrees with the small-step central differences (the
+    three-valued level 2 above, at every point checked);
+(b) the surrogate differs from the exact derivative only at the registered sites: with every
+    registered straight-through call site traced in the exact mode, the ``ste`` program equals the
+    exact one bit for bit (``tests/integration/test_facade_grad.py``, all coefficients, nine
+    scenarios of the DSSAT maize day);
+(c) at each registered site the surrogate's derivative is 1 by definition: every call of a
+    straight-through helper in the package is a :class:`agrijax.core.process.GradientConvention`
+    of its process (the AST call-site test of ``tests/unit/test_process_registry.py``), and the
+    helpers' identity derivative is tested in ``tests/unit/test_grad_helpers.py``.
+
+So the surrogate is the exact derivative with the registered sites' derivative set to 1, and nothing
+else. The **unrounded model** (:func:`agrijax.core.grad.unrounded`: every quantiser, ``real4_store``
+included, the identity) is reported as a diagnostic only: its derivative ``ad_unrounded``, its
+small-step agreement ``rel_err_small_unrounded`` and ``ste_offset`` (``ad / ad_unrounded - 1``: the
+surrogate is that model's derivative along the rounded trajectory, the two trajectories drift apart by
+up to a quantum a step). It is not a gate because that model is not smooth either (comparisons the
+rounding held exactly switch at tiny steps), so its differences often straddle a jump; the argument
+above does not need it, which is why its diagnostic status is not leniency. Level 3 tests the
+surrogate value itself against the optimiser-step secants and the line scan of the real model.
+Measured case: the CERES-Maize derivatives of the DSSAT day (:mod:`agrijax.facade_grad`).
 
 Tools, all batched with ``vmap`` (one call per step size / scan):
 
-* :func:`fd_check` - AD Jacobian against central differences at two relative step sizes
-  (:func:`fd_agreement`: the comparison alone);
+* :func:`fd_check` - AD Jacobian against central differences at the small and large step sets
+  (:func:`fd_diagnostics`: the verdicts alone, :func:`fd_agreement`: one comparison);
 * :func:`line_scan` - outputs and directional AD derivatives on a grid along one parameter, with
   the jump count, the zero-derivative fraction and longest stretch, and the secant / AD ratio
   (:func:`scan_summary`: the diagnostics alone, from points computed elsewhere, e.g. in a batch
@@ -68,12 +81,17 @@ from jaxtyping import Array
 from agrijax.core.coefficients import numerical_guard
 
 __all__ = [
+    "L2_FAIL",
+    "L2_PASS",
+    "L2_STATUSES",
+    "L2_UNDECIDABLE",
     "GradientPlan",
     "TrustConfig",
     "classify_pair",
     "counterparts",
     "fd_agreement",
     "fd_check",
+    "fd_diagnostics",
     "gradient_plan",
     "line_scan",
     "scan_summary",
@@ -88,15 +106,17 @@ _TINY = numerical_guard("calib.trust_tiny", 1e-300, "floor of denominators in th
 class TrustConfig:
     """Thresholds of the report (harness choices, documented in the report itself).
 
-    * ``fd_steps`` - the two central-difference steps, as fractions of the bound width;
-    * ``fd_rtol`` - relative AD / FD agreement at each step: the small step tests the derivative
-      of the program; the large step (looser: a smooth response has O(h^2) curvature error)
-      tests that the derivative predicts an optimiser-sized step;
-    * ``fd_rtol_unrounded`` - the small-step agreement of the unrounded model's derivative (the
-      straight-through path of a surrogate derivative): looser, because the unrounded model is
-      not smooth at that scale either (comparisons the rounding held exactly switch, REAL*4
-      comparisons; on the DSSAT maize day, where no jump is crossed, 1e-10 to about 1e-3 at a 1e-5
-      step);
+    * ``fd_steps`` - the reported small and large central-difference steps (columns ``fd_small``,
+      ``fd_large``), as fractions of the bound width; each is one of the step sets below;
+    * ``fd_small_steps`` - the adjacent small steps of the level-2 test, fixed in advance: the
+      central differences there must agree with each other (to ``fd_rtol[0]``) to decide anything;
+    * ``fd_large_steps`` - the optimiser-scale steps of level 3 (1, 2 and 5 % of the width: the
+      steps Adam and the staged Levenberg-Marquardt take, :mod:`agrijax.facade_grad`); the AD
+      derivative must agree with the central secant at every one of them;
+    * ``fd_rtol`` - relative agreement at the small steps (the derivative of the program) and at
+      the large steps (looser: a smooth response has O(h^2) curvature error);
+    * ``fd_rtol_unrounded`` - the small-step agreement reported for the unrounded model's derivative
+      (diagnostic only, never a gate: module docstring);
     * ``abs_floor`` - derivatives with ``|d y| * width`` below ``abs_floor * max(|y|, 1)`` count
       as zero;
     * ``jump_frac`` - a grid interval of a line scan is a jump when the change the AD derivative
@@ -108,6 +128,8 @@ class TrustConfig:
     """
 
     fd_steps: tuple[float, float] = (1e-5, 2e-2)
+    fd_small_steps: tuple[float, ...] = (1e-4, 1e-5, 1e-6)
+    fd_large_steps: tuple[float, ...] = (1e-2, 2e-2, 5e-2)
     fd_rtol: tuple[float, float] = (1e-3, 5e-2)
     fd_rtol_unrounded: float = 1e-2
     abs_floor: float = 1e-10
@@ -116,8 +138,21 @@ class TrustConfig:
     scan_frac: float = 0.1
     secant_band: float = 2.0
 
+    def __post_init__(self) -> None:
+        if self.fd_steps[0] not in self.fd_small_steps or self.fd_steps[1] not in self.fd_large_steps:
+            raise ValueError(
+                f"fd_steps {self.fd_steps} must be one of fd_small_steps {self.fd_small_steps} and one of "
+                f"fd_large_steps {self.fd_large_steps}"
+            )
+
 
 DEFAULT_TRUST = TrustConfig()
+
+#: the level-2 outcomes: the small-step differences agree with each other and with the derivative
+#: (pass), with each other but not with it (fail: a derivative error), or not with each other (the
+#: differences straddle a quantum or a jump: they cannot judge the derivative, level 3 decides)
+L2_PASS, L2_FAIL, L2_UNDECIDABLE = "pass", "fail", "undecidable (FD unreliable)"
+L2_STATUSES: tuple[str, ...] = (L2_PASS, L2_FAIL, L2_UNDECIDABLE)
 
 
 # ------------------------------------------------------------------------------ finite differences
@@ -148,16 +183,15 @@ def fd_check(
     f_exact: Callable[[Array], Array] | None = None,
     f_unrounded: Callable[[Array], Array] | None = None,
 ) -> dict[str, np.ndarray]:
-    """AD Jacobian ``[m, n]`` and central differences at the two ``cfg.fd_steps`` (fractions of
-    ``width``), all points of one step size in one ``vmap`` call.
+    """AD Jacobian ``[m, n]``, central differences at the small and large step sets (fractions of
+    ``width``; all points of one step in one ``vmap`` call) and their verdicts
+    (:func:`fd_diagnostics`).
 
     For an ``f`` whose derivative is straight-through (module docstring): ``f_exact`` (the same
-    function in the ``exact`` mode) gives ``ad_exact``, compared with the small-step difference of
-    ``f``; ``f_unrounded`` (the unrounded model) gives ``ad_unrounded`` and its own small-step
-    difference ``fdu0`` (to ``cfg.fd_rtol_unrounded``); ``agree0`` needs both agreements
-    (``rel_err0``: the exact path's disagreement, ``rel_erru0``: the unrounded path's). The large
-    step is compared with ``ad``. Without them ``ad_exact`` is ``ad`` and
-    the unrounded keys are absent."""
+    function in the ``exact`` mode) gives ``ad_exact``, the derivative level 2 judges; the large
+    steps judge ``ad``. ``f_unrounded`` (the unrounded model) gives the diagnostic ``ad_unrounded``,
+    its small-step difference ``fdu0`` and their disagreement ``rel_erru0`` (never a gate). Without
+    them ``ad_exact`` is ``ad`` and the unrounded keys are absent."""
     x = jnp.asarray(x, dtype=float)
     width = np.asarray(width, dtype=float)
     n = x.shape[0]
@@ -165,7 +199,6 @@ def fd_check(
     ad_exact = ad if f_exact is None else np.asarray(jax.jit(lambda z: _jac(f_exact, z))(x))
     y0 = np.asarray(jax.jit(f)(x))
     fv = jax.jit(jax.vmap(f))
-    out: dict[str, np.ndarray] = {"ad": ad, "ad_exact": ad_exact, "y0": y0}
 
     def central(fn: Any, frac: float) -> np.ndarray:
         h = frac * width
@@ -173,19 +206,66 @@ def fd_check(
         vals = np.asarray(fn(jnp.asarray(pts)))
         return ((vals[:n] - vals[n:]) / (2 * h[:, None])).T  # [m, n]
 
-    for k, frac in enumerate(cfg.fd_steps):
-        fd = central(fv, frac)
-        out[f"fd{k}"] = fd
-        out[f"h{k}"] = frac * width
-        out[f"rel_err{k}"], out[f"agree{k}"] = fd_agreement(ad_exact if k == 0 else ad, fd, y0, width, k, cfg)
+    small = [central(fv, fr) for fr in cfg.fd_small_steps]
+    large = [central(fv, fr) for fr in cfg.fd_large_steps]
+    out: dict[str, np.ndarray] = {"ad": ad, "ad_exact": ad_exact, "y0": y0}
+    out.update(fd_diagnostics(ad, ad_exact, small, large, y0, width, cfg))
+    out["h0"], out["h1"] = cfg.fd_steps[0] * width, cfg.fd_steps[1] * width
     if f_unrounded is not None:
         adu = np.asarray(jax.jit(lambda z: _jac(f_unrounded, z))(x))
         yu = np.asarray(jax.jit(f_unrounded)(x))
         fdu = central(jax.jit(jax.vmap(f_unrounded)), cfg.fd_steps[0])
         relu, agu = fd_agreement(adu, fdu, yu, width, 0, cfg, cfg.fd_rtol_unrounded)
         out.update(ad_unrounded=adu, fdu0=fdu, rel_erru0=relu, agreeu0=agu)
-        out["agree0"] = out["agree0"] & agu
     return out
+
+
+def fd_diagnostics(
+    ad: Any,
+    ad_exact: Any,
+    small: Sequence[Any],
+    large: Sequence[Any],
+    y0: Any,
+    width: Any,
+    cfg: TrustConfig = DEFAULT_TRUST,
+) -> dict[str, np.ndarray]:
+    """The level-2 and level-3 verdicts of the derivatives ``ad`` (as differentiated) and ``ad_exact``
+    (the program's own; ``ad`` itself for an ordinary function), ``[m, n]``, from the central
+    differences ``small`` at ``cfg.fd_small_steps`` and ``large`` at ``cfg.fd_large_steps``.
+
+    Level 2 (``status0``, :data:`L2_STATUSES`): the small-step differences agree with each other
+    to ``cfg.fd_rtol[0]`` (or are all zero within ``cfg.abs_floor``) and ``ad_exact`` with the
+    one at ``cfg.fd_steps[0]`` -> pass; they agree with each other but not with ``ad_exact`` ->
+    fail; they do not agree with each other -> undecidable (no step is picked: a difference that
+    straddles a quantum or a jump says nothing about the derivative). ``agree0`` = pass,
+    ``rel_err0`` = the disagreement with ``fd0``, ``spread0`` = the spread of the small-step
+    differences. Level 3 input (``agree1``): ``ad`` agrees with every large-step secant to
+    ``cfg.fd_rtol[1]``; ``rel_err1`` is the disagreement at ``cfg.fd_steps[1]`` (``fd1``),
+    ``rel_err1_max`` the largest over the large steps."""
+    ad, ad_exact = np.asarray(ad), np.asarray(ad_exact)
+    y0, width = np.asarray(y0), np.asarray(width)
+    fs, fl = np.stack([np.asarray(a) for a in small]), np.stack([np.asarray(a) for a in large])
+    fd0 = fs[list(cfg.fd_small_steps).index(cfg.fd_steps[0])]
+    fd1 = fl[list(cfg.fd_large_steps).index(cfg.fd_steps[1])]
+    floor = cfg.abs_floor * np.maximum(np.abs(y0), 1.0)[:, None] / width[None, :]
+    spread = (fs.max(axis=0) - fs.min(axis=0)) / np.maximum(np.abs(fs).max(axis=0), _TINY)
+    all_zero = np.all(np.abs(fs) <= floor[None], axis=0)
+    consistent = all_zero | (spread <= cfg.fd_rtol[0])
+    rel0, ag0 = fd_agreement(ad_exact, fd0, y0, width, 0, cfg)
+    status = np.where(~consistent, L2_UNDECIDABLE, np.where(ag0, L2_PASS, L2_FAIL)).astype(object)
+    rels, ags = zip(*(fd_agreement(ad, f, y0, width, 1, cfg) for f in fl), strict=True)
+    rel1, _ = fd_agreement(ad, fd1, y0, width, 1, cfg)
+    return {
+        "fd0": fd0,
+        "fd1": fd1,
+        "rel_err0": rel0,
+        "status0": status,
+        "agree0": status == L2_PASS,
+        "spread0": np.where(all_zero, 0.0, spread),
+        "rel_err1": rel1,
+        "rel_err1_max": np.max(np.stack(rels), axis=0),
+        "agree1": np.all(np.stack(ags), axis=0),
+    }
 
 
 def fd_agreement(
@@ -312,7 +392,8 @@ def _classify(fd: dict[str, np.ndarray], sc: dict[str, np.ndarray], j: int, i: i
 def _level(fd: dict[str, np.ndarray], sc: dict[str, np.ndarray], j: int, i: int, cfg: TrustConfig) -> int:
     if not bool(sc["finite"][j]):
         return 0
-    if not bool(fd["agree0"][j, i]):
+    status = fd["status0"][j, i] if "status0" in fd else (L2_PASS if bool(fd["agree0"][j, i]) else L2_FAIL)
+    if status == L2_FAIL:
         return 1
     sec, mean = float(sc["secant"][j]), float(sc["ad_mean"][j])
     scale = max(float(np.abs(sc["y"][:, j]).max()), 1.0)
@@ -328,17 +409,29 @@ def _level(fd: dict[str, np.ndarray], sc: dict[str, np.ndarray], j: int, i: int,
         and not (sc["zero_run_moves"][j] and sc["zero_frac"][j] > 0.0)
         and ratio_ok
     )
+    if status == L2_UNDECIDABLE:  # level 3 decides; failing it, the derivative is not shown correct
+        return 3 if fit else 1
     return 3 if fit else 2
 
 
 def classify_pair(
-    agree: tuple[bool, bool], scan: Mapping[str, np.ndarray], j: int, cfg: TrustConfig = DEFAULT_TRUST
+    agree: tuple[bool, bool],
+    scan: Mapping[str, np.ndarray],
+    j: int,
+    cfg: TrustConfig = DEFAULT_TRUST,
+    status: str | None = None,
 ) -> tuple[str, int]:
     """``(class, level)`` of output ``j`` for one parameter, as :func:`trust_report` assigns them:
-    ``agree`` = whether the AD derivative agrees with the central difference at the two
-    ``cfg.fd_steps`` (:func:`fd_agreement`), ``scan`` = the parameter's :func:`line_scan` /
-    :func:`scan_summary` of that output set."""
-    fd = {"agree0": np.full((j + 1, 1), agree[0]), "agree1": np.full((j + 1, 1), agree[1])}
+    ``agree`` = (level 2 passed, the AD derivative agrees with every large-step secant)
+    (:func:`fd_diagnostics` ``agree0`` / ``agree1``), ``status`` the level-2 outcome
+    (:data:`L2_STATUSES`; default from ``agree[0]``), ``scan`` = the parameter's :func:`line_scan`
+    / :func:`scan_summary` of that output set."""
+    st = (L2_PASS if agree[0] else L2_FAIL) if status is None else status
+    fd = {
+        "agree0": np.full((j + 1, 1), agree[0]),
+        "agree1": np.full((j + 1, 1), agree[1]),
+        "status0": np.full((j + 1, 1), st, dtype=object),
+    }
     return _classify(fd, dict(scan), j, 0, cfg), _level(fd, dict(scan), j, 0, cfg)
 
 
@@ -404,7 +497,10 @@ def trust_report(
                 "fd_small": float(fd["fd0"][j, i]),
                 "fd_large": float(fd["fd1"][j, i]),
                 "rel_err_small": float(fd["rel_err0"][j, i]),
+                "level2": str(fd["status0"][j, i]),
+                "fd_spread_small": float(fd["spread0"][j, i]),
                 "rel_err_large": float(fd["rel_err1"][j, i]),
+                "rel_err_large_max": float(fd["rel_err1_max"][j, i]),
                 "sensitivity": float(sens[j, i]),
                 "scan_range": float(sc["range"][j]),
                 "scan_secant": float(sc["secant"][j]),

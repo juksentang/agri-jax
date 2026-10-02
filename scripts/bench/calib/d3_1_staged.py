@@ -42,8 +42,8 @@ Every evaluation also yields the original objective, so every method has a best-
 the same quantity; quality targets are defined before the runs (:data:`Q_TWIN`, :data:`Q_REAL_FACTOR`).
 
 Benchmark switches (wt/grad_gap): ``AJ_D31_DIR`` writes everything to a separate directory, and
-``AJ_D31_TRUST`` (``legacy`` / ``split``, :data:`TRUST_LEVEL2`) selects the level-2 test of the stage-2
-trust report.
+``AJ_D31_TRUST`` (``legacy`` / ``split`` / ``three``, :data:`TRUST_LEVEL2`) selects the level-2 test of
+the stage-2 trust report.
 
 Steps: ``prep`` (dscsm048 reference runs + inputs), ``check`` (published cultivars against DSSAT,
 identifiability scans, trust at the truth), ``twin`` / ``real`` (one fresh process per method: compile
@@ -118,7 +118,8 @@ TRUST_SCAN = 201  # line-scan points (default 41 misses jumps narrower than 2.3 
 #: level-2 test of the stage-2 trust report (environment AJ_D31_TRUST): "legacy" compares the
 #: straight-through AD derivative with the small-step difference of the model (the check before
 #: wt/grad_gap); "split" compares the exact-mode derivative with it and the unrounded model's
-#: derivative with the unrounded model's small-step difference (agrijax.calib.trust, level 2)
+#: derivative with the unrounded model's small-step difference; "three": the three-valued level 2 of
+#: agrijax.calib.trust (exact-mode derivative, adjacent small steps; secants at 1, 2 and 5 %)
 TRUST_LEVEL2 = os.environ.get("AJ_D31_TRUST", "legacy")
 #: calls of the published cultivar's DSSAT cost model (D4-1, rorqual, dscsm048 build486, daily outputs):
 #: batch 18.2 ms / season, one treatment per invocation 65.1 ms -> start-up 46.9 ms per invocation;
@@ -1151,9 +1152,11 @@ def trust_rows(
     g_all = 2.0 * np.sum(r_[None] * dy * w[None], axis=2)  # type: ignore[index]  # [n, S]
     l0, g0 = l_all[:n_c], g_all[:, :n_c]
     ls, gs = l_all[n_c:], g_all[:, n_c:]
-    # central differences at the two steps
+    # central differences at the two steps (three-valued level 2: at every small and large step)
+    three = TRUST_LEVEL2 == "three"
+    steps = (*cfg.fd_small_steps, *cfg.fd_large_steps) if three else cfg.fd_steps
     fd_pts, fd_keys = [], []
-    for frac in cfg.fd_steps:
+    for frac in steps:
         for i in pidx:
             for sgn in (1.0, -1.0):
                 t = pts[:n_c].copy()
@@ -1162,8 +1165,12 @@ def trust_rows(
                 fd_keys.append(keys[:n_c])
     kf = np.concatenate(fd_keys)
     yf, _ = pb.ev.run(np.concatenate(fd_pts), kf)
-    lf = np.sum(obj.residuals(yf, kf, view) ** 2, axis=1).reshape(len(cfg.fd_steps), n, 2, n_c)
+    lf = np.sum(obj.residuals(yf, kf, view) ** 2, axis=1).reshape(len(steps), n, 2, n_c)
     split = TRUST_LEVEL2 == "split"
+    if three:  # the exact-mode derivative at the centres (the derivative level 2 judges)
+        yx3, dyx3 = pb.ev.run(pts[:n_c], keys[:n_c], v[:, :n_c], mode="exact")
+        rx = obj.residuals(yx3, keys[:n_c], view)
+        gx3 = 2.0 * np.sum(rx[None] * dyx3 * obj.weights(keys[:n_c], view)[None], axis=2)  # type: ignore[index]
     if split:
         # the two paths of the straight-through derivative: the exact-mode derivative at the centres,
         # and the unrounded model's derivative and small-step central difference
@@ -1186,11 +1193,19 @@ def trust_rows(
         m = len(ks)
         sl = slice(pos, pos + m)
         ad = g0[:, sl].T  # [m, n]
-        fds = [
-            (lf[s_, :, 0, sl] - lf[s_, :, 1, sl]).T / (2 * cfg.fd_steps[s_] * width[list(pidx)])[None, :]
-            for s_ in range(2)
+        fds_all = [
+            (lf[s_, :, 0, sl] - lf[s_, :, 1, sl]).T / (2 * steps[s_] * width[list(pidx)])[None, :]
+            for s_ in range(len(steps))
         ]
-        fd = _fd_diag(ad, l0[sl], fds, width[list(pidx)], cfg)
+        if three:
+            from agrijax.calib.trust import fd_diagnostics
+
+            ns = len(cfg.fd_small_steps)
+            fd = fd_diagnostics(ad, gx3[:, sl].T, fds_all[:ns], fds_all[ns:], l0[sl], width[list(pidx)], cfg)
+            fds = [fd["fd0"], fd["fd1"]]
+        else:
+            fds = fds_all
+            fd = _fd_diag(ad, l0[sl], fds, width[list(pidx)], cfg)
         if split:
             wp = width[list(pidx)]
             fx = _fd_diag(gx0[:, sl].T, l0[sl], fds[:1], wp, cfg)
@@ -1230,6 +1245,8 @@ def trust_rows(
 #: model calls of one trust report per problem: one JVP at the centre and n x n_scan scan JVPs (all
 #: with the n directions of the stage-2 program), 2 x 2 x n central-difference forwards
 def trust_calls(n: int) -> tuple[int, int]:
+    if TRUST_LEVEL2 == "three":  # 6 steps x 2 sides of forwards, + the exact JVP
+        return 12 * n, 2 + n * TRUST_SCAN
     if TRUST_LEVEL2 == "split":  # + the unrounded small-step forwards, the exact and unrounded JVPs
         return 6 * n, 3 + n * TRUST_SCAN
     return 4 * n, 1 + n * TRUST_SCAN

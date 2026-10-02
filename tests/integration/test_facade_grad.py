@@ -96,7 +96,7 @@ def test_the_table_and_the_values_at_the_published_cultivar(exp, grad):
         v = _season_value(exp, o) if o != "H#AM" else None
         if v is not None:
             assert _row(t, o, "G2")["value"] == pytest.approx(v, rel=1e-9), o
-    assert grad.timing["rows"] == 6 * (9 + 201)
+    assert grad.timing["rows"] == 6 * (17 + 201)
     text = str(grad)
     assert "experimental" in text and "Derivatives through phenology" in text
     print("\n" + text)
@@ -268,27 +268,33 @@ def test_scenario_batch(exp, grad):
             assert a["ad"] == pytest.approx(b["ad"], rel=1e-9, abs=1e-12)
             assert (a["trust"], a["class"], a["level"]) == (b["trust"], b["class"], b["level"]), (o, p)
     assert one.trust == single.trust
-    # the straight-through derivative (regression: before, the small step was compared with the
-    # straight-through value itself and these pairs fell back at trust level 1). Level 2 now tests its two
-    # paths: the exact-mode derivative against the model's small-step difference and the unrounded model's
-    # derivative against the unrounded model's. 1982 -14 d is water limited: the straight-through yield
-    # derivative carries the root length density truncation's path (MZ_ROOTS, a GradientConvention of
-    # crop/ceres_maize.roots), about 1.6 % off the exact one, and is validated
+    # the straight-through derivative (regression: before wt/grad_gap the small step was compared with the
+    # straight-through value itself and these pairs fell back at trust level 1). Level 2 is decided on the
+    # exact path, three-valued. 1979 -14 d is water limited: the straight-through yield derivative of G2
+    # carries the root length density truncation's path (MZ_ROOTS, a GradientConvention of
+    # crop/ceres_maize.roots), about 2.8 % off the exact one; level 2 passes and the pair is validated
+    r = _row(t[(t["year"] == 1979) & (t["sowing_shift"] == -14)], "HWAM", "G2")
+    assert abs(r["ad"] / r["ad_exact"] - 1.0) > 0.01 and r["level2"] == "pass" and r["err_small"] < 1e-3
+    assert abs(r["ste_offset"]) < 0.02  # diagnostic: the unrounded model's derivative
+    assert r["trust"] == fg.LABEL_VALIDATED and r["derivative"] == r["ad"] and r["err_large_max"] < 0.05
+    # 1982 -14 d: the 1e-4 difference straddles a quantum, level 2 is undecidable, level 3 validates
     s82m = t[(t["year"] == 1982) & (t["sowing_shift"] == -14)]
     for p in ("G2", "G3"):
         r = _row(s82m, "HWAM", p)
         assert abs(r["ad"] / r["ad_exact"] - 1.0) > 0.01, p
-        assert r["err_small_exact"] < 1e-3 and r["err_small_unrounded"] < 1e-3, p
-        assert abs(r["ste_offset"]) < 0.02, p  # the unrounded model's derivative, off the rounded trajectory
-        assert r["trust"] == fg.LABEL_VALIDATED and r["derivative"] == r["ad"] and r["err_large"] < 0.05, p
-    # 1979 -14 d: the exact path is verified; the unrounded model's small-step difference crosses one of its
-    # own thresholds (a jump), so level 2 cannot verify that path there and the pair falls back
-    s79 = t[(t["year"] == 1979) & (t["sowing_shift"] == -14)]
+        assert r["level2"] == "undecidable (FD unreliable)" and r["err_small"] < 1e-3, p
+        assert r["trust"] == fg.LABEL_VALIDATED and r["level"] == 3 and r["err_large_max"] < 0.05, p
+    # no derivative error anywhere: the small-step differences never agree with each other against the
+    # exact derivative
+    assert (t[t["param"].isin(["G2", "G3"])]["level2"] != "fail").all()
+    # 1979 at 0 days: the small-step differences straddle a quantum (they disagree with each other), level 2
+    # is undecidable and level 3 decides
+    s79 = t[(t["year"] == 1979) & (t["sowing_shift"] == 0)]
     for o in ("HWAM", "CWAM"):
         for p in ("G2", "G3"):
             r = _row(s79, o, p)
-            assert abs(r["ad"] / r["ad_exact"] - 1.0) > 0.01 and r["err_small_exact"] < 1e-3, (o, p)
-            assert abs(r["ste_offset"]) < 0.01, (o, p)
+            assert r["level2"] == "undecidable (FD unreliable)" and r["fd_spread_small"] > 1e-3, (o, p)
+            assert (r["trust"] == fg.LABEL_VALIDATED) == (r["level"] == 3 and r["class"] == "smooth"), (o, p)
     # not water limited (1982, as sown): no straight-through path reaches yield
     s82 = t[(t["year"] == 1982) & (t["sowing_shift"] == 0)]
     for p in ("G2", "G3"):

@@ -208,9 +208,16 @@ def facade(years, shifts) -> None:
     t["ste/exact-1"] = t["ad"] / t["ad_exact"] - 1.0
     cols = ["year", "sowing_shift", "output", "param", "ad", "ad_exact", "ad_unrounded", "ste_offset"]
     cols += ["ste/exact-1", "fd"]
-    cols += ["err_small", "err_large", "class", "level", "jumps", "trust"]
+    cols += ["level2", "err_small", "fd_spread_small", "err_small_unrounded", "err_large", "err_large_max"]
+    cols += ["class", "level", "jumps", "trust"]
     print(t[cols].to_string(float_format=lambda v: f"{v:.5g}"))
     print(sens.summary.to_string())
+    print(
+        "level 2:",
+        t["level2"].value_counts().to_dict(),
+        "validated:",
+        int((t["trust"] == "validated gradient").sum()),
+    )
     print(sens.trust)
 
 
@@ -241,14 +248,23 @@ def secant_scales(years, shifts, fracs=(0.01, 0.02, 0.05)) -> None:
             f"(at mid-box {ADAM_LR * 25:.2f} %); LM secant half-width 0.1*u*(1-u) = {10 * u * (1 - u):.2f} %"
         )
     names = [fg._scenario_name(r) for r in fg_rows(scen)]
-    for fr in fracs:
-        cfg = TrustConfig(n_scan=201, fd_steps=(1e-5, fr))
+    for fr in (*fracs, None):
+        if fr is None:  # the default: every secant (1, 2 and 5 %) must agree
+            cfg = TrustConfig(n_scan=201)
+            label = "every secant (1, 2 and 5 %)"
+        else:
+            cfg = TrustConfig(n_scan=201, fd_steps=(1e-5, fr), fd_large_steps=(fr,))
+            label = f"the secant at {fr:.0%} alone"
         raw = fg._analyse(
             rows, x, idx, sp.lower, sp.upper, len(scen.runs), len(outs), cfg, rows.exact, rows.unrounded
         )
         lab, _, _ = fg._labels(raw, params, outs, names)
         n_val = int((lab == fg.LABEL_VALIDATED).sum())
-        print(f"--- large step {fr:.0%} of the range: {n_val} of {lab.size} validated")
+        l2 = {
+            str(k_): int(c_)
+            for k_, c_ in zip(*np.unique(raw["level2"].astype(str), return_counts=True), strict=True)
+        }
+        print(f"--- level 3 on {label}: {n_val} of {lab.size} validated; level 2: {l2}")
         for s, nm in enumerate(names):
             cells = []
             for e, o in enumerate(outs):

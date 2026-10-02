@@ -245,7 +245,10 @@ def test_scan_summary_and_fd_agreement_equal_the_originals():
     for k in (0, 1):
         rel, agree = fd_agreement(fd["ad"], fd[f"fd{k}"], fd["y0"], np.array([2.0, 2.0]), k, cfg)
         np.testing.assert_array_equal(rel, fd[f"rel_err{k}"])
-        np.testing.assert_array_equal(agree, fd[f"agree{k}"])
+        # level 2 passes only where the small-step differences also agree with each other; level 3
+        # needs every large-step secant, of which fd1 is one
+        assert np.all(~fd[f"agree{k}"] | agree)
+    np.testing.assert_array_equal(fd["agree0"], fd["status0"] == "pass")
 
 
 def test_outputs_params_and_point_parsing():

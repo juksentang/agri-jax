@@ -244,10 +244,31 @@ def test_a_straight_through_derivative_is_checked_on_both_of_its_paths():
     assert r["fd_small"] == pytest.approx(2 * 0.4305, rel=1e-6)  # between two quanta: the exact slope
     assert r["fd_small_unrounded"] == pytest.approx(2 * 0.4305 + 1.0, rel=1e-6)
     assert r["rel_err_small"] < 1e-6 and r["rel_err_large"] < 0.05
-    assert (r["class"], r["level"]) == ("smooth", 3)
-    # unbound (no counterparts to test the program with): the surrogate fails the small step
+    assert (r["class"], r["level"], r["level2"]) == ("smooth", 3, "pass")
+    # unbound (no counterparts to test the program with): the surrogate fails the small steps, which
+    # agree with each other (a derivative error as far as the check can tell)
     plain = trust_report(_quantised, x, lo, hi, ["x"], ["y"])["params"]["x"]["outputs"]["y"]
-    assert plain["ad_exact"] == plain["ad"] and "ad_unrounded" not in plain and plain["level"] == 1
+    assert plain["ad_exact"] == plain["ad"] and "ad_unrounded" not in plain
+    assert (plain["level"], plain["level2"]) == (1, "fail")
+
+
+@pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")
+@pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)")
+def test_level2_is_undecidable_when_the_small_steps_disagree_and_level3_decides():
+    """Next to a quantum the 1e-4 difference straddles it and the 1e-5 / 1e-6 ones do not: the small-step
+    differences disagree with each other, level 2 is undecidable (no step is picked), and the secants
+    at 1 / 2 / 5 % and the scan decide: level 3 for the straight-through derivative, which predicts
+    them; a derivative that does not (the exact one, 2x, read as if it were the one used) gets level 1."""
+    from agrijax.calib.trust import L2_UNDECIDABLE
+    from agrijax.core.grad import bind_gradient_mode
+
+    x, lo, hi = np.array([0.43001]), np.zeros(1), np.ones(1) * 2.0  # 0.43001 - 2e-4 crosses 0.430
+    r = trust_report(bind_gradient_mode(_quantised, "ste"), x, lo, hi, ["x"], ["y"])["params"]["x"]
+    r = r["outputs"]["y"]
+    assert r["level2"] == L2_UNDECIDABLE and r["fd_spread_small"] > 1e-3
+    assert r["rel_err_large_max"] < 0.05 and r["level"] == 3
+    exact = trust_report(bind_gradient_mode(_quantised, "exact"), x, lo, hi, ["x"], ["y"])["params"]["x"]
+    assert exact["outputs"]["y"]["level2"] == L2_UNDECIDABLE and exact["outputs"]["y"]["level"] == 1
 
 
 @pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")
