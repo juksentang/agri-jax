@@ -103,6 +103,18 @@ _REAL = (
     "tests/integration/test_bucket_dssat.py tolerances",
 )
 
+#: the derivative through the 1e-6 rounding of SW (WATBAL.for:503-505)
+_ROUND_STE = (
+    "derivative (ste / implicit gradient modes) through the rounding SW = ANINT(SW*1E6)/1E6: identity "
+    "(straight-through, round_st), not the derivative of the rounded value (0 between quanta); the "
+    "forward value is DSSAT's in every mode",
+    "a perturbation smaller than the 1e-6 quantum leaves SW unchanged, so the exact derivative cuts every "
+    "path through the soil water; the straight-through one keeps it (the slope of the model without "
+    "the quantum). With the root length density truncation of MZ_ROOTS it carries the difference "
+    "between the ste and exact G2 / G3 derivatives of the DSSAT maize day",
+    "scripts/diag/dssat_grad_gap.py; tests/integration/test_facade_grad.py::test_scenario_batch",
+)
+
 
 def _layers(unit: str, description: str, fortran_name: str = "", dims: tuple[str, ...] = _L) -> Any:
     return field(unit=unit, description=description, fortran_name=fortran_name, dims=dims, grid=_GRID)
@@ -430,7 +442,7 @@ def bucket_rate(state: BucketState, params: BucketParams, forcing_t: BucketForci
         ("soil evaporation from layer 1 (Ritchie)", "Soil/SoilWater/WATBAL.for:471-475"),
         ("mulch water update", "Soil/Mulch/MULCHWAT.for INTEGR"),
     ),
-    deviates=(_REAL,),
+    deviates=(_REAL, _ROUND_STE),
 )
 def bucket_integrate(state: BucketState, params: BucketParams, forcing_t: BucketForcing) -> BucketState:
     """``WATBAL`` INTEGR: the day's water content from the RATE changes, the root uptake (P4

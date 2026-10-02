@@ -175,6 +175,21 @@ def root_length_growth(
             "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
             "tests/integration/test_ceres_dssat.py tolerances",
         ),
+        (
+            "derivative (ste / implicit gradient modes) through the RLV truncation "
+            "REAL(INT(RLV*1000))/1000: identity (straight-through, trunc_st), not the derivative of the "
+            "truncated value (0 between quanta); the forward value is DSSAT's in every mode",
+            "the derivative of the staircase is 0 almost everywhere and its jumps are invisible to AD; the "
+            "straight-through derivative is that of the model without the 1e-3 quantum, the slope an "
+            "optimiser's step sees. It is the whole difference between the ste and exact derivatives of "
+            "the G2 / G3 season outputs: in water-limited seasons the soil-water path through root "
+            "uptake carries it (0.3 to 2.8 % of d(yield)/dG2, 1.2 to 8 % of d(tops weight)/dG2 on UFGA8201 "
+            "t4, 1979/1982/1985 x sowing -14/0/+14 d; 0 where the season is not water limited)",
+            "scripts/diag/dssat_grad_gap.py (exact-mode AD equals the 1e-8 central difference to 1e-7 "
+            "in every scenario; ste with this site exact equals exact bit for bit; the ste derivative "
+            "is within 0.01-2.9 % of the 2 %-of-range secant, the exact one 1.2-5.7 %); "
+            "tests/integration/test_facade_grad.py::test_scenario_batch",
+        ),
     ),
 )
 def ceres_roots(state: CeresMaizeState, params: CeresMaizeParams, forcing_t: CeresForcing) -> CeresMaizeState:

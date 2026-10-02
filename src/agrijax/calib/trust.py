@@ -5,6 +5,22 @@ Three levels of trust in a derivative:
 1. **plausible outputs** - every output is finite along every line scan;
 2. **correct derivatives** - the AD derivative equals a central finite difference at a small
    step (the derivative of the forward program is computed correctly);
+
+**Surrogate (straight-through) derivatives.** A function bound to the ``ste`` gradient mode
+(:func:`agrijax.core.grad.bind_gradient_mode`) differentiates on purpose not its own staircase
+but the model without its quantisation steps: :func:`~agrijax.core.grad.trunc_st` /
+:func:`~agrijax.core.grad.round_st` pass the tangent through Fortran's ``REAL(INT(x*1000))/1000``
+and ``ANINT(x*1E6)/1E6`` (identity derivative) and :func:`~agrijax.core.grad.event_ste` ramps
+across an event. Such a derivative is not the derivative of the forward program, which is 0 through
+every quantum, so a small-step finite difference (which, short of crossing a quantum, sees that
+staircase) cannot test it. For such a function the level-2 test compares the finite difference
+with the **exact-mode derivative** of the same function (``f_exact``: the same program traced in
+the ``exact`` mode, derived automatically from a :class:`~agrijax.core.grad.ModeBound` ``f``):
+that the program's derivative is computed correctly, no path missing. The large-step and scan
+tests of level 3 stay on the surrogate itself: that it predicts the response at an optimiser's
+step. Measured case: the CERES-Maize ``G2`` / ``G3`` derivatives of the DSSAT day, whose
+straight-through path through the root length density truncation (``MZ_ROOTS``) differs from the
+exact one by 0.3 to 8 % (yield and tops weight) in water-limited seasons (:mod:`agrijax.facade_grad`).
 3. **fit for inference** - the AD derivative also predicts the response at a step of the size
    an optimiser takes: it agrees with the central secant at a large step, and a line scan along
    the parameter shows no jumps the derivative does not explain and no stretches where the
@@ -48,6 +64,7 @@ __all__ = [
     "GradientPlan",
     "TrustConfig",
     "classify_pair",
+    "exact_counterpart",
     "fd_agreement",
     "fd_check",
     "gradient_plan",
@@ -95,21 +112,40 @@ def _jac(f: Callable[[Array], Array], x: Array) -> Array:
     return jax.jacfwd(f)(x)
 
 
+def exact_counterpart(f: Callable[[Array], Array]) -> Callable[[Array], Array] | None:
+    """The same function traced in the ``exact`` gradient mode when ``f`` is a
+    :class:`~agrijax.core.grad.ModeBound` of another mode (its derivative is a surrogate: see the
+    module docstring), else ``None`` (``f``'s derivative is already the program's own)."""
+    from agrijax.core.grad import ModeBound, bind_gradient_mode
+
+    if isinstance(f, ModeBound) and f.mode != "exact":
+        return bind_gradient_mode(f.fn, "exact")
+    return None
+
+
 def fd_check(
     f: Callable[[Array], Array],
     x: Any,
     width: Any,
     cfg: TrustConfig = DEFAULT_TRUST,
+    *,
+    f_exact: Callable[[Array], Array] | None = None,
 ) -> dict[str, np.ndarray]:
     """AD Jacobian ``[m, n]`` and central differences at the two ``cfg.fd_steps`` (fractions of
-    ``width``), all points of one step size in one ``vmap`` call."""
+    ``width``), all points of one step size in one ``vmap`` call.
+
+    ``f_exact``: the same function in the ``exact`` gradient mode, for an ``f`` whose derivative is
+    a straight-through surrogate (module docstring); its Jacobian ``ad_exact`` is the one compared
+    with the small-step difference (``rel_err0`` / ``agree0``), the large step is compared with
+    ``ad``. Without it ``ad_exact`` is ``ad``."""
     x = jnp.asarray(x, dtype=float)
     width = np.asarray(width, dtype=float)
     n = x.shape[0]
     ad = np.asarray(jax.jit(lambda z: _jac(f, z))(x))
+    ad_exact = ad if f_exact is None else np.asarray(jax.jit(lambda z: _jac(f_exact, z))(x))
     y0 = np.asarray(jax.jit(f)(x))
     fv = jax.jit(jax.vmap(f))
-    out: dict[str, np.ndarray] = {"ad": ad, "y0": y0}
+    out: dict[str, np.ndarray] = {"ad": ad, "ad_exact": ad_exact, "y0": y0}
     for k, frac in enumerate(cfg.fd_steps):
         h = frac * width
         pts = np.concatenate([np.asarray(x) + np.diag(h), np.asarray(x) - np.diag(h)])
@@ -117,7 +153,7 @@ def fd_check(
         fd = ((vals[:n] - vals[n:]) / (2 * h[:, None])).T  # [m, n]
         out[f"fd{k}"] = fd
         out[f"h{k}"] = h
-        out[f"rel_err{k}"], out[f"agree{k}"] = fd_agreement(ad, fd, y0, width, k, cfg)
+        out[f"rel_err{k}"], out[f"agree{k}"] = fd_agreement(ad_exact if k == 0 else ad, fd, y0, width, k, cfg)
     return out
 
 
@@ -276,17 +312,23 @@ def trust_report(
     param_names: Sequence[str],
     output_names: Sequence[str],
     cfg: TrustConfig = DEFAULT_TRUST,
+    *,
+    f_exact: Callable[[Array], Array] | None = None,
 ) -> dict[str, Any]:
     """The gradient-trust report of ``f`` at ``x`` (JSON-serialisable dict).
 
     For every parameter ``i`` a line scan over ``x_i +- cfg.scan_frac * width_i`` (clipped to
     the bounds); for every (parameter, output) the FD agreement at both steps, the scan
-    diagnostics, the normalised sensitivity, the class and the trust level (0-3)."""
+    diagnostics, the normalised sensitivity, the class and the trust level (0-3).
+
+    ``f_exact``: the exact-mode counterpart of a surrogate-derivative ``f`` (:func:`fd_check`);
+    default :func:`exact_counterpart` of ``f`` (for a ``ModeBound`` in the ``ste`` / ``implicit``
+    mode). Each output then also reports ``ad_exact``, and ``rel_err_small`` is measured on it."""
     x = np.asarray(x, dtype=float)
     lo = np.asarray(lower, dtype=float)
     hi = np.asarray(upper, dtype=float)
     width = hi - lo
-    fd = fd_check(f, x, width, cfg)
+    fd = fd_check(f, x, width, cfg, f_exact=exact_counterpart(f) if f_exact is None else f_exact)
     sens = sensitivity(fd["ad"], fd["y0"], width)
     params: dict[str, Any] = {}
     for i, pn in enumerate(param_names):
@@ -297,6 +339,7 @@ def trust_report(
         for j, on in enumerate(output_names):
             outs[on] = {
                 "ad": float(fd["ad"][j, i]),
+                "ad_exact": float(fd["ad_exact"][j, i]),
                 "fd_small": float(fd["fd0"][j, i]),
                 "fd_large": float(fd["fd1"][j, i]),
                 "rel_err_small": float(fd["rel_err0"][j, i]),

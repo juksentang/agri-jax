@@ -213,6 +213,37 @@ def test_trust_report_classes():
     assert rep["outputs"] == ["smooth", "stairs", "jump", "const"]
 
 
+def _quantised(theta):
+    """A smooth term plus Fortran's ``REAL(INT(x*1000))/1000`` (straight-through in ``ste``)."""
+    from agrijax.core.grad import trunc_st
+
+    x = theta[0]
+    return jnp.stack([x**2 + trunc_st(x * 1000.0) / 1000.0])
+
+
+@pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")
+@pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)")
+def test_a_straight_through_derivative_is_checked_against_the_exact_mode_derivative():
+    """The ste derivative of a quantised function is the slope without the quantum (2x + 1), not the
+    program's own (2x, which a small-step difference between two quanta sees): the small-step test
+    takes the exact-mode counterpart of a mode-bound function, the large step and the scan the
+    surrogate (the G2 / G3 case of the DSSAT day, agrijax.facade_grad)."""
+    from agrijax.calib.trust import exact_counterpart
+    from agrijax.core.grad import bind_gradient_mode
+
+    x, lo, hi = np.array([0.4305]), np.zeros(1), np.ones(1) * 2.0
+    bound = bind_gradient_mode(_quantised, "ste")
+    assert exact_counterpart(_quantised) is None and exact_counterpart(bound) is not None
+    r = trust_report(bound, x, lo, hi, ["x"], ["y"])["params"]["x"]["outputs"]["y"]
+    assert r["ad"] == pytest.approx(2 * 0.4305 + 1.0) and r["ad_exact"] == pytest.approx(2 * 0.4305)
+    assert r["fd_small"] == pytest.approx(2 * 0.4305, rel=1e-6)  # between two quanta: the exact slope
+    assert r["rel_err_small"] < 1e-6 and r["rel_err_large"] < 0.05
+    assert (r["class"], r["level"]) == ("smooth", 3)
+    # unbound (no exact counterpart to test the program with): the surrogate fails the small step
+    plain = trust_report(_quantised, x, lo, hi, ["x"], ["y"])["params"]["x"]["outputs"]["y"]
+    assert plain["ad_exact"] == plain["ad"] and plain["level"] == 1
+
+
 @pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")
 @pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)")
 def test_fd_check_and_line_scan():

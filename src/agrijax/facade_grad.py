@@ -32,7 +32,9 @@ labels, from the gradient-trust check of :mod:`agrijax.calib.trust` run at the e
 :func:`agrijax.calib.ceres.ceres_gradient_plan`):
 
 * ``"validated gradient"`` - the AD derivative agrees with central finite differences at two steps
-  (1e-5 and 2 % of the coefficient's ``MINIMA`` - ``MAXIMA`` range, to 1e-3 and 5 %), and a line scan
+  (1e-5 and 2 % of the coefficient's ``MINIMA`` - ``MAXIMA`` range, to 1e-3 and 5 %; the 1e-5 step
+  is compared with the program's own derivative ``ad_exact``, see **Straight-through derivatives**
+  below), and a line scan
   of ``scan_points`` points over +-10 % of the range finds no jump and no flat stretch the derivative
   does not explain (class ``smooth``, trust level 3), or the output does not move at all (``inert``).
   It holds at this point and at the scan's resolution: a jump narrower than the grid spacing can fall
@@ -42,30 +44,57 @@ labels, from the gradient-trust check of :mod:`agrijax.calib.trust` run at the e
   +-2 % of the range, not the AD value (which stays in column ``ad``);
 * ``"experimental"`` - ``P1``, ``P2``, ``P5`` and ``PHINT`` act through the phenology events
   (emergence, silking, maturity: when a stage is reached). **Derivatives through phenology events are
-  experimental**: AD passes through the events with a straight-through estimate (the ``ste`` gradient
-  mode), which the calibration does not trust either (these coefficients are derivative-free by
-  default there). ``derivative`` is that AD value; the central difference is in column ``fd`` to
-  compare with, and the class and level the check found stay in the table.
+  experimental**: the stage changes of the CERES-Maize phenology are selections on integer days
+  (``jnp.where``, no :func:`~agrijax.core.grad.event_ste` ramp), so AD keeps every stage on its day
+  and misses the jumps of a stage moving by a day (``ad`` equals ``ad_exact`` for these
+  coefficients; the line scan finds the jumps, class ``jumpy`` or ``step``). The calibration does not
+  trust them either (they are derivative-free by default there). ``derivative`` is that AD value; the
+  central difference is in column ``fd`` to compare with, and the class and level the check found
+  stay in the table.
 
 A coefficient's label is the weakest of its pairs (over outputs, and over scenarios in a batch).
 The labels are about the derivative, not the model: they say whether the local slope can be used,
 and say nothing about how well the model reproduces a measured response.
 
-Measured on rorqual (the tables ``tests/integration/test_facade_grad.py`` prints; UFGA8201 treatment 4,
-published cultivar, 201 scan points): for the experiment's own season (1982, planting as in the file)
-the AD derivatives of ``HWAM``, ``CWAM`` and ``H#AM`` with respect to ``G2`` and ``G3`` are validated
-(they equal the central difference at a 1e-5 step to 1e-10, and the test checks them against a forward
-finite difference of ``Experiment.run`` to 2e-3). Over the 1979 / 1982 / 1985 x sowing -14 / 0 / +14 days
-scenarios only 1982 at 0 and +14 days are validated: in the others the AD derivative of yield and tops
-weight disagrees with the central difference at the 1e-5 step by 0.3 to 13 % (median 2 %, the same
-fraction for ``G2`` and ``G3``; trust level 1), and those coefficients ``fall back``. For ``PHINT`` the
-AD value and the finite difference over +-2 % of the range differ by a factor of 2.4 on the
-experiment's own season (by sign in some scenarios): hence ``experimental``.
+**Straight-through derivatives.** The forward-mode program runs in the ``ste`` gradient mode
+(:data:`agrijax.calib.dssat_day.GRADIENT_MODE`): through the quantisations DSSAT applies, the root
+length density ``RLV = REAL(INT(RLV*1000))/1000`` (``MZ_ROOTS``) and the soil water
+``SW = ANINT(SW*1E6)/1E6`` (``WATBAL``), the derivative is the identity, i.e. that of the model without
+the quantum, not that of the forward program (0 between two quanta; registered as ``Deviation`` s
+of ``crop/ceres_maize.roots`` and ``soil_water/tipping_bucket.integrate``). In a water-limited season
+the effect of ``G2`` / ``G3`` on root growth reaches yield through root water uptake, and the two derivatives
+differ: ``ad`` (straight-through, the value reported) and ``ad_exact`` (the program's own, exact mode).
+A small-step finite difference measures ``ad_exact`` (between two quanta the program is smooth), and a
+step of an optimiser's size the straight-through one, so the check compares the 1e-5 step with
+``ad_exact`` (the derivative is computed correctly, no path is missing) and the 2 % step and the line
+scan with ``ad`` (it predicts the response), as :func:`agrijax.calib.trust.trust_report` does for a
+mode-bound function. Measured with ``scripts/diag/dssat_grad_gap.py``: the exact-mode derivative of
+the end-of-season grain weight equals the central difference at a 1e-8 step to 1e-7 on all nine
+scenarios below; computing only the RLV truncation in the exact mode makes the ``ste`` derivative equal
+the exact one bit for bit (the soil-water rounding only carries that path on); the straight-through
+derivative is within 0.01 to 2.9 % of the secant over +-2 % of the range, the exact one 1.2 to 5.7 %.
+
+Measured on rorqual (the tables ``tests/integration/test_facade_grad.py`` and
+``scripts/diag/dssat_grad_gap.py --facade`` print; UFGA8201 treatment 4, published cultivar, 201 scan
+points): for the experiment's own season (1982, planting as in the file) the AD derivatives of ``HWAM``,
+``CWAM`` and ``H#AM`` with respect to ``G2`` and ``G3`` are validated (no straight-through path reaches
+them: ``ad`` equals ``ad_exact``; they equal the central difference at a 1e-5 step to 1e-10). Over the
+1979 / 1982 / 1985 x sowing -14 / 0 / +14 days scenarios the straight-through derivative differs from
+the exact one by 0 (1982 at 0 and +14 days: not water limited) to 2.8 % for yield and 8 % for tops
+weight (the same fraction for ``G2`` and ``G3``, which enter as the product of the grain sink); the
+exact one equals the 1e-5 central difference to 1e-9 in every scenario but 1979 at 0 days, where that
+step straddles a quantum (0.6 to 9 % off: trust level 1, the difference is the wrong one there). 23
+of the 36 (scenario, output, coefficient) pairs are validated; the others fall back on what the scan or the
+2 % step finds (a jump in the +-10 % scan, or a 2 % secant more than 5 % off: real non-smoothness of
+the response at that scale), and over the batch ``G2`` and ``G3`` fall back. For ``PHINT`` the AD value
+and the finite difference over +-2 % of the range differ by a factor of 2.4 on the experiment's own
+season (by sign in some scenarios): the stage days moving, which AD does not see (above); hence
+``experimental``.
 
 Runs in float64 on the host's JAX devices (set ``XLA_FLAGS=--xla_force_host_platform_device_count=<cores>``
-before importing JAX to use every CPU core). The cost is one batched forward-mode program: per
-coefficient, one derivative point, four finite-difference points and ``scan_points`` scan points, per
-scenario.
+before importing JAX to use every CPU core). The cost is two batched forward-mode programs: per
+coefficient and scenario, one derivative point in each gradient mode, four finite-difference points and
+``scan_points`` scan points.
 """
 
 from __future__ import annotations
@@ -206,8 +235,11 @@ class _Rows:
         def forward_and_tangent(inputs: Any, tab: Any, theta: Any, tan: Any, tid: Any) -> Any:
             return jax.jvp(lambda th: fn(inputs, tab, th, tid), (theta,), (tan,))
 
-        self._bound = bind_gradient_mode(forward_and_tangent, GRADIENT_MODE)
-        self._programs: dict[int, Any] = {}
+        self._bound = {
+            GRADIENT_MODE: bind_gradient_mode(forward_and_tangent, GRADIENT_MODE),
+            "exact": bind_gradient_mode(forward_and_tangent, "exact"),
+        }
+        self._programs: dict[tuple[str, int], Any] = {}
         self.compile_s = 0.0
         self.run_s = 0.0
 
@@ -216,8 +248,8 @@ class _Rows:
         """The padded length of the simulated seasons (a maturity date at this index: not reached)."""
         return int(self.sim.n_days[self.group])
 
-    def _program(self, n: int) -> Any:
-        if n not in self._programs:
+    def _program(self, n: int, mode: str) -> Any:
+        if (mode, n) not in self._programs:
             import jax
             import jax.numpy as jnp
 
@@ -225,7 +257,7 @@ class _Rows:
 
             sim = self.sim
             jf = jax.jit(
-                self._bound,
+                self._bound[mode],
                 in_shardings=(sim.rep, sim.rep, sim.bsh, sim.bsh, sim.bsh),
                 out_shardings=(sim.bsh, sim.bsh),
             )
@@ -238,12 +270,27 @@ class _Rows:
                 jnp.zeros(n, jnp.int32),
             )
             t0 = time.perf_counter()
-            self._programs[n] = jf.lower(*args).compile()
+            self._programs[(mode, n)] = jf.lower(*args).compile()
             self.compile_s += time.perf_counter() - t0
-        return self._programs[n]
+        return self._programs[(mode, n)]
 
     def __call__(self, theta: np.ndarray, tan: np.ndarray, scn: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        from agrijax.calib.dssat_day import GRADIENT_MODE
+
+        return self.evaluate(theta, tan, scn, GRADIENT_MODE)
+
+    def exact(self, theta: np.ndarray, tan: np.ndarray, scn: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """As calling the rows, with the derivative of the ``exact`` gradient mode: the derivative
+        of the forward program itself (0 through Fortran's truncations and roundings), which the
+        small-step finite difference tests (see :func:`_analyse`)."""
+        return self.evaluate(theta, tan, scn, "exact")
+
+    def evaluate(
+        self, theta: np.ndarray, tan: np.ndarray, scn: np.ndarray, mode: str
+    ) -> tuple[np.ndarray, np.ndarray]:
         import jax
+
+        from agrijax.calib.dssat_day import CUL_ORDER
 
         theta = np.asarray(theta, dtype=np.float64)
         tan = np.asarray(tan, dtype=np.float64)
@@ -254,9 +301,13 @@ class _Rows:
             cap *= 2
         n_chunks = -(-n // cap)
         size = self.sim._pad(-(-n // n_chunks))
+        if mode == "exact":
+            # the exact rows are the AD rows only (one per scenario and coefficient): one program
+            # size for every call of these rows, whatever coefficients a call asks for
+            size = max(size, min(cap, self.sim._pad(len(CUL_ORDER) * len(self.local))))
         y = np.zeros((n, self.n_entries))
         dy = np.zeros((n, self.n_entries))
-        prog = self._program(size)
+        prog = self._program(size, mode)
         for c0 in range(0, n, size):
             m = min(size, n - c0)
             sl = slice(c0, c0 + m)
@@ -287,6 +338,8 @@ def _analyse(
     n_scn: int,
     n_out: int,
     cfg: Any,
+    evaluate_exact: Callable[[np.ndarray, np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray]]
+    | None = None,
 ) -> dict[str, Any]:
     """AD derivative, finite differences, scan diagnostics and class / level of every (scenario,
     output, parameter) around the point ``x [K]``, for the parameters at ``idx`` and ``n_scn``
@@ -299,7 +352,13 @@ def _analyse(
     ``e_i``), central differences at the two ``cfg.fd_steps`` (one-sided where the step would leave
     the bounds), a line scan of ``cfg.n_scan`` points over ``+- cfg.scan_frac`` of the width (clipped
     to the bounds), and :func:`~agrijax.calib.trust.classify_pair`. The bounds are widened to hold
-    ``x`` if it lies outside them. Arrays are ``[S, E, P]`` (``y0``: ``[S, E]``)."""
+    ``x`` if it lies outside them. Arrays are ``[S, E, P]`` (``y0``: ``[S, E]``).
+
+    ``evaluate_exact``: the same evaluation with the derivative of the ``exact`` gradient mode, for an
+    ``evaluate`` whose derivative is a straight-through surrogate (as
+    :func:`~agrijax.calib.trust.fd_check`'s ``f_exact``): called on the AD rows only, its derivative
+    (``ad_exact``) is the one the small-step difference is compared with; the large step and the
+    scan test ``ad``. Without it ``ad_exact`` is ``ad``."""
     from agrijax.calib.trust import classify_pair, fd_agreement, scan_summary
 
     x = np.asarray(x, dtype=float)
@@ -353,6 +412,11 @@ def _analyse(
 
     y0 = y_a[:, 0, :e_n]  # [S, E]
     ad = dy_a.transpose(0, 2, 1)  # [S, E, P]
+    if evaluate_exact is None:
+        ad_exact = ad
+    else:
+        _, dy_x = evaluate_exact(th_a.reshape(-1, k), tan_a.reshape(-1, k), ids((s_n, p_n)))
+        ad_exact = dy_x[:, :e_n].reshape(s_n, p_n, e_n).transpose(0, 2, 1)
     fds = [
         ((y_b[:, :, st, 0, :] - y_b[:, :, st, 1, :]) / (fwd[st] + bwd[st])[None, :, None]).transpose(0, 2, 1)
         for st in range(2)
@@ -362,7 +426,9 @@ def _analyse(
     agree = [np.zeros(shape, dtype=bool), np.zeros(shape, dtype=bool)]
     for s in range(s_n):
         for st in range(2):
-            rel[st][s], agree[st][s] = fd_agreement(ad[s], fds[st][s], y0[s], w, st, cfg)
+            rel[st][s], agree[st][s] = fd_agreement(
+                (ad_exact if st == 0 else ad)[s], fds[st][s], y0[s], w, st, cfg
+            )
     cls = np.empty(shape, dtype=object)
     level = np.zeros(shape, dtype=int)
     jumps = np.zeros(shape, dtype=int)
@@ -382,6 +448,7 @@ def _analyse(
         "y0": y0,
         "extra": y_a[:, 0, e_n:],
         "ad": ad,
+        "ad_exact": ad_exact,
         "fd_small": fds[0],
         "fd_large": fds[1],
         "rel_err_small": rel[0],
@@ -466,11 +533,13 @@ class Gradient:
     ``trust`` is ``"falls back"``; column ``source`` says which), ``unit``, ``sensitivity``
     (derivative x the coefficient's ``MINIMA``-``MAXIMA`` range / ``value``: the relative change of
     the output across the whole range, linearised), ``elasticity`` (derivative x coefficient /
-    ``value``: relative change per relative change), ``ad`` and ``fd`` (the AD derivative and the
+    ``value``: relative change per relative change), ``ad``, ``ad_exact`` and ``fd`` (the AD
+    derivative, straight-through as reported, the program's own exact-mode derivative, and the
     central finite difference over +-2 % of the range), ``trust`` (``"validated gradient"``,
     ``"falls back"`` or ``"experimental"``: see :mod:`agrijax.facade_grad`), and the check's
     ``class`` (``smooth``, ``kinked``, ``jumpy``, ``step``, ``inert``), trust ``level`` (0-3: 0 = a
-    non-finite value, 1 = the AD derivative and the 1e-5 central difference disagree, 2 = they
+    non-finite value, 1 = the exact-mode derivative ``ad_exact`` and the 1e-5 central difference
+    disagree, 2 = they
     agree but the 2 % step or the scan finds a difference, 3 = all agree), the ``jumps`` its scan
     found and ``err_small`` / ``err_large`` (the relative AD / finite-difference disagreement at the
     two steps).
@@ -658,6 +727,7 @@ def _tables(
                         "elasticity": der * theta / y if y != 0.0 else np.nan,
                         "source": "central difference" if fall else "AD",
                         "ad": ad,
+                        "ad_exact": float(raw["ad_exact"][s, e, i]),
                         "fd": fd,
                         "trust": str(lab[s, e, i]),
                         "class": str(raw["class"][s, e, i]),
@@ -735,7 +805,7 @@ def _run(
     sp = ceres_space(CUL_ORDER)
     c0, r0 = rows.compile_s, rows.run_s
     t0 = time.perf_counter()
-    raw = _analyse(rows, x, idx, sp.lower, sp.upper, len(runs), len(out_names), cfg)
+    raw = _analyse(rows, x, idx, sp.lower, sp.upper, len(runs), len(out_names), cfg, rows.exact)
     matured = raw["extra"][:, 0] < rows.season_days  # the maturity date (last entry) was reached
     names_s = [_scenario_name(r) for r in scn_rows]
     lab, trust, reasons = _labels(raw, p_names, out_names, names_s)
@@ -751,7 +821,7 @@ def _run(
         "compile_s": rows.compile_s - c0,
         "run_s": rows.run_s - r0,
         "wall_s": time.perf_counter() - t0,
-        "rows": int(len(runs) * len(idx) * (5 + cfg.n_scan)),
+        "rows": int(len(runs) * len(idx) * (6 + cfg.n_scan)),
     }
     point = dict(zip(CUL_ORDER, x.tolist(), strict=True))
     return table, trust, reasons, timing, point
