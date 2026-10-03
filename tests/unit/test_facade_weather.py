@@ -86,10 +86,70 @@ def test_day_verdict_follows_the_trust_levels():
     assert list(v["level2"][0]) == ["pass", "pass", "undecidable", "undecidable", "fail", "pass"]
     assert list(v["level3"][0]) == [True, False, True, False, True, True]
     assert list(v["level"][0]) == [3, 2, 3, 1, 1, 3]
-    assert list(v["status"][0]) == ["pass", "fail", "pass", "fail", "fail", "pass"]
+    # case 5 (everything zero) is no response: neither a pass nor a failure
+    assert list(v["status"][0]) == ["pass", "fail", "pass", "fail", "fail", "zero"]
     np.testing.assert_allclose(v["rel_err_large_max"][0, 1], 0.2)
-    assert fw._variable_label([3, 3]) == fw.LABEL_VALIDATED
-    assert fw._variable_label([3, 2, 1]) == f"{fw.LABEL_FAILS}: 2 of 3 checked days fail"
+
+
+def test_level_2_is_not_judged_where_the_exact_derivative_is_cut():
+    cfg = fw.WeatherTrustConfig()
+    y0 = np.array([1000.0])
+    one = np.ones((1, 3))
+    ad, adx = 2.0 * one, 0.0 * one  # straight-through 2, exact 0 (cut by a quantiser): every day
+    small = [0.0 * one] * 3  # the small steps see nothing (0 == exact 0: no evidence about ad)
+    large = [2.0 * one, 2.0 * one, 2.0 * one]
+    large[2] = np.array([[2.0, 3.0, 2.0]])  # day 1: a user-step secant off
+    v = fw.day_verdict(ad, adx, small, large, y0, np.ones(3), cfg)
+    assert list(v["level2"][0]) == [fw.STATUS_NOT_JUDGED] * 3
+    # not judged counts as undecidable: level 3 decides, and failing it the derivative is not shown correct
+    assert list(v["level"][0]) == [3, 1, 3]
+    # a variable whose exact derivative is zero on every season day: no day of it is judged at level 2,
+    # also where the straight-through derivative is zero that day (0 == 0 is forced by the quantiser)
+    z = np.zeros((1, 2))
+    v = fw.day_verdict(
+        z, z, [z] * 3, [z, z, np.array([[0.0, 1.0]])], y0, np.ones(2), cfg, np.zeros((1, 2), bool)
+    )
+    assert list(v["level2"][0]) == [fw.STATUS_NOT_JUDGED] * 2
+    assert list(v["status"][0]) == [fw.STATUS_ZERO, fw.STATUS_FAIL]
+    # _check_results finds such a variable from the season's derivatives
+    g = np.zeros((1, 5, len(fw.VARIABLES)))
+    g[0, 1, fw._IX["RAIN"]] = 3.0  # straight-through: nonzero on one day ...
+    gx = np.zeros_like(g)  # ... exact: zero on every day
+    keys = {("RAIN", 3): {"small": [(1, 2, 1e-3)] * 3, "large": [(1, 2, 1.0)] * 3}}
+    yy = np.full((3, 1), 1000.0)
+    res = fw._check_results(keys, yy, g, gx, 1, cfg, 5)
+    assert res[("RAIN", 3)]["verdict"]["level2"][0] == fw.STATUS_NOT_JUDGED
+    assert res[("RAIN", 3)]["verdict"]["status"][0] == fw.STATUS_ZERO
+    gx[0, 1, fw._IX["RAIN"]] = 3.0  # the exact derivative is not cut: level 2 judges the day (0 == 0)
+    assert fw._check_results(keys, yy, g, gx, 1, cfg, 5)[("RAIN", 3)]["verdict"]["level2"][0] == "pass"
+
+
+def test_labels_count_distinct_days_and_call_an_all_zero_variable_inert():
+    def rows(day, level, status):
+        return pd.DataFrame({"day": day, "level": level, "status": status})
+
+    assert fw._variable_label(rows([1, 2], [3, 3], ["pass", "pass"])) == fw.LABEL_VALIDATED
+    # two outputs: day 2 fails for both, day 3 for one: 2 of 3 days (not 3 of 6 rows)
+    lab = fw._variable_label(
+        rows([1, 2, 3] * 2, [3, 1, 3, 3, 2, 2], ["pass", "fail", "pass", "pass", "fail", "fail"])
+    )
+    assert lab == f"{fw.LABEL_FAILS}: 2 of 3 checked days fail"
+    zero = rows([1, 2, 3, 4], [3] * 4, ["zero"] * 4)
+    assert (
+        fw._variable_label(zero) == f"{fw.LABEL_INERT}: zero derivative and no response on all 4 checked days"
+    )
+    # zero days with passing days: validated; zero days never fail
+    assert fw._variable_label(rows([1, 2], [3, 3], ["zero", "pass"])) == fw.LABEL_VALIDATED
+    tab = zero.assign(output="HWAM", variable="RAIN", level2="pass")
+    sh = fw._shares(tab, ["output", "variable"]).iloc[0]
+    assert sh["days"] == 4 and sh["zero_days"] == 4 and sh["nonzero_days"] == 0
+    assert np.isnan(sh["level3"]) and sh["label"].startswith(fw.LABEL_INERT)
+    mixed = rows([1, 2, 3, 4], [3, 3, 1, 3], ["zero", "pass", "fail", "pass"])
+    sh = fw._shares(mixed.assign(output="HWAM", variable="SRAD", level2="pass"), ["output", "variable"]).iloc[
+        0
+    ]
+    assert sh["zero_days"] == 1 and sh["nonzero_days"] == 3
+    np.testing.assert_allclose([sh["level3"], sh["level1"]], [2 / 3, 1 / 3])
     for var in ("TMAX", "TMIN", "SRAD"):
         assert fw.TEMPERATURE_CAVEAT in fw._with_caveat(var, fw.LABEL_VALIDATED)
     for var in ("RAIN", "IRRD"):
@@ -126,6 +186,40 @@ def test_mulch_interception_right_derivative_at_zero_rain():
         with gradient_mode(mode):
             _, dr = tangents()
         np.testing.assert_allclose(float(dr.watavl), 0.7)
+
+
+def test_soilev_stage2_right_derivative_at_zero_infiltration():
+    from agrijax.processes.soil_water.bucket_evap.ritchie import SoilevStore, soilev_rate
+
+    s2 = 2.0
+    store = SoilevStore(9.0, s2, (s2 / 3.5) ** 2, 0.9)  # stage 2: SUMES1 = U = 9 mm
+
+    def run(w, eos=5.0):
+        es, st = soilev_rate(store, eos, w, 0.3, 0.1, 5.0, 0.3, 9.0)
+        return es, jnp.asarray(st.sumes2)
+
+    for eos, (d_es, d_s2) in ((5.0, (1.0, 0.0)), (1.0, (0.0, -1.0))):  # ES below / at EOS
+        (es0, s20), (des, ds2) = jax.jvp(
+            lambda w, eos=eos: run(w, eos), (jnp.asarray(0.0),), (jnp.asarray(1.0),)
+        )
+        h = 1e-6  # the right-hand difference of the forward model
+        es_h, s2_h = run(h, eos)
+        np.testing.assert_allclose(
+            [(float(es_h) - float(es0)) / h, (float(s2_h) - float(s20)) / h], [d_es, d_s2], atol=1e-6
+        )
+        np.testing.assert_allclose([float(des), float(ds2)], [d_es, d_s2])
+    # values unchanged: the dry branch's (ES = MIN(3.5 SQRT(T + 1) - SUMES2, EOS))
+    es0, _ = run(0.0)
+    np.testing.assert_allclose(float(es0), 3.5 * np.sqrt((s2 / 3.5) ** 2 + 1.0) - s2, rtol=1e-12)
+    # above 0 mm nothing changes (the wet branch's own derivative)
+    _, (des1, _) = jax.jvp(run, (jnp.asarray(0.5),), (jnp.asarray(1.0),))
+    np.testing.assert_allclose(float(des1), 1.0)
+    from agrijax.core.grad import gradient_mode
+
+    for mode in ("ste", "exact"):  # a derivative of the function, the same in every gradient mode
+        with gradient_mode(mode):
+            _, (des, _) = jax.jvp(run, (jnp.asarray(0.0),), (jnp.asarray(1.0),))
+        np.testing.assert_allclose(float(des), 1.0)
 
 
 def test_stage_helpers():
@@ -334,8 +428,10 @@ def test_toy_checks(toy):
     assert set(fwd["status"]) == {"fail"}
     assert ws.trust["SRAD"] == f"{fw.LABEL_VALIDATED} ({fw.TEMPERATURE_CAVEAT})"
     n_rain = int((sd["variable"] == "RAIN").sum())
+    # distinct days (two outputs per day; the forward-difference days fail for CWAM only)
     assert (
-        ws.trust["RAIN"] == f"{fw.LABEL_FAILS}: {len(fwd)} of {n_rain} checked days fail ({fw.WATER_CAVEAT})"
+        ws.trust["RAIN"]
+        == f"{fw.LABEL_FAILS}: {len(fwd)} of {n_rain // 2} checked days fail ({fw.WATER_CAVEAT})"
     )
     assert ws.trust["TMAX"].startswith(fw.LABEL_VALIDATED) and fw.TEMPERATURE_CAVEAT in ws.trust["TMAX"]
     s = ws.checks.summary.set_index(["output", "variable"])
@@ -352,7 +448,7 @@ def test_toy_checks(toy):
     q = whole[whole["output"] == "CWAM"].set_index("perturbation")
     np.testing.assert_allclose(q["gap"], 0.0, atol=1e-9)  # central difference of a quadratic
     assert np.all(q["curvature"] > 0.0)
-    assert ws.daily["checked"].isin(["", "pass", "fail"]).all()
+    assert ws.daily["checked"].isin(["", *fw.DAY_STATUSES]).all()
     assert "temperature derivatives" in str(ws)
 
 
@@ -404,6 +500,22 @@ def test_toy_companions(toy):
     np.testing.assert_allclose(t2.loc["SRAD", "linear"], C[: MAT + 1, fw._IX["SRAD"]].sum())
     with pytest.raises(ValueError, match="no weather files"):
         ws.attribution()
+
+
+def test_companions_refuse_options_and_restore_float64(toy):
+    from agrijax import facade_execution as fx
+
+    ws, _ = toy
+    with fx.options(precision="float32"):
+        for call in (ws.phenology_free, ws.brute_force, ws.attribution):
+            with pytest.raises(ValueError, match="float64"):
+                call()
+    try:  # a result made inside ``with aj.options():`` after the block reset jax_enable_x64
+        jax.config.update("jax_enable_x64", False)
+        ws.phenology_free([1.0])
+        assert jax.config.jax_enable_x64
+    finally:
+        jax.config.update("jax_enable_x64", True)
 
 
 # ------------------------------------------------------------------------------ climatology, facade
@@ -466,6 +578,15 @@ def test_attribution_leaves_the_season_year_out(toy, tmp_path):
         a = att.daily[(att.daily["output"] == "HWAM") & (att.daily["variable"] == "SRAD")]
         np.testing.assert_allclose(a["climatology"], 12.0)
         assert ws.attribution(rerun=False, leave_season_out=False).years == [1981, 1982, 1983]
+        ctx.weather_files = [files[1]]  # only the season's own year: say so, and how to proceed
+        with pytest.raises(
+            ValueError, match=r"only the season's own year\(s\) \[1982\].*leave_season_out=False"
+        ):
+            ws.attribution(rerun=False)
+        assert ws.attribution(rerun=False, leave_season_out=False).years == [1982]
+        with pytest.raises(ValueError, match=r"among years=\[1982\]"):
+            ctx.weather_files = files
+            ws.attribution(rerun=False, years=[1982])
     finally:
         ctx.weather_files = old
 
@@ -486,6 +607,7 @@ def test_facade_reuses_a_scenario_and_its_programs(monkeypatch):
         return ["result"]
 
     monkeypatch.setattr(ajd.Experiment, "scenarios", scenarios)
+    monkeypatch.setattr(ajd.Experiment, "inputs", lambda self, trno, se=None: SimpleNamespace(days=[1985060]))
     monkeypatch.setattr(fw, "weather_sensitivity", fake_ws)
     for _ in range(2):
         assert exp.weather_sensitivity(2, year=1985) == "result"
@@ -495,6 +617,9 @@ def test_facade_reuses_a_scenario_and_its_programs(monkeypatch):
     assert r1[0] is run and r2[0] is run and n1 == n2 == ["TEST_t02 1985 +0 d"]
     exp.weather_sensitivity(2, year=1985, sowing_shift=7)
     assert calls["scenarios"] == 2 and calls["ws"][-1][3] != k1
+    k7 = calls["ws"][-1][3]
+    exp.weather_sensitivity(2, sowing_shift=7)  # year=None is the experiment's own year (1985): same key
+    assert calls["scenarios"] == 2 and calls["ws"][-1][3] == k7
 
 
 def test_cache_builds_once_per_owner_and_key():
@@ -508,6 +633,16 @@ def test_cache_builds_once_per_owner_and_key():
     assert len(built) == 1
     fw._cached(own, ("k", 2), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
     assert len(built) == 2
+    # at most CACHE_PER_OWNER keys per owner, the least recently used dropped first
+    fw._cached(own, ("k", 1), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
+    for j in range(3, 3 + fw.CACHE_PER_OWNER - 1):
+        fw._cached(own, ("k", j), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
+    assert len(built) == 2 + fw.CACHE_PER_OWNER - 1
+    fw._cached(own, ("k", 1), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
+    assert len(built) == 2 + fw.CACHE_PER_OWNER - 1  # recently used: kept
+    fw._cached(own, ("k", 2), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
+    assert len(built) == 2 + fw.CACHE_PER_OWNER  # dropped: rebuilt
+    assert len(fw._CACHE[id(own)][1]) == fw.CACHE_PER_OWNER
 
 
 def test_variables_parsing_and_facade_signatures():
@@ -518,7 +653,7 @@ def test_variables_parsing_and_facade_signatures():
     sig = inspect.signature(ajd.Experiment.weather_sensitivity)
     assert list(sig.parameters)[:4] == ["self", "treatment", "outputs", "variables"]
     assert sig.parameters["variables"].default == ("SRAD", "TMAX", "TMIN", "RAIN")
-    assert {"year", "sowing_shift", "check", "config"} <= set(sig.parameters)
+    assert {"year", "sowing_shift", "check", "config", "soil_evaporation"} <= set(sig.parameters)
     assert "variables" in inspect.signature(ajd.Scenarios.weather_sensitivity).parameters
     res = fw.WeatherSensitivities(["a", "b", "c"])
     res.years = [1979, 1982, 1982]

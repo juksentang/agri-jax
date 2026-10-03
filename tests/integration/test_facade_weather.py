@@ -131,11 +131,13 @@ def test_calendar_stages_labels_and_checks(ws):
     assert len(ws.daily) == len(OUTPUTS) * t_cal * len(VARIABLES)
     assert list(ws.trust) == VARIABLES
     for v, lab in ws.trust.items():
-        assert lab.startswith((fw.LABEL_VALIDATED, fw.LABEL_FAILS))
+        assert lab.startswith((fw.LABEL_VALIDATED, fw.LABEL_FAILS, fw.LABEL_INERT))
         assert (fw.TEMPERATURE_CAVEAT in lab) == (v in fw.PHENOLOGY)
         assert (fw.WATER_CAVEAT in lab) == (v in fw.WATER)
     summ = ws.checks.summary
-    np.testing.assert_allclose(summ[["level3", "level2", "level1"]].sum(axis=1), 1.0)
+    nz = summ[summ["nonzero_days"] > 0]  # level shares are over the days with a response
+    np.testing.assert_allclose(nz[["level3", "level2", "level1"]].sum(axis=1), 1.0)
+    assert (summ["zero_days"] + summ["nonzero_days"] == summ["days"]).all()
     for (o, v), g in ws.daily.groupby(["output", "variable"]):
         st = ws.stages[(ws.stages["output"] == o) & (ws.stages["variable"] == v)]
         assert st["sum"].sum() == pytest.approx(g["derivative"].sum(), rel=1e-9, abs=1e-12)
@@ -148,7 +150,7 @@ def test_calendar_stages_labels_and_checks(ws):
     temp = whole.loc[("HWAM", "TMAX and TMIN +-1 degC")]
     assert temp["mdat_shift_plus"] < 0 < temp["mdat_shift_minus"]  # warmer: earlier maturity
     sd = ws.checks.single_day
-    assert len(sd) and set(sd["status"]) <= {"pass", "fail"} and set(sd["level"]) <= {1, 2, 3}
+    assert len(sd) and set(sd["status"]) <= set(fw.DAY_STATUSES) and set(sd["level"]) <= {1, 2, 3}
     att = ws.attribution()
     assert len(att.years) > 10 and 1982 not in att.years  # leave-one-out
     for frame in (att.daily, att.by_stage, att.total):

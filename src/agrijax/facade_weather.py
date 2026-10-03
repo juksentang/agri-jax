@@ -74,13 +74,18 @@ whole-season check reports any shift as well.
     below 0 (column ``one_sided``). **Level 2** (three-valued, on the exact-mode derivative): the
     small-step differences agree with each other (to 1e-3) and with the derivative -> pass, with each
     other but not with it -> fail, not with each other -> undecidable (a quantum or a threshold inside
-    1e-3 units). **Level 3** (on the straight-through derivative, the one reported): it agrees with the
+    1e-3 units). It is **not judged** where the exact-mode derivative is zero while the straight-through
+    one is not, and on every day of a variable whose exact-mode derivative is zero on every season day:
+    a quantiser cuts the exact derivative there (rain and irrigation reach the outputs only through the
+    soil-water rounding, so their level 2 is never judged), and a 0 == 0 comparison says nothing about
+    the reported derivative; not judged counts as undecidable. **Level 3** (on the straight-through derivative, the one reported): it agrees with the
     secant at every user step (to 5 %), else the day fails: curvature, a threshold or a stage day inside
     a user step is a failure, not an undecidable case. The day's trust level is that of
     :mod:`agrijax.calib.trust`
     (3: level 3 passes and level 2 does not fail; 2: level 2 passes, level 3 fails; 1: level 2 fails,
-    or is undecidable and level 3 fails); a day passes at level 3. Both zero (below ``abs_floor``)
-    counts as agreeing. Rainfall passes the runoff curve number, infiltration and the drainage
+    or is undecidable / not judged and level 3 fails); a day passes at level 3. Both zero (below
+    ``abs_floor``) counts as agreeing; a day where both derivatives and every difference are zero has
+    status ``zero`` (no response: neither a pass nor a failure). Rainfall passes the runoff curve number, infiltration and the drainage
     thresholds: its outcome is reported as found;
 (b) whole-season reruns: ``SRAD`` x(1 +- 5 %), ``TMAX`` / ``TMIN`` (and both) +- 1 degC, ``RAIN`` and
     ``IRRD`` x(1 +- 10 %) on every simulated day, against the summed gradient ``sum_t d output / d x_t
@@ -88,10 +93,12 @@ whole-season check reports any shift as well.
     with the silking and maturity shifts of the reruns (the temperature gap includes the stage days
     moving, which the gradient excludes by construction);
 
-``checks.summary`` gives, per output and variable, the shares of the checked days at level 3 / 2 / 1 and
-of the level-2 outcomes; a variable's label is ``"validated gradient"`` when every checked day of every
-output is at level 3, else ``"not validated: k of n checked days fail"`` (with the caveats). The label is
-about the days checked; :meth:`WeatherSensitivity.brute_force` runs the same check on every day.
+``checks.summary`` gives, per output and variable, the zero days and, over the others, the shares at
+level 3 / 2 / 1 and of the level-2 outcomes. A variable's label counts distinct days (a day fails when
+any output fails there): ``"inert: ..."`` when every checked day is zero (no response, nothing
+validated), ``"validated gradient"`` when no checked day fails, else ``"not validated: k of n checked
+days fail"`` (with the caveats). The label is about the days checked;
+:meth:`WeatherSensitivity.brute_force` runs the same check on every day.
 Rain and irrigation reach the calendar through germination (the seed layer's water): their labels
 carry :data:`WATER_CAVEAT`.
 
@@ -128,6 +135,7 @@ from __future__ import annotations
 import datetime as _dt
 import time
 import weakref
+from collections import OrderedDict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -136,10 +144,14 @@ from typing import Any
 import numpy as np
 
 __all__ = [
+    "DAY_STATUSES",
     "LABEL_FAILS",
+    "LABEL_INERT",
     "LABEL_VALIDATED",
     "LINEAR_CAVEAT",
     "STAGE_NAMES",
+    "STATUS_NOT_JUDGED",
+    "STATUS_ZERO",
     "TEMPERATURE_CAVEAT",
     "VARIABLES",
     "WATER_CAVEAT",
@@ -182,7 +194,17 @@ _TEMPERATURE_RERUN_NOTE = f"rerun includes earlier/later development; the gradie
 
 LABEL_VALIDATED = "validated gradient"
 LABEL_FAILS = "not validated"
+#: a variable whose derivative and every difference are zero on every checked day: no response, nothing
+#: validated (``calib/trust.py``'s ``inert`` class)
+LABEL_INERT = "inert"
 STATUS_PASS, STATUS_FAIL, STATUS_UNDECIDABLE = "pass", "fail", "undecidable"
+#: level 2 does not test the reported derivative: the exact-mode derivative is zero (cut by a quantiser
+#: on the path) where the straight-through one is not, that day or on every day of the season
+STATUS_NOT_JUDGED = "not judged"
+#: a checked day whose derivatives and differences are all zero (below ``abs_floor``): no response
+STATUS_ZERO = "zero"
+#: checked-day statuses (``single_day["status"]``, ``daily["checked"]``)
+DAY_STATUSES: tuple[str, ...] = (STATUS_PASS, STATUS_FAIL, STATUS_ZERO)
 
 #: CERES-Maize ``ISTAGE`` codes: the stage the crop is in (MZ_PHENOL.for INTEGR block comments,
 #: :mod:`agrijax.processes.crop.ceres_maize.constants`)
@@ -281,6 +303,7 @@ def day_verdict(
     y0: Any,
     h_scale: Any,
     cfg: WeatherTrustConfig = DEFAULT_CONFIG,
+    judged: Any = None,
 ) -> dict[str, np.ndarray]:
     """The verdicts of days ``[E, D]`` (outputs x days): ``ad`` / ``ad_exact`` the straight-through and
     exact-mode derivatives, ``small`` / ``large`` the differences at the three small and the three
@@ -289,7 +312,13 @@ def day_verdict(
     three-valued on ``ad_exact``; level 3 = ``ad`` agrees with every user-step secant); the day's
     ``level`` follows :mod:`agrijax.calib.trust`: 1 if level 2 fails, or is undecidable and level 3
     fails; 2 if level 2 passes and level 3 fails; 3 if level 3 passes (and level 2 does not fail).
-    ``status`` is ``pass`` at level 3, ``fail`` otherwise."""
+
+    Level 2 is **not judged** (:data:`STATUS_NOT_JUDGED`, counted as undecidable: level 3 decides) where
+    the exact-mode derivative is zero and the straight-through one is not (the exact one is cut by a
+    quantiser: a 0 == 0 comparison says nothing about the reported derivative), and wherever ``judged``
+    (``[E, D]`` bool) is False (the caller's: the exact derivative is zero on every day of the season).
+    ``status`` is ``zero`` (:data:`STATUS_ZERO`) where both derivatives and every difference are zero
+    (no response: neither a pass nor a failure), else ``pass`` at level 3 and ``fail`` otherwise."""
     from agrijax.calib.trust import L2_FAIL, L2_UNDECIDABLE, TrustConfig, fd_diagnostics
 
     # the step values only index fd0 / fd1 here (the differences are given): positions 1 and 2
@@ -301,14 +330,25 @@ def day_verdict(
         abs_floor=cfg.abs_floor,
     )
     d = fd_diagnostics(ad, ad_exact, list(small), list(large), y0, h_scale, tcfg)
-    l2 = d["status0"]
+    ad_a, adx_a = np.abs(np.asarray(ad, dtype=float)), np.abs(np.asarray(ad_exact, dtype=float))
+    floor = cfg.abs_floor * np.maximum(np.abs(np.asarray(y0, dtype=float)), 1.0)[:, None]
+    floor = floor / np.asarray(h_scale, dtype=float)[None, :]
+    cut = (adx_a <= floor) & (ad_a > floor)
+    if judged is not None:
+        cut = cut | ~np.asarray(judged, dtype=bool)
+    fds = np.abs(np.stack([np.asarray(f, dtype=float) for f in (*small, *large)]))
+    zero = (ad_a <= floor) & (adx_a <= floor) & np.all(fds <= floor[None], axis=0)
+    l2 = np.where(
+        cut, STATUS_NOT_JUDGED, np.where(d["status0"] == L2_UNDECIDABLE, STATUS_UNDECIDABLE, d["status0"])
+    )
     l3 = np.asarray(d["agree1"], dtype=bool)
-    level = np.where(l2 == L2_FAIL, 1, np.where(l3, 3, np.where(l2 == L2_UNDECIDABLE, 1, 2)))
+    open_l2 = (l2 == STATUS_UNDECIDABLE) | (l2 == STATUS_NOT_JUDGED)
+    level = np.where(l2 == L2_FAIL, 1, np.where(l3, 3, np.where(open_l2, 1, 2)))
     return {
-        "level2": np.where(l2 == L2_UNDECIDABLE, STATUS_UNDECIDABLE, l2).astype(object),
+        "level2": l2.astype(object),
         "level3": l3,
         "level": level,
-        "status": np.where(level == 3, STATUS_PASS, STATUS_FAIL).astype(object),
+        "status": np.where(zero, STATUS_ZERO, np.where(level == 3, STATUS_PASS, STATUS_FAIL)).astype(object),
         "fd_small": d["fd0"],
         "rel_err_small": d["rel_err0"],
         "spread_small": d["spread0"],
@@ -316,10 +356,18 @@ def day_verdict(
     }
 
 
-def _variable_label(levels: Iterable[int]) -> str:
-    lv = [int(x) for x in levels]
-    bad = sum(1 for x in lv if x != 3)
-    return LABEL_VALIDATED if bad == 0 else f"{LABEL_FAILS}: {bad} of {len(lv)} checked days fail"
+def _variable_label(rows: Any) -> str:
+    """The label of one variable from its checked rows (``day``, ``level``, ``status``; every output):
+    counted in **distinct days** (a day fails when any output fails there). ``inert`` when every row is
+    ``zero`` (no response: nothing to validate); ``validated gradient`` when no day fails."""
+    day = [int(x) for x in rows["day"]]
+    lv = [int(x) for x in rows["level"]]
+    st = [str(x) for x in rows["status"]]
+    days = set(day)
+    if all(s == STATUS_ZERO for s in st):
+        return f"{LABEL_INERT}: zero derivative and no response on all {len(days)} checked days"
+    bad = {t for t, x, s in zip(day, lv, st, strict=True) if s != STATUS_ZERO and x != 3}
+    return LABEL_VALIDATED if not bad else f"{LABEL_FAILS}: {len(bad)} of {len(days)} checked days fail"
 
 
 def _stage_runs(stage: np.ndarray) -> list[tuple[int, int, int]]:
@@ -710,6 +758,16 @@ class WeatherSensitivity:
         return _p(self, output=output, **kw)
 
     # ---------------------------------------------------------------- companions
+    @staticmethod
+    def _ready(what: str) -> None:
+        """As the main call: refuse a non-default ``aj.options`` block, and run in float64 (a result made
+        inside ``with aj.options():`` keeps working after the block put ``jax_enable_x64`` back)."""
+        from agrijax.dssat import _x64
+        from agrijax.facade_execution import require_default_options
+
+        require_default_options(what)
+        _x64()
+
     def _delta_rows(self, deltas: Sequence[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
         ctx = self._ctx
         n = len(deltas)
@@ -727,6 +785,7 @@ class WeatherSensitivity:
         the silking / maturity shifts [days] (pandas)."""
         import pandas as pd
 
+        self._ready("weather_sensitivity(...).phenology_free")
         ctx = self._ctx
         offs = [float(o) for o in offsets]
         deltas = []
@@ -779,6 +838,7 @@ class WeatherSensitivity:
         ``attrs``: rows run and their wall time; ``one_device``: on one device, as the gradient pass."""
         import pandas as pd
 
+        self._ready("weather_sensitivity(...).brute_force")
         ctx = self._ctx
         vs = list(self.variables if variables is None else variables)
         which = "one" if one_device else "many"
@@ -788,7 +848,7 @@ class WeatherSensitivity:
             deltas, keys = _check_rows(days, x, ctx.progs.n_days, ctx.cfg)
             d_rows, s_rows = self._delta_rows(deltas)
             yy, secs = ctx.progs.values(d_rows, s_rows, which)
-            res = _check_results(keys, yy, ctx.g, ctx.g_exact, len(self.outputs), ctx.cfg)
+            res = _check_results(keys, yy, ctx.g, ctx.g_exact, len(self.outputs), ctx.cfg, ctx.t_cal)
             out = pd.DataFrame(
                 _day_rows(keys, res, self.outputs, x, ctx.g, ctx.g_exact, ctx.dates, ctx.stage, ctx.cfg)
             )
@@ -847,6 +907,8 @@ class WeatherSensitivity:
         the season on the climatological weather (each variable alone, and all together)."""
         import pandas as pd
 
+        if rerun:
+            self._ready("weather_sensitivity(...).attribution")
         ctx = self._ctx
         vs = [v for v in self.variables if v in WEATHER]
         if not vs:
@@ -868,7 +930,17 @@ class WeatherSensitivity:
                 if not ctx.weather_files:
                     raise ValueError("attribution: no weather files known; pass climatology= or anomaly=")
                 own = sorted({d.year for d in ctx.dates[:t_cal]}) if leave_season_out else []
-                climatology_tab = _station_climatology(ctx.weather_files, years, own)
+                try:
+                    climatology_tab = _station_climatology(ctx.weather_files, years, own)
+                except ValueError as err:
+                    if not own:
+                        raise
+                    asked = "" if years is None else f" among years={sorted(int(y) for y in years)}"
+                    raise ValueError(
+                        f"attribution: the station files hold only the season's own year(s) {own}{asked}, "
+                        "which leave_season_out=True leaves out of the climatology: pass "
+                        "leave_season_out=False, years= (other years), climatology= or anomaly="
+                    ) from err
             else:
                 climatology_tab = pd.DataFrame(climatology)
             used_years = list(climatology_tab.attrs.get("years", []))
@@ -972,22 +1044,31 @@ class _Context:
 
 
 # ------------------------------------------------------------------------------ the analysis
-_CACHE: dict[int, tuple[Any, dict[Any, _Programs]]] = {}
+_CACHE: dict[int, tuple[Any, OrderedDict[Any, _Programs]]] = {}
+#: compiled program sets kept per owner (least recently used dropped first): each holds its inputs on
+#: the devices and its executables; a sweep over years belongs in one ``scenarios(...)`` call
+CACHE_PER_OWNER = 4
 
 
 def _cached(owner: Any, key: Any, build: Callable[[], _Programs]) -> _Programs:
-    """The programs of ``key`` kept on ``owner`` (an experiment or a scenario set) while it lives."""
+    """The programs of ``key`` kept on ``owner`` (an experiment or a scenario set) while it lives, at
+    most :data:`CACHE_PER_OWNER` keys per owner (the least recently used is dropped; results made from
+    it keep their own reference)."""
     if owner is None:
         return build()
     k = id(owner)
     hit = _CACHE.get(k)
     if hit is None or hit[0]() is not owner:
-        store: dict[Any, _Programs] = {}
+        store: OrderedDict[Any, _Programs] = OrderedDict()
         _CACHE[k] = (weakref.ref(owner, lambda _r, k=k: _CACHE.pop(k, None)), store)
     else:
         store = hit[1]
-    if key not in store:
+    if key in store:
+        store.move_to_end(key)
+    else:
         store[key] = build()
+        while len(store) > CACHE_PER_OWNER:
+            store.popitem(last=False)
     return store[key]
 
 
@@ -1054,10 +1135,14 @@ def _check_results(
     g_exact: np.ndarray,
     e_n: int,
     cfg: WeatherTrustConfig,
+    t_cal: int,
 ) -> dict[tuple[str, int], dict[str, Any]]:
     """The differences and :func:`day_verdict` of every checked day (``yy`` the rows of
     :func:`_check_rows`, the base row first), per variable in one call: ``(v, t) -> {"fds_large",
-    "verdict": {field: [E]}}``."""
+    "verdict": {field: [E]}}``. Level 2 is not judged on any day of a variable (and output) whose
+    exact-mode derivative is zero on every season day (``t_cal`` days) while the straight-through one is
+    not: the exact derivative is cut by a quantiser on every path (rain and irrigation reach the outputs
+    only through the soil-water rounding), so level 2 cannot test the reported derivative."""
     y0 = yy[0, :e_n]
 
     def fd(ip: int, im: int, h: float) -> np.ndarray:
@@ -1072,7 +1157,12 @@ def _check_results(
         large = [np.stack([fd(*keys[(v, t)]["large"][j]) for t in ts], axis=1) for j in range(3)]
         ad = np.stack([g[:, t, _IX[v]] for t in ts], axis=1)
         adx = np.stack([g_exact[:, t, _IX[v]] for t in ts], axis=1)
-        ver = day_verdict(ad, adx, small, large, y0, np.full(len(ts), max(cfg.steps[v])), cfg)
+        floor = cfg.abs_floor * np.maximum(np.abs(y0), 1.0)[:, None] / max(cfg.steps[v])
+        cut = np.all(np.abs(g_exact[:, :t_cal, _IX[v]]) <= floor, axis=1) & np.any(
+            np.abs(g[:, :t_cal, _IX[v]]) > floor, axis=1
+        )
+        judged = np.repeat(~cut[:, None], len(ts), axis=1)
+        ver = day_verdict(ad, adx, small, large, y0, np.full(len(ts), max(cfg.steps[v])), cfg, judged)
         for k, t in enumerate(ts):
             out[(v, t)] = {
                 "fds_large": [f[:, k] for f in large],
@@ -1123,27 +1213,37 @@ def _day_rows(
 
 
 def _shares(table: Any, by: Sequence[str]) -> Any:
-    """Per group of ``by``: the days checked and the shares at trust level 3 / 2 / 1 and of the level-2
-    outcomes (pass / fail / undecidable), with the label they give."""
+    """Per group of ``by``: the rows checked (``days``), how many have no response (``zero_days``:
+    derivatives and differences all zero), and over the **others** (``nonzero_days``; NaN when there
+    are none) the shares at trust level 3 / 2 / 1 and of the level-2 outcomes (pass / fail /
+    undecidable / not judged), with the label they give."""
     import pandas as pd
 
     rows = []
     for key, grp in table.groupby(list(by), sort=False):
         n = len(grp)
-        lv = grp["level"].to_numpy()
-        l2 = grp["level2"].to_numpy()
+        nz = grp["status"].to_numpy() != STATUS_ZERO
+        lv = grp["level"].to_numpy()[nz]
+        l2 = grp["level2"].to_numpy()[nz]
         v = key[list(by).index("variable")] if "variable" in by else ""
+
+        def share(m: np.ndarray) -> float:
+            return float(np.mean(m)) if m.size else float("nan")
+
         rows.append(
             {
                 **dict(zip(by, key if isinstance(key, tuple) else (key,), strict=True)),
                 "days": n,
-                "level3": float(np.mean(lv == 3)),
-                "level2": float(np.mean(lv == 2)),
-                "level1": float(np.mean(lv == 1)),
-                "small_pass": float(np.mean(l2 == STATUS_PASS)),
-                "small_fail": float(np.mean(l2 == STATUS_FAIL)),
-                "small_undecidable": float(np.mean(l2 == STATUS_UNDECIDABLE)),
-                "label": _with_caveat(str(v), _variable_label(lv)),
+                "zero_days": int(n - nz.sum()),
+                "nonzero_days": int(nz.sum()),
+                "level3": share(lv == 3),
+                "level2": share(lv == 2),
+                "level1": share(lv == 1),
+                "small_pass": share(l2 == STATUS_PASS),
+                "small_fail": share(l2 == STATUS_FAIL),
+                "small_undecidable": share(l2 == STATUS_UNDECIDABLE),
+                "small_not_judged": share(l2 == STATUS_NOT_JUDGED),
+                "label": _with_caveat(str(v), _variable_label(grp)),
             }
         )
     return pd.DataFrame(rows)
@@ -1218,7 +1318,7 @@ def _analyse(
         yy, check_s = progs.values(np.stack(all_rows), np.full(len(all_rows), i))
         n_check_rows = len(all_rows)
         y0 = yy[0]
-        res = _check_results(keys, yy[: len(sd_deltas)], g, g_exact, e_n, cfg)
+        res = _check_results(keys, yy[: len(sd_deltas)], g, g_exact, e_n, cfg, t_cal)
         single = pd.DataFrame(_day_rows(keys, res, out_names, x, g, g_exact, dates, stage, cfg))
         for o_, v_, t_, st_ in zip(
             single["output"], single["variable"], single["day"], single["status"], strict=True
@@ -1254,7 +1354,7 @@ def _analyse(
         summary = _shares(single, ["output", "variable"])
         checks = WeatherChecks(single, whole, summary)
         for v in vs:
-            labels[v] = _with_caveat(v, _variable_label(single.loc[single["variable"] == v, "level"]))
+            labels[v] = _with_caveat(v, _variable_label(single[single["variable"] == v]))
     else:
         labels = {v: _with_caveat(v, "not checked") for v in vs}
     # the calendar
@@ -1332,6 +1432,15 @@ def _analyse(
             "rain and irrigation pass the runoff curve number, infiltration and drainage thresholds: see "
             "the single-day verdicts of RAIN / IRRD."
         )
+    if checks is not None:
+        nj = checks.single_day
+        nj_vs = [v for v in vs if (nj.loc[nj["variable"] == v, "level2"] == STATUS_NOT_JUDGED).all()]
+        if nj_vs:
+            notes.append(
+                f"level 2 not judged for {', '.join(nj_vs)}: the exact-mode derivative is zero on every "
+                "day (cut by a quantiser on every path, e.g. the soil-water rounding); the reported "
+                "straight-through derivative is checked at the user steps (level 3) only."
+            )
     ctx = _Context(
         progs, i, g, g_exact, t_cal, stage, dates, yrdoy, e_mat, e_silk, cfg, [Path(f) for f in weather_files]
     )
