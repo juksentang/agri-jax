@@ -17,6 +17,20 @@ depends on the **gradient mode**:
     solvers that offer an implicit-function-theorem backward pass use it
     (:func:`solver_adjoint` returns ``"implicit"``).
 
+**The straight-through derivative, defined.** For a model whose only non-smooth steps are the
+quantisers of this module (:func:`trunc_st`, :func:`round_st`, :func:`real4_store`), the ``ste``
+derivative is the derivative of the model with the quantisation removed, taken along the quantised
+trajectory: every quantiser contributes the identity (``trunc_st`` / ``round_st``; ``real4_store``
+contributes the identity with the tangent rounded to binary32, in the ``exact`` mode too: unlike
+``trunc_st`` / ``round_st``, whose exact-mode derivative is 0, its exact derivative is that of the
+cast). :func:`unrounded` (a trace-time switch, orthogonal to the gradient mode; :func:`bind_unrounded`
+fixes it on a function) builds that model itself: every quantiser returns its argument unchanged
+(value and derivative); :mod:`agrijax.calib.trust` reports it as a diagnostic. It is the one setting
+here that changes forward values; it is never on unless asked for. Like the mode it is read at trace
+time: a function already jitted keeps its earlier setting (bind it with :func:`bind_unrounded`). The
+events (:func:`event_ste`, :func:`select_ste`) are thresholds, not quantisers: :func:`unrounded`
+leaves them as they are.
+
 The mode is resolved **at trace time**, never traced: the forward program is the same in every
 mode (tested bit for bit), and a mode is orthogonal to the process variants of the registry.
 Resolution order: the ``mode=`` argument of a helper, the innermost :func:`gradient_mode`
@@ -61,7 +75,9 @@ __all__ = [
     "GradientMode",
     "ModeBound",
     "ModeMismatchError",
+    "Unrounded",
     "bind_gradient_mode",
+    "bind_unrounded",
     "coef_div",
     "current_gradient_mode",
     "curv_lin",
@@ -75,6 +91,8 @@ __all__ = [
     "solver_adjoint",
     "tabex",
     "trunc_st",
+    "unrounded",
+    "unrounded_active",
 ]
 
 #: floor of the segment widths ``x1 - xb``, ``xm - x2`` (``curv_lin``) and ``arg[j] - arg[j-1]``
@@ -97,6 +115,7 @@ DEFAULT_GRADIENT_MODE: GradientMode = "ste"
 GRADIENT_MODE_ENV = "AGRI_JAX_GRADIENT_MODE"
 
 _MODE: contextvars.ContextVar[str | None] = contextvars.ContextVar("agrijax_gradient_mode", default=None)
+_UNROUNDED: contextvars.ContextVar[bool] = contextvars.ContextVar("agrijax_unrounded", default=False)
 
 #: smallest accumulator step used by :func:`event_ste` (the ramp width is ``max(rate, _RATE_FLOOR)``)
 _RATE_FLOOR: float = numerical_guard(
@@ -195,6 +214,52 @@ class ModeBound(Generic[_P, _R]):
 
     def __repr__(self) -> str:
         return f"ModeBound({getattr(self.fn, '__name__', self.fn)!r}, mode={self.mode!r})"
+
+
+@contextlib.contextmanager
+def unrounded() -> Iterator[None]:
+    """Trace the quantisers of this module as the identity (module docstring: the model whose exact
+    derivative the ``ste`` derivative is). Read at trace time, like the gradient mode, so it applies
+    to what is traced inside the block; a function already jitted keeps its earlier setting (``jax.jit``
+    caches the traced program by the function and its argument shapes, not by this switch). Build the
+    unrounded function once with :func:`bind_unrounded`, which enters the switch whenever it is
+    traced::
+
+        f_unrounded = jax.jit(bind_unrounded(f))
+        y = f_unrounded(theta)      # no truncation, rounding or REAL*4 store, whatever f was before
+    """
+    token = _UNROUNDED.set(True)
+    try:
+        yield
+    finally:
+        _UNROUNDED.reset(token)
+
+
+def unrounded_active() -> bool:
+    """Whether :func:`unrounded` is in force (at trace time)."""
+    return _UNROUNDED.get()
+
+
+class Unrounded(Generic[_P, _R]):
+    """``fn`` traced with the quantisers removed (:func:`unrounded`) whenever it is called (so at every
+    trace by ``jax.jit``, ``jax.jvp`` or an enclosing trace). Built by :func:`bind_unrounded`; combine
+    with a gradient mode as ``bind_gradient_mode(bind_unrounded(fn), mode)``."""
+
+    def __init__(self, fn: Callable[_P, _R]) -> None:
+        functools.update_wrapper(self, fn, updated=())
+        self.fn = fn
+
+    def __call__(self, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with unrounded():
+            return self.fn(*args, **kwargs)
+
+    def __repr__(self) -> str:
+        return f"Unrounded({getattr(self.fn, '__name__', self.fn)!r})"
+
+
+def bind_unrounded(fn: Callable[_P, _R]) -> Unrounded[_P, _R]:
+    """``fn`` with the quantisers removed at every trace (:class:`Unrounded`)."""
+    return Unrounded(fn)
 
 
 def bind_gradient_mode(fn: Callable[_P, _R], mode: str | None = None) -> ModeBound[_P, _R]:
@@ -305,11 +370,13 @@ def trunc_st(x: ArrayLike, *, mode: str | None = None) -> Array:
     with DSSAT's ``REAL(INT(x))``; the straight-through derivative is 1 instead of 0 so that
     gradients flow through the 1e-3 quantisation DSSAT applies to TURFAC and RLV. The ``exact``
     mode evaluates the same expression and stops its gradient, so the forward value is
-    bit-identical in every mode.
+    bit-identical in every mode. Under :func:`unrounded` it returns ``x``.
 
     Source: DSSAT-CSM MZ_GROSUB.for (TURFAC), MZ_ROOTS.for (RLV) ``REAL(INT(x*1000))/1000``.
     """
     x = jnp.asarray(x)
+    if _UNROUNDED.get():
+        return x
     y = x + lax.stop_gradient(jnp.trunc(x) - x)
     return lax.stop_gradient(y) if resolve_gradient_mode(mode) == "exact" else y
 
@@ -324,7 +391,8 @@ def _nint(x: Array) -> Array:
 def round_st(x: ArrayLike, decimals: int = 0, *, mode: str | None = None) -> Array:
     """``REAL(NINT(x * 10**decimals)) / 10**decimals``: Fortran ``NINT`` (half away from zero, not
     ``jnp.round``'s half to even) with an identity derivative in ``ste`` / ``implicit`` mode and
-    0 in ``exact`` mode. The forward value is bit-identical in every mode.
+    0 in ``exact`` mode. The forward value is bit-identical in every mode. Under :func:`unrounded` it
+    returns ``x``.
 
     ``decimals`` is static. With ``decimals = 0`` the value is ``NINT(x)``. The final division
     is a true division (see :func:`_divide`), not XLA's multiplication by the reciprocal.
@@ -335,6 +403,8 @@ def round_st(x: ArrayLike, decimals: int = 0, *, mode: str | None = None) -> Arr
     if int(decimals) != decimals or decimals < 0:
         raise ValueError(f"decimals must be a non-negative integer, got {decimals!r}")
     x = jnp.asarray(x)
+    if _UNROUNDED.get():
+        return x
     scale = _DECIMAL_BASE ** int(decimals)
     xs = x * scale if decimals else x
     q = _nint(lax.stop_gradient(xs))
@@ -362,11 +432,14 @@ def real4_store(x: ArrayLike) -> Array:
     derivative is the identity with the tangent / cotangent rounded to binary32 (relative change
     at most 2**-24; a cotangent below the binary32 normal range becomes 0). An exact identity
     derivative would be ``x + lax.stop_gradient(real4_store(x) - x)`` (straight-through, as in
-    :func:`round_st`); not used, so that the gradients stay those of the convert pair.
+    :func:`round_st`); not used, so that the gradients stay those of the convert pair. Under
+    :func:`unrounded` it returns ``x``.
 
     Source: DSSAT-CSM v4.8.6.0 Soil/SoilWater/WATBAL.for:503-505 (``SW(L) = ANINT(SW(L)*1.E6)/1.E6``
     into ``REAL SW(NL)``), ModuleDefs.for (``REAL`` soil variables), BSD-3.
     """
+    if _UNROUNDED.get():
+        return jnp.asarray(x)
     return lax.reduce_precision(
         jnp.asarray(x), exponent_bits=_REAL4_EXPONENT_BITS, mantissa_bits=_REAL4_MANTISSA_BITS
     )

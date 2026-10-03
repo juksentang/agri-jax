@@ -236,8 +236,11 @@ def test_runtime_cache_key_includes_the_mode() -> None:
     run_batch(model, pb, forcing, state0)
     with G.gradient_mode("exact"):
         run_batch(model, pb, forcing, state0)
+    with G.unrounded():
+        run_batch(model, pb, forcing, state0)
     runners = model.__dict__["_agrijax_batch_runners"]
-    assert {k[-1] for k in runners} == {"ste", "exact"}
+    # (gradient mode, unrounded): the unrounded model is a different program
+    assert {k[-2:] for k in runners} == {("ste", False), ("exact", False), ("ste", True)}
 
 
 def test_old_ceres_location_reexports_the_core_helpers() -> None:
@@ -387,3 +390,45 @@ def test_bound_jit_compiles_once() -> None:
     assert len(traces) == n  # the derivative program is cached too
     with G.gradient_mode("exact"), pytest.raises(G.ModeMismatchError):
         j(x)  # forward-only call under another mode's context: raises by design
+
+
+# ------------------------------------------------------------------------------ the unrounded model
+def test_unrounded_removes_every_quantiser_and_only_inside_its_context():
+    """Under ``unrounded`` (and a ``bind_unrounded`` function) ``trunc_st``, ``round_st`` and
+    ``real4_store`` return their argument (value and derivative 1) in every gradient mode; outside it
+    they quantise as before (the straight-through derivative is the unrounded model's)."""
+    x = jnp.asarray(1.23456789012)
+
+    def f(z):
+        return G.trunc_st(z * 1000.0) / 1000.0 + G.round_st(z, 6) + G.real4_store(z)
+
+    for mode in G.GRADIENT_MODES:
+        bound = G.bind_gradient_mode(G.bind_unrounded(f), mode)
+        y, dy = jax.jvp(bound, (x,), (jnp.ones(()),))
+        assert float(y) == pytest.approx(3.0 * float(x), rel=1e-15 if X64 else 1e-6)
+        assert float(dy) == pytest.approx(3.0, rel=1e-12 if X64 else 1e-6)
+    with G.unrounded():
+        assert G.unrounded_active() and float(G.trunc_st(jnp.asarray(2.7))) == 2.7
+    assert not G.unrounded_active()
+    assert float(G.trunc_st(jnp.asarray(2.7))) == 2.0
+    y_ste, dy_ste = jax.jvp(G.bind_gradient_mode(f, "ste"), (x,), (jnp.ones(()),))
+    assert float(y_ste) != pytest.approx(3.0 * float(x), rel=1e-6)
+    assert float(dy_ste) == pytest.approx(3.0, rel=1e-6)
+    assert "Unrounded" in repr(G.bind_unrounded(f))
+
+
+def test_unrounded_is_read_at_trace_time_and_bind_unrounded_keeps_it():
+    """A function jitted before the switch keeps its rounded program inside ``with unrounded()`` (jit's
+    cache does not key on the switch); ``bind_unrounded`` gives the unrounded program wherever it is
+    traced."""
+    x = jnp.asarray(2.7)
+
+    def f(z):
+        return G.trunc_st(z)
+
+    fj = jax.jit(f)
+    assert float(fj(x)) == 2.0  # traced here, rounded
+    with G.unrounded():
+        assert float(fj(x)) == 2.0  # the cached rounded program, not the unrounded one
+    assert float(jax.jit(G.bind_unrounded(f))(x)) == pytest.approx(2.7)
+    assert float(fj(x)) == 2.0

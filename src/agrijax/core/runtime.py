@@ -27,7 +27,7 @@ from jax import lax
 
 from agrijax.core.dims import check_tree_dims
 from agrijax.core.execution import current_execution, on_platform_of
-from agrijax.core.grad import current_gradient_mode
+from agrijax.core.grad import current_gradient_mode, unrounded_active
 from agrijax.core.model import Model
 from agrijax.core.process import check_enabled
 
@@ -121,6 +121,7 @@ def _batch_fn(model: Model, checkpoint: bool, in_axes: Any, jit: bool) -> Callab
         check_enabled(),
         current_execution(),
         current_gradient_mode(),
+        unrounded_active(),
     )
     try:
         hash(key)

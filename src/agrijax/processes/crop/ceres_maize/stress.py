@@ -21,7 +21,7 @@ from jax.typing import ArrayLike
 from jaxtyping import Array
 
 from agrijax.core.coefficients import Coefficients, Provenance, coef, numerical_guard
-from agrijax.core.process import process
+from agrijax.core.process import STE_CONVENTION, GradientConvention, process
 from agrijax.core.units import mm_to_cm
 
 from ._util import coef_div, safe_div, trunc_st
@@ -162,6 +162,17 @@ def saturation_factor(
             "DSSAT single precision (REAL*4) is not reproduced",
             "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
             "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
+    gradient_conventions=(
+        GradientConvention(
+            "agrijax.processes.crop.ceres_maize.stress.water_stress_factors",
+            "trunc_st",
+            "TURFAC = REAL(INT(TURFAC*1000))/1000 (MZ_GROSUB.for, water stress factors); " + STE_CONVENTION,
+            "the 1e-3 quantum of the turgor factor would cut the derivative of expansion growth to 0",
+            "scripts/diag/dssat_grad_gap.py: no contribution to the G2 / G3 derivatives on UFGA8201 t4; "
+            "with the SW rounding it carries part of the P5 / PHINT straight-through difference in "
+            "water-limited seasons (independent review of wt/grad_gap)",
         ),
     ),
 )
