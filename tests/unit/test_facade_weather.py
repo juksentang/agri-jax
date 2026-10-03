@@ -7,6 +7,9 @@
   (disagreeing secants fail, they are never undecidable), the day's level 1 / 2 / 3; the labels and
   caveats (radiation and temperature: the stage calendar; rain and irrigation: germination);
 * the right-hand derivative of the mulch interception at 0 mm of rain (1 - cover, not 1), values unchanged;
+  SOILEV stage 2 keeps the dry branch's derivative at zero infiltration (consistent with WATBAL's gate);
+* only the toy-pipeline tests are float64-only: the rest (verdicts, kernel tangents, hook, rows, cache,
+  signatures) also run in the float32 CI pass;
 * the perturbation hook adds a day's change to every place the model reads it (and only that day);
 * the single-day rows (top-k and random days; one difference scheme per day: forward at every step
   where the value would go below 0, else central) and the whole-season rows;
@@ -42,10 +45,14 @@ from agrijax.forcing.dssat_weather import (
     hourly_mean_temperature_weights,
 )
 
-pytestmark = [
-    pytest.mark.skipif(not jax.config.jax_enable_x64, reason="finite differences need float64"),
-    pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)"),
-]
+_X64 = bool(jax.config.jax_enable_x64)
+
+
+def x64_only(f: Any) -> Any:
+    """The toy-pipeline tests: their finite differences need float64 (and the companions switch float64
+    on, which must not leak into the float32 pass). Every other test here runs in both passes."""
+    f = pytest.mark.skipif(not _X64, reason="finite differences need float64")(f)
+    return pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)")(f)
 
 
 # ------------------------------------------------------------------------------ TAVG weights
@@ -124,6 +131,22 @@ def test_level_2_is_not_judged_where_the_exact_derivative_is_cut():
     assert fw._check_results(keys, yy, g, gx, 1, cfg, 5)[("RAIN", 3)]["verdict"]["level2"][0] == "pass"
 
 
+def test_level_2_is_not_judged_where_the_exact_derivative_differs_from_the_reported_one():
+    cfg = fw.WeatherTrustConfig()
+    y0 = np.array([2010.0])
+    # day 0 (UFGA t2 1982 SRAD day 76): straight-through 4.766, exact cut to a residual -0.0252 that the
+    # small steps confirm (level 2 would pass), user-step secants far from 4.766
+    # day 1: the two agree within 5 %: level 2 judges the exact derivative
+    # day 2: they differ and the small steps contradict the exact one: the level-2 fail is kept
+    ad = np.array([[4.766, 2.0, 4.766]])
+    adx = np.array([[-0.0252, 1.95, -0.0252]])
+    small = [np.array([[-0.02519, 1.95, 3.0]])] * 3
+    large = [np.array([[-0.5, 2.0, 4.766]])] * 3
+    v = fw.day_verdict(ad, adx, small, large, y0, np.ones(3), cfg)
+    assert list(v["level2"][0]) == [fw.STATUS_NOT_JUDGED, "pass", "fail"]
+    assert list(v["level"][0]) == [1, 3, 1]
+
+
 def test_labels_count_distinct_days_and_call_an_all_zero_variable_inert():
     def rows(day, level, status):
         return pd.DataFrame({"day": day, "level": level, "status": status})
@@ -169,26 +192,32 @@ def test_mulch_interception_right_derivative_at_zero_rain():
 
     r, dr = tangents()
     assert float(r.watavl) == 0.0 and float(r.mulwatadd) == 0.0  # values as the dry branch gives them
-    np.testing.assert_allclose([float(dr.watavl), float(dr.mulwatadd)], [0.7, 0.3])
-    h = 1e-6  # the right-hand difference of the forward model
-    np.testing.assert_allclose(float(run(h).watavl) / h, 0.7, rtol=1e-9)
-    np.testing.assert_allclose(float(run(h).mulwatadd) / h, 0.3, rtol=1e-9)
+    np.testing.assert_allclose([float(dr.watavl), float(dr.mulwatadd)], [0.7, 0.3], rtol=1e-6)
+    # the right-hand difference of the forward model (linear in rain this far from saturation)
+    h, rtol = (1e-6, 1e-9) if _X64 else (1e-2, 1e-5)
+    np.testing.assert_allclose(float(run(h).watavl) / h, 0.7, rtol=rtol)
+    np.testing.assert_allclose(float(run(h).mulwatadd) / h, 0.3, rtol=rtol)
     # no mulch, or a saturated mulch (deficit <= 0): all of the rain goes on, derivative 1
     for kw in ({"mass": 0.0}, {"mulchwat": 1e4}):
         _, dr = tangents(**kw)
-        np.testing.assert_allclose([float(dr.watavl), float(dr.mulwatadd)], [1.0, 0.0])
+        np.testing.assert_allclose([float(dr.watavl), float(dr.mulwatadd)], [1.0, 0.0], rtol=1e-6, atol=1e-7)
     # above 0 mm nothing changes
     _r1, dr1 = jax.jvp(lambda w: run(w), (jnp.asarray(0.5),), (jnp.asarray(1.0),))
-    np.testing.assert_allclose(float(dr1.watavl), 0.7)
+    np.testing.assert_allclose(float(dr1.watavl), 0.7, rtol=1e-6)
     for mode in ("ste", "exact"):  # a derivative of the function, the same in every gradient mode
         from agrijax.core.grad import gradient_mode
 
         with gradient_mode(mode):
             _, dr = tangents()
-        np.testing.assert_allclose(float(dr.watavl), 0.7)
+        np.testing.assert_allclose(float(dr.watavl), 0.7, rtol=1e-6)
 
 
-def test_soilev_stage2_right_derivative_at_zero_infiltration():
+def test_soilev_stage2_keeps_the_dry_branch_derivative_at_zero_infiltration():
+    """At WINF = 0 SOILEV's stage 2 keeps the dry branch's derivative (d ES / d WINF = 0, so d SUMES2 =
+    -1): WATBAL infiltrates only PINF > 1e-4 cm, so a right-hand d ES = d WINF would take rain that never
+    reached the soil (d profile water / d rain = -1 on 0 < WINF <= 1e-3 mm, review round 2). Values are
+    the dry branch's; above 0 mm the wet branch's own derivative."""
+    from agrijax.core.grad import gradient_mode
     from agrijax.processes.soil_water.bucket_evap.ritchie import SoilevStore, soilev_rate
 
     s2 = 2.0
@@ -198,28 +227,13 @@ def test_soilev_stage2_right_derivative_at_zero_infiltration():
         es, st = soilev_rate(store, eos, w, 0.3, 0.1, 5.0, 0.3, 9.0)
         return es, jnp.asarray(st.sumes2)
 
-    for eos, (d_es, d_s2) in ((5.0, (1.0, 0.0)), (1.0, (0.0, -1.0))):  # ES below / at EOS
-        (es0, s20), (des, ds2) = jax.jvp(
-            lambda w, eos=eos: run(w, eos), (jnp.asarray(0.0),), (jnp.asarray(1.0),)
-        )
-        h = 1e-6  # the right-hand difference of the forward model
-        es_h, s2_h = run(h, eos)
-        np.testing.assert_allclose(
-            [(float(es_h) - float(es0)) / h, (float(s2_h) - float(s20)) / h], [d_es, d_s2], atol=1e-6
-        )
-        np.testing.assert_allclose([float(des), float(ds2)], [d_es, d_s2])
-    # values unchanged: the dry branch's (ES = MIN(3.5 SQRT(T + 1) - SUMES2, EOS))
-    es0, _ = run(0.0)
-    np.testing.assert_allclose(float(es0), 3.5 * np.sqrt((s2 / 3.5) ** 2 + 1.0) - s2, rtol=1e-12)
-    # above 0 mm nothing changes (the wet branch's own derivative)
-    _, (des1, _) = jax.jvp(run, (jnp.asarray(0.5),), (jnp.asarray(1.0),))
-    np.testing.assert_allclose(float(des1), 1.0)
-    from agrijax.core.grad import gradient_mode
-
-    for mode in ("ste", "exact"):  # a derivative of the function, the same in every gradient mode
+    for mode in ("ste", "exact"):
         with gradient_mode(mode):
-            _, (des, _) = jax.jvp(run, (jnp.asarray(0.0),), (jnp.asarray(1.0),))
-        np.testing.assert_allclose(float(des), 1.0)
+            (es0, _), (des, ds2) = jax.jvp(run, (jnp.asarray(0.0),), (jnp.asarray(1.0),))
+        np.testing.assert_allclose([float(des), float(ds2)], [0.0, -1.0], atol=1e-6)
+    np.testing.assert_allclose(float(es0), 3.5 * np.sqrt((s2 / 3.5) ** 2 + 1.0) - s2, rtol=1e-6)
+    _, (des1, _) = jax.jvp(run, (jnp.asarray(0.5),), (jnp.asarray(1.0),))
+    np.testing.assert_allclose(float(des1), 1.0, rtol=1e-6)
 
 
 def test_stage_helpers():
@@ -304,6 +318,11 @@ def test_single_day_and_whole_season_rows():
     tops = {(v, t) for (v, t, k) in days if k == "top"}
     assert tops == {("SRAD", 1), ("SRAD", 3), ("RAIN", 4), ("RAIN", 2)}
     assert sum(1 for (_, _, k) in days if k == "random") == 2
+    # a variable's days do not depend on the other variables requested (nor on their order)
+    for v in ("SRAD", "RAIN"):
+        alone = fw._check_days(g0, [v], t_n, cfg)
+        assert alone == [d for d in days if d[0] == v]
+        assert alone == [d for d in fw._check_days(g0, ["RAIN", "TMAX", "SRAD"], t_n, cfg) if d[0] == v]
     deltas, keys = fw._check_rows(days, x, n_days, cfg)
     assert np.all(deltas[0] == 0.0)
     for (v, t), ent in keys.items():
@@ -394,6 +413,7 @@ def toy():
     return ws, progs
 
 
+@x64_only
 def test_toy_calendar_and_stages(toy):
     ws, _ = toy
     assert ws.dates["days"] == MAT + 1 and ws.dates["matured"]
@@ -413,6 +433,7 @@ def test_toy_calendar_and_stages(toy):
     assert list(cal.columns) == ["SRAD", "TMAX", "TMIN", "RAIN"] and len(cal) == MAT + 1
 
 
+@x64_only
 def test_toy_checks(toy):
     ws, _ = toy
     sd = ws.checks.single_day
@@ -452,6 +473,7 @@ def test_toy_checks(toy):
     assert "temperature derivatives" in str(ws)
 
 
+@x64_only
 def test_toy_companions(toy):
     ws, _ = toy
     pf = ws.phenology_free([-1.0, 1.0])
@@ -498,10 +520,22 @@ def test_toy_companions(toy):
     att2 = ws.attribution(anomaly=an, rerun=False)
     t2 = att2.total[att2.total["output"] == "HWAM"].set_index("variable")
     np.testing.assert_allclose(t2.loc["SRAD", "linear"], C[: MAT + 1, fw._IX["SRAD"]].sum())
+    # a positional table (plain RangeIndex) is read by position
+    t3 = ws.attribution(anomaly=an.reset_index(drop=True), rerun=False).total
+    np.testing.assert_allclose(t3["linear"], att2.total["linear"])
+    # a YYYYDDD index that misses simulated days (a table from the planting date) is refused, never
+    # read by position
+    with pytest.raises(ValueError, match=rf"2 simulated days missing.*first \[{yrdoy[0]}, {yrdoy[1]}\]"):
+        ws.attribution(
+            anomaly=pd.concat([an.iloc[2:], an.iloc[:2].set_axis([2099001, 2099002])]), rerun=False
+        )
+    with pytest.raises(ValueError, match="index by YYYYDDD"):
+        ws.attribution(anomaly=an.set_axis(np.arange(5, MAT + 6)), rerun=False)
     with pytest.raises(ValueError, match="no weather files"):
         ws.attribution()
 
 
+@x64_only
 def test_companions_refuse_options_and_restore_float64(toy):
     from agrijax import facade_execution as fx
 
@@ -559,6 +593,7 @@ def test_climatology_of_weather_files(tmp_path):
         fw.climatology(files, years=[1950])
 
 
+@x64_only
 def test_attribution_leaves_the_season_year_out(toy, tmp_path):
     from agrijax.io.dssat.wth import write_wth
 
@@ -658,5 +693,27 @@ def test_variables_parsing_and_facade_signatures():
     res = fw.WeatherSensitivities(["a", "b", "c"])
     res.years = [1979, 1982, 1982]
     assert res[0] == "a" and res[1979] == "a"
+    assert res[np.int64(1979)] == "a"  # a year read from scen.table
     with pytest.raises(KeyError, match="1982"):
         res[1982]
+    with pytest.raises(KeyError, match="no scenario for year 1990"):
+        res[np.int64(1990)]
+    assert res[np.int64(2)] == "c" and res[-1] == "c"
+
+
+def test_programs_kept_under_a_key_belong_to_their_runs(monkeypatch):
+    from agrijax import dssat
+    from agrijax import facade_grad as fg
+
+    class Owner:
+        pass
+
+    monkeypatch.setattr(dssat, "_x64", lambda: None)  # nothing here computes; keep the pass's precision
+    monkeypatch.setattr(fg, "_entries", lambda names, run: [])
+    run_a, run_b = SimpleNamespace(name="a"), SimpleNamespace(name="b")
+    own = Owner()
+    fw._cached(own, ("k", ("HWAM",)), lambda: SimpleNamespace(runs=[run_a]))  # type: ignore[arg-type,return-value]
+    with pytest.raises(ValueError, match="built for other runs"):
+        fw.weather_sensitivity([run_b], ["b"], owner=own, key="k")
+    with pytest.raises(ValueError, match="built for other runs"):
+        fw.weather_sensitivity([run_a, run_b], ["a", "b"], owner=own, key="k")
