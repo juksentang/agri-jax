@@ -136,15 +136,68 @@ def test_level_2_is_not_judged_where_the_exact_derivative_differs_from_the_repor
     y0 = np.array([2010.0])
     # day 0 (UFGA t2 1982 SRAD day 76): straight-through 4.766, exact cut to a residual -0.0252 that the
     # small steps confirm (level 2 would pass), user-step secants far from 4.766
-    # day 1: the two agree within 5 %: level 2 judges the exact derivative
+    # day 1: the two agree to the level-2 tolerance (1e-3): level 2 judges the exact derivative
     # day 2: they differ and the small steps contradict the exact one: the level-2 fail is kept
-    ad = np.array([[4.766, 2.0, 4.766]])
-    adx = np.array([[-0.0252, 1.95, -0.0252]])
-    small = [np.array([[-0.02519, 1.95, 3.0]])] * 3
-    large = [np.array([[-0.5, 2.0, 4.766]])] * 3
-    v = fw.day_verdict(ad, adx, small, large, y0, np.ones(3), cfg)
-    assert list(v["level2"][0]) == [fw.STATUS_NOT_JUDGED, "pass", "fail"]
-    assert list(v["level"][0]) == [1, 3, 1]
+    # day 3: they differ by 2.5 % (within level 3's 5 %, not level 2's 1e-3): not judged, level 3 decides
+    ad = np.array([[4.766, 2.0, 4.766, 2.0]])
+    adx = np.array([[-0.0252, 1.9995, -0.0252, 1.95]])
+    small = [np.array([[-0.02519, 1.9995, 3.0, 1.95]])] * 3
+    large = [np.array([[-0.5, 2.0, 4.766, 2.0]])] * 3
+    v = fw.day_verdict(ad, adx, small, large, y0, np.ones(4), cfg)
+    assert list(v["level2"][0]) == [fw.STATUS_NOT_JUDGED, "pass", "fail", fw.STATUS_NOT_JUDGED]
+    assert list(v["level"][0]) == [1, 3, 1, 3]
+
+
+def test_a_kink_at_the_point_is_not_a_level_2_fail():
+    # UFGA t4 1987 day 115 (TMAX exactly 35.0, the PETPT threshold): the exact derivative is the left
+    # slope -11.1176, the right slope -12.5568; every central small step is their mean -11.837, steady
+    # across h, so the central differences alone would call the exact derivative wrong
+    cfg = fw.WeatherTrustConfig()
+    y0 = np.array([5000.0])
+    lft, rgt = -11.1176, -12.5568
+    ad = np.array([[-11.1163, lft, rgt, -5.0]])  # day 0: straight-through 1e-4 off the exact (as measured)
+    adx = np.array([[lft, lft, rgt, -5.0]])  # day 2: the program takes the right side
+    cen = np.array([[(lft + rgt) / 2] * 3 + [-11.837]])
+    right = [np.array([[rgt, rgt, rgt, rgt]])] * 3
+    left = [np.array([[lft, lft, lft, lft]])] * 3
+    large = [cen] * 3
+    v = fw.day_verdict(ad, adx, [cen] * 3, large, y0, np.ones(4), cfg, None, right, left)
+    # days 0, 1: a kink, the left side; day 2: the right side; day 3: the exact derivative is neither
+    # side: fail
+    assert list(v["level2"][0]) == [fw.STATUS_KINK, fw.STATUS_KINK, fw.STATUS_KINK, "fail"]
+    assert list(v["kink_side"][0]) == ["left", "left", "right", "neither"]
+    assert list(v["level"][0]) == [1, 1, 1, 1]  # undecidable, and the central user-step secants differ
+    np.testing.assert_allclose(v["fd_small_right"][0], rgt)
+    np.testing.assert_allclose(v["fd_small_left"][0], lft)
+    # without the one-sided differences (forward-only days, or the caller's choice) the old verdict
+    w = fw.day_verdict(ad, adx, [cen] * 3, large, y0, np.ones(4), cfg)
+    assert w["level2"][0][1] == "fail" and list(w["kink_side"][0]) == [""] * 4
+    # a smooth day: both sides equal the central difference, no kink
+    s = fw.day_verdict(
+        adx[:, :1],
+        adx[:, :1],
+        [adx[:, :1]] * 3,
+        [adx[:, :1]] * 3,
+        y0,
+        np.ones(1),
+        cfg,
+        None,
+        [adx[:, :1]] * 3,
+        [adx[:, :1]] * 3,
+    )
+    assert s["level2"][0][0] == "pass" and s["kink_side"][0][0] == ""
+    # NaN sides (a forward-only day) are never a kink
+    nanr = [np.full((1, 1), np.nan)] * 3
+    s = fw.day_verdict(
+        adx[:, :1], adx[:, :1], [adx[:, :1]] * 3, [adx[:, :1]] * 3, y0, np.ones(1), cfg, None, nanr, nanr
+    )
+    assert s["level2"][0][0] == "pass"
+
+
+def test_calendar_caveat_on_the_petpt_thresholds():
+    assert fw._day_caveat("TMAX", 35.0) == fw.TMAX_HOT_CAVEAT
+    assert fw._day_caveat("TMAX", 5.0) == fw.TMAX_COLD_CAVEAT
+    assert fw._day_caveat("TMAX", 35.1) == "" and fw._day_caveat("TMIN", 35.0) == ""
 
 
 def test_labels_count_distinct_days_and_call_an_all_zero_variable_inert():
@@ -621,7 +674,11 @@ def test_attribution_leaves_the_season_year_out(toy, tmp_path):
         assert ws.attribution(rerun=False, leave_season_out=False).years == [1982]
         with pytest.raises(ValueError, match=r"among years=\[1982\]"):
             ctx.weather_files = files
-            ws.attribution(rerun=False, years=[1982])
+            ws.attribution(rerun=False, years=iter([1982]))  # a generator is read once
+        # years the files do not hold: the climatology's own error, not the leave-one-out one
+        with pytest.raises(ValueError, match="no weather in the files") as err:
+            ws.attribution(rerun=False, years=[2050])
+        assert "own year" not in str(err.value)
     finally:
         ctx.weather_files = old
 
