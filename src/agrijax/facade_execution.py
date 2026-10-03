@@ -18,9 +18,9 @@ samples) where speed and memory matter more than the last digits. What was measu
 against float64 on the same inputs (the free-run DSSAT-CSM v4.8.6 maize day of this package: the 65
 acceptance runs, the 58 CERES-Maize treatments and 7 nitrogen-off CA-TPA seasons; JAX 0.10.2, a CPU
 node and an H100; the runs are ``scripts/bench/d4_jax_scaling.py equal --precision f32`` against
-``--precision f64``, the 10 000 samples its ``sweep``; the script that tabulates the differences,
-``scripts/bench/d4_4_table.py``, is on the benchmark branch and not yet in this release, so these
-figures are reported, not re-checked by a test here; the figures the tests do check follow below):
+``--precision f64``, the 10 000 samples its ``sweep``; the script that tabulates the differences
+is not part of this release, so these figures are reported, not re-checked by a test here; the
+figures the tests do check follow below):
 
 * grain yield at maturity: relative difference median 3e-7; 64 of the 65 runs within 1e-3; the
   largest is 1.5e-2, in one treatment, where a threshold of the model is crossed differently in the

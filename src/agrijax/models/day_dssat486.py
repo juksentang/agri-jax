@@ -126,6 +126,8 @@ from agrijax.processes.crop.ceres_maize import (
     CROP_PROCESSES,
     CeresMaizeParams,
     CeresMaizeState,
+    ceres_growth_smoothed,
+    ceres_phenology_smoothed,
     plantgro_outputs,
 )
 from agrijax.processes.pet.spam_dssat import (
@@ -197,6 +199,7 @@ __all__ = [
     "mulch_evap_entry",
     "replay_processes",
     "resolve_soil_evaporation",
+    "smoothed_crop_processes",
     "soil_evaporation_entry",
     "soil_evaporation_gate_problems",
     "soil_evaporation_params_problems",
@@ -1156,6 +1159,22 @@ def day_processes(
             raise KeyError(f"no entry {k!r} in the DSSAT day")
         procs[k] = v
     return procs
+
+
+def smoothed_crop_processes(slot: str = SLOT) -> dict[str, Process]:
+    """The crop entries ``crops.<slot>.phenology`` and ``crops.<slot>.growth`` bound to the non-faithful
+    smoothed phenology and its blended growth (:mod:`agrijax.processes.crop.ceres_maize.smoothed`), as
+    ``day_processes(replace=...)``. The crop state needs its soft clocks
+    (:func:`agrijax.processes.crop.ceres_maize.with_soft_state`) and takes the gate scale from
+    ``params.smoothing``; the faithful day is unchanged."""
+    p = _p(slot)
+    ports = {"water_in": p["crop_water"], "root_out": p["root"], "snow_in": _SNOW}
+    return {
+        f"crops.{slot}.{n}": bind(
+            proc, own=p["crop"], ports=ports, params="crop", forcing="crop", name=f"crops.{slot}.{n}"
+        )
+        for n, proc in (("phenology", ceres_phenology_smoothed), ("growth", ceres_growth_smoothed))
+    }
 
 
 def replay_processes(slot: str = SLOT) -> dict[str, Process]:

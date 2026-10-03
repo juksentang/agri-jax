@@ -49,7 +49,7 @@ jobs:
         python: ["3.11", "3.12", "3.13"]
         x64: ["1"]
         include:
-          # second pass with float32 only, tolerance relaxed inside the tests (doc 05 section 4)
+          # second pass with float32 only, tolerance relaxed inside the tests
           - python: "3.12"
             x64: "0"
     steps:

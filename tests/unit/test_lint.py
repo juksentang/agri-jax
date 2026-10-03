@@ -687,7 +687,7 @@ def test_module_imports_and_import_closure(tmp_path: Path) -> None:
     assert set(lint.import_closure(["pkg.a"], tmp_path, depth=1)) == {"pkg", "pkg.a", "pkg.sub", "pkg.sub.b"}
 
 
-# AJ008 sees dynamic imports: importlib.import_module and __import__ (plan 15 section 9.18 item 1)
+# AJ008 sees dynamic imports: importlib.import_module and __import__
 DYNAMIC_SRC = """
 import importlib
 from importlib import import_module
@@ -781,7 +781,7 @@ def test_aj009_reports_module_state_mutated_from_functions(tmp_path: Path) -> No
     g.parent.mkdir()
     g.write_text(AJ009_SRC)
     assert [x for x in lint.lint_file(g) if x.rule == "AJ009"] == []  # outside processes/, iface/, forcing/
-    assert "AJ009" in lint.NOT_STRICT_RULES  # until gap G24 moves the settings registry to core
+    assert "AJ009" in lint.NOT_STRICT_RULES  # until the settings registry moves to core
     assert lint.main([str(f), "--strict"]) == 0 and lint.main([str(f), "--enforce", "AJ009"]) == 1
 
 
@@ -843,10 +843,10 @@ def test_aj011_reports_forcing_that_shadows_a_port_field(tmp_path: Path) -> None
 
 
 def test_aj009_to_aj011_on_the_package() -> None:
-    """The tree has no AJ009 finding but the numerical-settings registry (gap G24) and the Richards
-    integrator registry (``soil_water/integrator.py`` ``INTEGRATORS``, W1; a registry outside core,
-    closed with G24) and no AJ010; the AJ011 findings are exactly gap G1 (the soil-water processes'
-    uptake from the forcing)."""
+    """The tree has no AJ009 finding but the numerical-settings registry and the Richards integrator
+    registry (``soil_water/integrator.py`` ``INTEGRATORS``; a registry outside core, to move to core
+    with the settings registry) and no AJ010; the AJ011 findings are exactly the soil-water
+    processes' root water uptake read from the forcing."""
     src = Path(lint.__file__).resolve().parents[1]
     found = [f for f in lint.lint_paths([src]) if f.rule in ("AJ009", "AJ010", "AJ011")]
     by_rule = {
@@ -900,7 +900,7 @@ def test_forcing_preprocessing_gets_the_labelling_rule_only(tmp_path: Path) -> N
 # AJ012: io below the processes, site assembly (agrijax.sites) above both
 # ---------------------------------------------------------------------------
 
-#: the import cycle of the tree before D2-1b, file by file: a process module that reads DSSAT
+#: the import cycle the tree had before the layers were separated, file by file: a process module that reads DSSAT
 #: files (processes/crop/ceres_maize/dssat_inputs.py:32), a reader that builds process records
 #: (io/catpa_m3.py:314-438) and core readers that import io (core/events.py:515,538)
 AJ012_PROCESS_READS_IO = """
@@ -1026,13 +1026,13 @@ def test_aj012_the_package_has_no_io_processes_cycle() -> None:
 
 # ---------------------------------------------------------------------------
 # AJ020 / AJ021: NumPy on traced values and in-place mutation of an argument (rule 1, a pure
-# function of (state, params, forcing) -> state; both were missed before, usability review 09-29)
+# function of (state, params, forcing) -> state; both were once missed by the lint)
 # ---------------------------------------------------------------------------
 
-REVIEWER = '''
+BAD_PROCESS = '''
 @process(reads=("crop.lai",), writes=("crop.lai",))
-def reviewer(state, params, forcing_t):
-    """The review's deliberately bad process: NumPy on the state, then the input changed in place.
+def bad_process(state, params, forcing_t):
+    """A deliberately bad process: NumPy on the state, then the input changed in place.
 
     Source: fixture.
     """
@@ -1053,8 +1053,8 @@ def _new_rules(src: str, path: str = "fixture.py", header: str = HEADER) -> list
     ]
 
 
-def test_aj020_aj021_catch_the_reviewer_process(tmp_path: Path) -> None:
-    found = _new_rules(REVIEWER)
+def test_aj020_aj021_catch_a_bad_process(tmp_path: Path) -> None:
+    found = _new_rules(BAD_PROCESS)
     assert [(r, ln) for r, ln, _ in found] == [
         ("AJ020", 'lai = np.exp(state["crop"]["lai"]) * params.k'),
         ("AJ021", 'state["crop"]["lai"] = lai'),
@@ -1065,7 +1065,7 @@ def test_aj020_aj021_catch_the_reviewer_process(tmp_path: Path) -> None:
     assert lint.RULES["AJ020"][0] == lint.RULES["AJ021"][0] == "error"
     assert {"AJ020", "AJ021"} <= lint.KERNEL_RULES and not {"AJ020", "AJ021"} & lint.HOST_RULES
     f = tmp_path / "bad.py"
-    f.write_text(HEADER + textwrap.dedent(REVIEWER))
+    f.write_text(HEADER + textwrap.dedent(BAD_PROCESS))
     assert lint.main([str(f)]) == 1  # errors fail without --strict
     assert lint.main([str(f), "--ignore", "AJ020", "--ignore", "AJ021"]) == 0
 
@@ -1358,7 +1358,7 @@ def test_aj021_allows_local_values_functional_updates_and_self(tmp_path: Path) -
 
 
 # ---------------------------------------------------------------------------
-# AJ020 / AJ021 review probes: one case per evasion or false positive found in review (fixtures
+# AJ020 / AJ021 probes: one case per evasion or false positive met while testing the rules (fixtures
 # linted as code under processes/, expected set of AJ020 / AJ021 findings)
 # ---------------------------------------------------------------------------
 
@@ -1499,7 +1499,7 @@ PROBES: list[tuple[str, str, str, set[str]]] = [
 
 
 @pytest.mark.parametrize(("header", "src", "expected"), [c[1:] for c in PROBES], ids=[c[0] for c in PROBES])
-def test_aj020_aj021_review_probes(header: str, src: str, expected: set[str]) -> None:
+def test_aj020_aj021_probes(header: str, src: str, expected: set[str]) -> None:
     found = {
         f.rule
         for f in lint.lint_source(header + src, "pkg/processes/demo/x.py")

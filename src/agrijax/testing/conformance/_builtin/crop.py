@@ -28,6 +28,7 @@ from agrijax.core.runtime import run
 from agrijax.iface.crop import CanopyRecord, CropNIn
 from agrijax.processes.crop.ceres_maize import (
     CROP_PROCESSES,
+    CROP_PROCESSES_SMOOTHED,
     DSSAT_COEFFICIENTS,
     REPLAY_PROCESSES,
     CanopyCoefficients,
@@ -39,16 +40,20 @@ from agrijax.processes.crop.ceres_maize import (
     CeresSeasons,
     CeresSoil,
     CeresSpecies,
+    SmoothingCoefficients,
     ceres_growth,
+    ceres_growth_smoothed,
     ceres_phenology,
+    ceres_phenology_smoothed,
     ceres_roots,
     ceres_snow_replay,
     ceres_stress,
     ceres_water_replay,
+    with_soft_state,
 )
 from agrijax.processes.crop.ceres_maize._util import daylength, twilight_daylength
 
-from ..case import ConformanceCase, GradSpec
+from ..case import CALIBRATABLE, ConformanceCase, GradSpec
 
 # ------------------------------------------------------------------ MZCER048 IB0035, as the unit tests
 CUL = dict(
@@ -145,28 +150,40 @@ def weather(seed: int, dtype: Any, n: int = N_SEASON + N_DAYS) -> CeresReplayFor
 _SEASON = Model(CeresMaizeState, [*REPLAY_PROCESSES, *CROP_PROCESSES], outputs=lambda s, p, f: s)
 _RUN = jax.jit(lambda p, f, s: run(_SEASON, p, f, s))
 _STEPS = {"phenology": ceres_phenology, "stress": ceres_stress, "growth": ceres_growth, "roots": ceres_roots}
+#: the season and the steps of the non-faithful smoothed variant (phenology and blended growth)
+_SEASON_SMOOTHED = Model(
+    CeresMaizeState, [*REPLAY_PROCESSES, *CROP_PROCESSES_SMOOTHED], outputs=lambda s, p, f: s
+)
+_RUN_SMOOTHED = jax.jit(lambda p, f, s: run(_SEASON_SMOOTHED, p, f, s))
+_STEPS_SMOOTHED = {**_STEPS, "phenology": ceres_phenology_smoothed, "growth": ceres_growth_smoothed}
 
 
 @functools.lru_cache(maxsize=32)
-def _season(seed: int, dtype_name: str) -> tuple[Any, Any, Any]:
+def _season(seed: int, dtype_name: str, smoothed: bool = False) -> tuple[Any, Any, Any]:
     dtype = jnp.dtype(dtype_name)
     f = weather(seed, dtype)
     p = params(dtype, int(np.asarray(f.yrdoy)[2]))
-    traj = _RUN(p, f, CeresMaizeState.initial(p, 1, dtype=dtype))
-    return traj, f, p
+    s0 = CeresMaizeState.initial(p, 1, dtype=dtype)
+    if smoothed:
+        p = p.replace(smoothing=SmoothingCoefficients().as_arrays(dtype))
+        return _RUN_SMOOTHED(p, f, with_soft_state(s0)), f, p
+    return _RUN(p, f, s0), f, p
 
 
 @functools.lru_cache(maxsize=64)
-def _pre(seed: int, dtype_name: str, variant: str, before: str) -> tuple[Any, Any, Any]:
-    traj, f, p = _season(seed, dtype_name)
+def _pre(
+    seed: int, dtype_name: str, variant: str, before: str, smoothed: bool = False
+) -> tuple[Any, Any, Any]:
+    traj, f, p = _season(seed, dtype_name, smoothed)
     d = _start_day(traj, f, variant)
     s = jax.tree_util.tree_map(lambda x: x[d], traj)
     ft = jax.tree_util.tree_map(lambda x: x[d + 1], f)
     s = ceres_snow_replay(ceres_water_replay(s, p, ft), p, ft)
+    steps = _STEPS_SMOOTHED if smoothed else _STEPS
     for name in ORDER:
         if name == before:
             break
-        s = _STEPS[name](s, p, ft)
+        s = steps[name](s, p, ft)
     days = jax.tree_util.tree_map(lambda x: x[d + 1 : d + 1 + N_DAYS], f)
     return s, p, days
 
@@ -187,13 +204,15 @@ def _start_day(traj: Any, f: Any, variant: str) -> int:
 N_RANGES = {"nstres": (0.4, 0.9), "agefac": (0.4, 0.9), "ndef3": (0.5, 0.95), "npool": (0.1, 0.6)}
 
 
-def maker(before: str, nstress: bool = False) -> Any:
+def maker(before: str, nstress: bool = False, smoothed: bool = False) -> Any:
     """``make`` of the case of the process ``before`` (the state just before it runs); with
-    ``nstress`` the crop's nitrogen record holds drawn factors (:data:`N_RANGES`)."""
+    ``nstress`` the crop's nitrogen record holds drawn factors (:data:`N_RANGES`); with ``smoothed``
+    the season runs the smoothed phenology and growth (soft clocks in ``state.soft``, array gate
+    scale in ``params.smoothing``)."""
 
     def make(rng: np.random.Generator, dtype: Any, variant: str) -> tuple[Any, Any, Any]:
         seed = int(rng.integers(0, 2**31 - 1))
-        s, p, f = _pre(seed, jnp.dtype(dtype).name, variant, before)
+        s, p, f = _pre(seed, jnp.dtype(dtype).name, variant, before, smoothed)
         if nstress:
             dt = s.growth.lai.dtype
             n = {
@@ -290,6 +309,18 @@ _NO_BALANCE = (
 )
 _VARIANTS = tuple(DAY)
 _GRAD = GradSpec()
+#: the smoothed variant: the hard-coded coefficients and the cultivar coefficients its gates smooth
+_SMOOTHED_GRAD = GradSpec(
+    wrt=(
+        CALIBRATABLE,
+        "cultivar.p1",
+        "cultivar.p2",
+        "cultivar.p5",
+        "cultivar.phint",
+        "cultivar.g2",
+        "cultivar.g3",
+    )
+)
 #: the season boundaries use no hard-coded coefficient; their parameters are the season table's
 _SEASON_GRAD = GradSpec(wrt=("seasons.pltpop", "seasons.sdepth", "seasons.rowspc"))
 
@@ -322,6 +353,20 @@ def cases() -> list[ConformanceCase]:
             coefficient_sets=("coefficients",),
         )
     )
+    for name in ("phenology", "growth"):
+        out.append(
+            ConformanceCase(
+                key=f"crop/ceres_maize.{name}@dssat-4.8.6.0:alt_smoothed",
+                make=maker(name, smoothed=True),
+                variants=_VARIANTS,
+                n_days=N_DAYS,
+                ports=PORTS[name],
+                no_balance=_NO_BALANCE,
+                grad=_SMOOTHED_GRAD,
+                coefficient_sets=("coefficients", "smoothing"),
+                transforms_exact=False,
+            )
+        )
     out.append(
         ConformanceCase(
             key="crop/ceres_maize.season_init@dssat-4.8.6.0:faithful",

@@ -335,7 +335,7 @@ def test_mulch_interception_right_derivative_at_zero_rain():
 def test_soilev_stage2_keeps_the_dry_branch_derivative_at_zero_infiltration():
     """At WINF = 0 SOILEV's stage 2 keeps the dry branch's derivative (d ES / d WINF = 0, so d SUMES2 =
     -1): WATBAL infiltrates only PINF > 1e-4 cm, so a right-hand d ES = d WINF would take rain that never
-    reached the soil (d profile water / d rain = -1 on 0 < WINF <= 1e-3 mm, review round 2). Values are
+    reached the soil (d profile water / d rain = -1 on 0 < WINF <= 1e-3 mm). Values are
     the dry branch's; above 0 mm the wet branch's own derivative."""
     from agrijax.core.grad import gradient_mode
     from agrijax.processes.soil_water.bucket_evap.ritchie import SoilevStore, soilev_rate

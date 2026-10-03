@@ -1,7 +1,7 @@
-"""G1: the weather sensitivity calendar on UFGA8201 (rainfed t2, irrigated t4, several weather years) and
+"""The weather sensitivity calendar on UFGA8201 (rainfed t2, irrigated t4, several weather years) and
 the CA-TPA seasons, with the trust checks and the measured cost (run on a rorqual CPU node).
 
-    python scripts/diag/g1_weather_sensitivity.py [--parts ufga,years,catpa,cost,dssat] [--out DIR]
+    python scripts/diag/weather_sensitivity.py [--parts ufga,years,catpa,cost,dssat] [--out DIR]
 
 Writes JSON / CSV under ``$AGRI_JAX_DATA/validation/aj_g1`` (default) and prints the tables. The
 reference program ``dscsm048`` is only timed (``--parts dssat``), for the per-day-perturbation cost

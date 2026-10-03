@@ -29,8 +29,8 @@ RULES: dict[str, tuple[str, str]] = {
     "AJ021": ("error", "in-place mutation of an argument (state / params / forcing or an alias of one)"),
 }
 #: warnings that ``--strict`` does not turn into failures (``--enforce RULE`` makes each fail):
-#: AJ009 until gap G24 (the numerical-settings registry of the soil-water slot moves to core) and
-#: AJ011 until gap G1 (the soil-water day's uptake from the forcing) are closed
+#: AJ009 until the numerical-settings registry of the soil-water slot has moved to core, and
+#: AJ011 until the soil-water day no longer reads the root water uptake from the forcing
 NOT_STRICT_RULES: frozenset[str] = frozenset({"AJ009", "AJ011"})
 #: file-level rules (run once per file, not per function)
 FILE_RULES: frozenset[str] = frozenset({"AJ008", "AJ009", "AJ010", "AJ011", "AJ012"})
@@ -71,8 +71,8 @@ ALL_RULES: frozenset[str] = frozenset(RULES)
 #: directories whose non-process functions are numerical kernels (KERNEL_RULES)
 _KERNEL_DIRS: frozenset[str] = frozenset({"processes"})
 #: rules applied to non-``@process`` functions of ``forcing/`` modules: the forcing preprocessing
-#: is host-side NumPy that runs before the day (not traced, M3 contract decision 11), so the
-#: tracing rules do not apply, but its coefficients are labelled like a kernel's
+#: is host-side NumPy that runs before the day (not traced; the coupling contract keeps it outside
+#: the day), so the tracing rules do not apply, but its coefficients are labelled like a kernel's
 HOST_RULES: frozenset[str] = frozenset({"AJ007"})
 #: directories whose non-process functions are host-side preprocessing (HOST_RULES)
 _HOST_DIRS: frozenset[str] = frozenset({"forcing"})

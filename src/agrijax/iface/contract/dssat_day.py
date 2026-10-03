@@ -43,10 +43,11 @@ class RefDayEntry:
     real process, ``source`` the reference call site (``file:line``). A ``replay`` row is stood in
     for by a replay of a reference run until the owner's process replaces it.
 
-    The owner tags are plain labels: ``io`` (the input readers), ``D1-A`` (the tipping-bucket soil
-    water), ``D1B`` (the soil-evaporation modules), ``W5`` (ROOTWU, the root water uptake),
-    ``M2`` (the CERES-Maize crop) and ``D2`` (the day's own adapters and the processes no other
-    module owns; a replay row must name the module that will replace it, so it cannot be ``D2``).
+    The owner tags are plain labels: ``io`` (the input readers), ``tipping_bucket`` (the tipping-bucket
+    soil water), ``soil_evaporation`` (the soil-evaporation modules), ``root_water_uptake`` (ROOTWU),
+    ``ceres_maize`` (the CERES-Maize crop) and ``day_adapters`` (the day's own adapters and the
+    processes no other module owns; a replay row must name the module that will replace it, so it
+    cannot be ``day_adapters``).
     """
 
     row: str
@@ -113,7 +114,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "soil_water/soil_albedo@dssat-4.8.6.0:faithful",
         ("PD2",),
         "registered",
-        "D2",
+        "day_adapters",
         f"{_LAND}:311 (SOIL RATE) -> Soil/SOIL.for:127 (SOILDYN) -> {_SD}:1053 (ALBEDO_avg)",
         "MSALB from the start-of-day SW(1), DUL(1), SALB and the mulch cover; the other daily SOILPROP "
         "changes of SOILDYN (SOM-driven DLAYR, DS, DUL, LL in 16 of 72 reference runs) are a labelled "
@@ -126,7 +127,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "soil_water/tipping_bucket.rate@dssat-4.8.6.0:faithful",
         ("PD4", "PD7"),
         "registered",
-        "D1-A",
+        "tipping_bucket",
         f"{_LAND}:311 (SOIL RATE) -> {_WB}:276-459",
         "snow, mulch interception, RNOFF, INFIL / SATFLO, UP_FLOW; state soil_water (flux incl. WINF, snow)",
     ),
@@ -137,7 +138,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "pet/priestley_taylor@dssat-4.8.6.0:port_soil_albedo",
         ("P5",),
         "registered",
-        "D2",
+        "day_adapters",
         f"{_SPAM}:292-305 (ET_ALB = MSALB; PET -> PETPT)",
         "PETPT with the day's MSALB from PD2; writes P5 eo_priestley_taylor (potential EO, mm d-1)",
     ),
@@ -148,7 +149,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "pet/spam_pse@dssat-4.8.6.0:faithful",
         ("P5",),
         "registered",
-        "D1B",
+        "soil_evaporation",
         f"{_SPAM}:314 (PSE)",
         "writes P5 soil_evaporation: the POTENTIAL soil evaporation EOS / 10 (cm d-1)",
     ),
@@ -159,7 +160,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "soil_water/mulch_evap@dssat-4.8.6.0:faithful",
         (),
         "registered",
-        "D1B",
+        "soil_evaporation",
         f"{_SPAM}:338-346 (MULCH_EVAP)",
         "EM and EOS_SOIL from P5 EOS, the start-of-day mulch water and the residue record; state "
         "surface.soil_evap (the SPAM soil-evaporation store)",
@@ -171,7 +172,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "soil_water/soilev@dssat-4.8.6.0:faithful",
         ("PD1", "PD6"),
         "registered",
-        "D1B",
+        "soil_evaporation",
         f"{_SPAM}:349-373 (SOILEV or ESR_SoilEvap; EVAP = ES + EM + EF)",
         "MESEV = R: soil_water/soilev; MESEV = S (GHWA0401, SIAZ9501, SIAZ9601): "
         "soil_water/esr_soilevap@dssat-4.8.6.0:faithful (a static choice by registry key: "
@@ -185,7 +186,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "pet/spam_trans@dssat-4.8.6.0:faithful",
         ("P5", "P1"),
         "registered",
-        "D1B",
+        "soil_evaporation",
         f"{_SPAM}:378-387 (TRANS)",
         "reads PD1 evaporation (EVAP, same day); writes P5 transpiration (potential EOP / 10, cm d-1) and "
         "P1 eop (EOP, mm d-1: SPAM hands EOP to PLANT)",
@@ -197,7 +198,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "water_supply/rootwu@dssat-4.8.6.0:faithful",
         ("P1", "PD3"),
         "registered",
-        "W5",
+        "root_water_uptake",
         f"{_SPAM}:280-287 (ROOTWU when XHLAI > 0)",
         "reads the start-of-day SW (P1 sw, lag 1) and yesterday's root record (P2, lag 1)",
     ),
@@ -208,7 +209,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "soil_water/xtract@dssat-4.8.6.0:faithful",
         ("P4", "PD1"),
         "registered",
-        "D2",
+        "day_adapters",
         f"{_SPAM}:392-398, 422-439 (EP = MIN(EOP, 10 TRWUP); XTRACT)",
         "writes P4 uptake: the actual layer extraction [cm d-1] on the DSSAT layers (-SWDELTX DLAYR), "
         "and PD1 transpiration (the actual EP)",
@@ -220,7 +221,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "soil_water/tipping_bucket.integrate@dssat-4.8.6.0:faithful",
         ("P7", "PD5"),
         "registered",
-        "D1-A",
+        "tipping_bucket",
         f"{_LAND}:359 (SOIL INTEGR) -> {_WB}:465-533",
         "SW from the rates, ES from layer 1 (PD1) and the uptake (P4), rounded to 1e-6; state "
         "soil_water (sw, theta)",
@@ -232,7 +233,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop_iface/layers_in@dssat-4.8.6.0:faithful",
         ("P1", "P9"),
         "adapter",
-        "D2",
+        "day_adapters",
         f"{_LAND}:386 (PLANT receives SW and SNOW)",
         "the crop layers are the soil layers: P1 sw = P7 theta (identity); the crop's SNOW is the "
         "bucket's snow pack after WATBAL RATE: P9 swe = soil_water.snow",
@@ -244,7 +245,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop/ceres_maize.phenology@dssat-4.8.6.0:faithful",
         (),
         "registered",
-        "M2",
+        "ceres_maize",
         "Plant/CERES-Maize/MZ_CERES.for:635-654 (MZ_PHENOL, INTEGR)",
     ),
     RefDayEntry(
@@ -254,7 +255,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop/ceres_maize.stress@dssat-4.8.6.0:faithful",
         (),
         "registered",
-        "M2",
+        "ceres_maize",
         "Plant/CERES-Maize/MZ_CERES.for:658-732 (MZ_GROSUB, water-stress block)",
     ),
     RefDayEntry(
@@ -264,7 +265,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop/ceres_maize.growth@dssat-4.8.6.0:faithful",
         (),
         "registered",
-        "M2",
+        "ceres_maize",
         "Plant/CERES-Maize/MZ_CERES.for:658-732 (MZ_GROSUB, ISTAGE 1-6)",
         "nitrogen off (ISWNIT = N): the faithful growth, no P10",
     ),
@@ -275,7 +276,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop/ceres_maize.roots@dssat-4.8.6.0:faithful",
         (),
         "registered",
-        "M2",
+        "ceres_maize",
         "Plant/CERES-Maize/MZ_CERES.for:737-745 (MZ_ROOTGR)",
     ),
     RefDayEntry(
@@ -285,7 +286,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop/ceres_maize.publish@dssat-4.8.6.0:faithful",
         ("P2",),
         "registered",
-        "M2",
+        "ceres_maize",
         "Plant/CERES-Maize/MZ_GROSUB.for:1818-1819 (XLAI = XHLAI = LAI); LAND.for:386 PLANT outputs",
     ),
     RefDayEntry(
@@ -295,7 +296,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "crop_iface/canopy_from_ceres@dssat-4.8.6.0:faithful",
         ("P6",),
         "adapter",
-        "D2",
+        "day_adapters",
         "Plant/CERES-Maize/MZ_GROSUB.for:1818-1831 (XLAI, XHLAI, CANHT)",
         "the canopy SPAM reads the next day: lai = tlai = XHLAI = XLAI = LAI, height = 100 CANHT; the "
         "canopy producer of the RZWQM2 day follows RZWQM2's DSSATDRV "
@@ -308,7 +309,7 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "",
         ("P11",),
         "adapter",
-        "D2",
+        "day_adapters",
         f"{_WB} WBAL (daily balance)",
         "soil profile + snow + mulch water; rain, irrigation, residue water in; runoff, drainage, "
         "soil and mulch evaporation (PD1), uptake (P4) and the reference's truncations out",

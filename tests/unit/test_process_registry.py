@@ -47,6 +47,7 @@ PROCESS_MODULES = (
     "agrijax.processes.crop.ceres_maize.roots",
     "agrijax.processes.crop.ceres_maize.model",
     "agrijax.processes.crop.ceres_maize.season",
+    "agrijax.processes.crop.ceres_maize.smoothed",
     "agrijax.processes.n_supply.replay",
     "agrijax.processes.snow.prms",
     "agrijax.models.catpa_pet_demo",
@@ -162,6 +163,17 @@ EXPECTED = {
     "crop/ceres_maize.growth@dssat-4.8.6.0:faithful": ("ceres_growth", "translated_bsd3", "point"),
     "crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay": (
         "ceres_growth_nstress_replay",
+        "translated_bsd3",
+        "point",
+    ),
+    # the non-faithful smoothed phenology and its blended growth (gradient experiments)
+    "crop/ceres_maize.phenology@dssat-4.8.6.0:alt_smoothed": (
+        "ceres_phenology_smoothed",
+        "translated_bsd3",
+        "dssat_layers",
+    ),
+    "crop/ceres_maize.growth@dssat-4.8.6.0:alt_smoothed": (
+        "ceres_growth_smoothed",
         "translated_bsd3",
         "point",
     ),
@@ -284,7 +296,9 @@ def test_list_processes_filters() -> None:
         "ceres_maize.canopy",
         "ceres_maize.growth",
         "ceres_maize.growth",
+        "ceres_maize.growth",
         "ceres_maize.harvest",
+        "ceres_maize.phenology",
         "ceres_maize.phenology",
         "ceres_maize.publish",
         "ceres_maize.roots",

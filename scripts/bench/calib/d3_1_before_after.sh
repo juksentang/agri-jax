@@ -1,5 +1,5 @@
 #!/bin/bash
-# D3-1 before / after of the level-2 trust test (wt/grad_gap) on rorqual: the same twin study (11 problems x
+# Before / after comparison of the level-2 trust test, on rorqual: the same twin study (11 problems x
 # 8 starts x 3 seeds) and the real-data round trip (11 problems x staged / cma -> .CUL -> dscsm048), once
 # with the legacy level-2 test (AJ_D31_TRUST=legacy), with the split one (exact + unrounded paths) and with
 # the three-valued one (phase "three": exact path at three adjacent small steps, secants at 1 / 2 / 5 %).

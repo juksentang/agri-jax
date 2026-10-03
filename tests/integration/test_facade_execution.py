@@ -238,7 +238,7 @@ def test_gpu_that_is_absent_is_a_readable_error_before_anything_is_built(exp):
     assert fresh._inputs == {}  # nothing was built
 
 
-@pytest.mark.skipif(not _gpus(), reason="needs a GPU visible to JAX (run on rorqual with remote.sh --gpu)")
+@pytest.mark.skipif(not _gpus(), reason="needs a GPU visible to JAX (run on a GPU node)")
 def test_gpu_agrees_with_the_cpu(exp, seasons, batches):
     s64 = exp.run(treatment=4, device="gpu")  # the references are the CPU runs of the fixtures
     rep = _season_report(s64, seasons[(4, "float64")], "UFGA8201 t4 gpu vs cpu (float64)")
