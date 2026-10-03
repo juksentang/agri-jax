@@ -97,8 +97,19 @@ phenology caveat; rain anomalies of a daily climatology (a little rain every day
 far outside a linear range, which the rerun makes visible.
 
 Runs in float64 on the host's JAX devices (``XLA_FLAGS=--xla_force_host_platform_device_count=<cores>``
-for the batched reruns; the gradient pass runs on one device). Measured results (private validation
-archive): the sensitivity calendars, trust outcomes and costs on UFGA8201 and CA-TPA.
+for the batched reruns; the gradient pass runs on one device).
+
+**Measured** (rorqual, ``scripts/diag/g1_weather_sensitivity.py``; UFGA8201 t2 / t4 in 1978-1987 and the
+CA-TPA seasons 2015-2021). Where the season is not water limited (UFGA8201 t4 1982, CA-TPA 2021) the
+straight-through and exact derivatives are equal, every checked ``SRAD`` / ``RAIN`` / ``IRRD`` day passes,
+the temperature days pass except where a 1 degC step moves a stage day, and the every-day reruns of
+:meth:`WeatherSensitivity.brute_force` agree with the derivative within 5 % on 93-100 % of the days. In
+water-limited seasons the response to one day's weather is a staircase (the soil-water rounding, the
+``TURFAC`` and root-length-density truncations, the runoff and drainage thresholds): the exact-mode
+derivative is close to 0 on most days, the straight-through one is not, and two thirds of the checked days
+are undecidable; the labels say so. Cost on one device: one gradient pass 0.075 s for 190 days x 5
+variables x 2 outputs, against 1.0-1.2 s for the 521-651 equivalent per-day reruns batched on the same
+device (one forward season 0.010 s).
 """
 
 from __future__ import annotations
@@ -188,7 +199,10 @@ class WeatherTrustConfig:
       the largest) to judge the derivative; ``rtol`` - the derivative must agree with the difference
       at the smallest step to this;
     * ``abs_floor`` - a derivative or difference with ``|d| * largest step`` below ``abs_floor *
-      max(|y|, 1)`` counts as zero (as :class:`agrijax.calib.trust.TrustConfig`);
+      max(|y|, 1)`` counts as zero: it moves the output by less than a millionth of itself over the
+      largest step (looser than the coefficient check's 1e-10, :class:`agrijax.calib.trust.TrustConfig`:
+      a straight-through path through a quantiser leaves derivatives of 1e-5 kg ha-1 per mm on days
+      where the model does not move at all);
     * ``top_k``, ``random_days``, ``seed`` - the days checked: the largest ``|derivative|`` of the first
       output, and random season days;
     * ``season`` - the whole-season perturbations: relative for ``SRAD`` / ``RAIN`` / ``IRRD``, in degC
@@ -206,7 +220,7 @@ class WeatherTrustConfig:
     )
     spread_rtol: float = 0.05
     rtol: float = 0.05
-    abs_floor: float = 1e-10
+    abs_floor: float = 1e-6
     top_k: int = 8
     random_days: int = 4
     seed: int = 0
