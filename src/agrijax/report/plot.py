@@ -179,15 +179,18 @@ def calibration(res: Any, *, set_: str = "calibration") -> Any:
     return fig
 
 
-def weather_sensitivity(ws: Any, *, output: str | None = None, variables: Sequence[str] | None = None) -> Any:
+def weather_sensitivity(
+    ws: Any, *, output: str | None = None, variables: Sequence[str] | str | None = None
+) -> Any:
     """The weather sensitivity calendar of a :class:`~agrijax.facade_weather.WeatherSensitivity`: one
     panel per variable, the daily derivative of ``output`` (default the first) as bars, the growth
     stages shaded alternately and named, the days the trust check reran marked (dot: trust level 3, cross:
     the day failed at the check's steps, open circle: no response), the variable's trust label in the
-    panel title."""
+    panel title. ``variables``: one name or a sequence (any case) among the analysed ones (default all);
+    any other name raises ``ValueError``."""
+    vs = ws._subset(variables, "plot")
     plt = _plt()
     o = ws.outputs[0] if output is None else output
-    vs = list(ws.variables if variables is None else variables)
     d = ws.daily[ws.daily["output"] == o]
     fig, axes = plt.subplots(len(vs), 1, figsize=(8.0, 1.9 * len(vs) + 0.6), sharex=True, squeeze=False)
     st = ws.stages[(ws.stages["output"] == o) & (ws.stages["variable"] == vs[0])]
