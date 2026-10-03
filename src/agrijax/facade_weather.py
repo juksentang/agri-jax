@@ -78,14 +78,14 @@ whole-season check reports any shift as well.
     one is not, and on every day of a variable whose exact-mode derivative is zero on every season day:
     a quantiser cuts the exact derivative there (rain and irrigation reach the outputs only through the
     soil-water rounding, so their level 2 is never judged), and a 0 == 0 comparison says nothing about
-    the reported derivative; not judged counts as undecidable. **Level 3** (on the straight-through derivative, the one reported): it agrees with the
-    secant at every user step (to 5 %), else the day fails: curvature, a threshold or a stage day inside
-    a user step is a failure, not an undecidable case. The day's trust level is that of
-    :mod:`agrijax.calib.trust`
-    (3: level 3 passes and level 2 does not fail; 2: level 2 passes, level 3 fails; 1: level 2 fails,
-    or is undecidable / not judged and level 3 fails); a day passes at level 3. Both zero (below
-    ``abs_floor``) counts as agreeing; a day where both derivatives and every difference are zero has
-    status ``zero`` (no response: neither a pass nor a failure). Rainfall passes the runoff curve number, infiltration and the drainage
+    the reported derivative; not judged counts as undecidable. **Level 3** (on the straight-through
+    derivative, the one reported): it agrees with the secant at every user step (to 5 %), else the day
+    fails: curvature, a threshold or a stage day inside a user step is a failure, not an undecidable
+    case. The day's trust level is that of :mod:`agrijax.calib.trust` (3: level 3 passes and level 2
+    does not fail; 2: level 2 passes, level 3 fails; 1: level 2 fails, or is undecidable / not judged
+    and level 3 fails); a day passes at level 3. Both zero (below ``abs_floor``) counts as agreeing; a
+    day where both derivatives and every difference are zero has status ``zero`` (no response: neither
+    a pass nor a failure). Rainfall passes the runoff curve number, infiltration and the drainage
     thresholds: its outcome is reported as found;
 (b) whole-season reruns: ``SRAD`` x(1 +- 5 %), ``TMAX`` / ``TMIN`` (and both) +- 1 degC, ``RAIN`` and
     ``IRRD`` x(1 +- 10 %) on every simulated day, against the summed gradient ``sum_t d output / d x_t
@@ -115,19 +115,24 @@ Runs in float64 on the host's JAX devices (``XLA_FLAGS=--xla_force_host_platform
 for the batched reruns; the gradient pass runs on one device).
 
 **Measured** (rorqual, ``scripts/diag/g1_weather_sensitivity.py``; UFGA8201 t2 / t4 in 1978-1987 and the
-CA-TPA seasons 2015-2021). Where the season is not water limited (UFGA8201 t4 1982, CA-TPA 2021) the
-straight-through and exact derivatives are equal and every checked ``SRAD`` / ``RAIN`` / ``IRRD`` day is
-at trust level 3; the same check on every day (:meth:`WeatherSensitivity.brute_force`, UFGA8201 t4 1982)
-puts 95-100 % of the ``SRAD`` / ``RAIN`` / ``IRRD`` days and 67-69 % of the temperature days at level 3
-(the others at level 2: a stage day or curvature inside the 0.1-1 degC steps). In water-limited seasons
-the response to one day's weather is a staircase (the soil-water rounding, the ``TURFAC`` and
-root-length-density truncations, the runoff and drainage thresholds): of the checked days 34 % (``SRAD``),
-36 % / 47 % (``TMAX`` / ``TMIN``) and 12 % (``RAIN``, ``IRRD``) are at level 3, the labels say "not
-validated". The small steps never contradict the exact-mode derivative (no level-2 failure in 1468
-checked days): the failures are the model's response, not a wrong derivative. Cost on one device: one
-call's two reverse passes (straight-through and exact) 0.135-0.15 s for 190 days x 5 variables x 2
-outputs, against 1.0-1.1 s for the 521-651 equivalent per-day reruns batched on the same device (about
-7x; one forward season 0.010 s).
+CA-TPA seasons 2015-2021: 27 seasons, 1468 checked day x variable rows of ``HWAM``). Where the season is
+not water limited (UFGA8201 t4 1982, CA-TPA 2021) the straight-through and exact derivatives are equal,
+every checked ``SRAD`` day with a response is at trust level 3 and ``RAIN`` / ``IRRD`` are ``inert`` (no
+response on any checked day, not "validated"); the same check on every day
+(:meth:`WeatherSensitivity.brute_force`, UFGA8201 t4 1982) puts 92 % of the ``SRAD`` days with a response
+and 61-62 % of the temperature days at level 3 (the others at level 2: a stage day or curvature inside
+the 0.1-1 degC steps). In water-limited seasons the response to one day's weather is a staircase (the
+soil-water rounding, the ``TURFAC`` and root-length-density truncations, the runoff and drainage
+thresholds): of the checked days with a response 32 % (``SRAD``), 35 % / 45 % (``TMAX`` / ``TMIN``) and
+2-4 % (``RAIN``, ``IRRD``) are at level 3, the labels say "not validated". Of the 1367 rows with a response,
+level 2 passes on 572 (all ``SRAD`` / ``TMAX`` / ``TMIN``), is undecidable on 254 and not judged on 541,
+and never fails: evidence for the exact derivative of ``SRAD`` / ``TMAX`` / ``TMIN`` where it was
+decidable, nothing more. For ``RAIN`` and ``IRRD`` the exact derivative is zero on every day
+(cut by the soil-water rounding), so their level 2 is not judged and their reported straight-through
+derivative is tested at the user steps only, where it mostly fails: it is not shown correct. Cost on
+one device: one call's two reverse passes (straight-through and exact) 0.13-0.16 s for 190 days x 5
+variables x 2 outputs (first call or warm repeat), against 1.03 s for the 521-651 equivalent per-day
+reruns batched on the same device: 6.3-7.7x (6.4-8.4x in an earlier run); one forward season 0.011 s.
 """
 
 from __future__ import annotations
