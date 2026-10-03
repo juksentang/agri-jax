@@ -73,12 +73,18 @@ whole-season check reports any shift as well.
     step, or forward at every step where the value minus the largest step would go below 0 (column
     ``one_sided``). **Level 2** (three-valued, on the exact-mode derivative): the small-step differences agree
     with each other (to 1e-3) and with the derivative -> pass, with each other but not with it -> fail, not
-    with each other -> undecidable (a quantum or a threshold inside 1e-3 units). It is **not judged** where
-    the exact-mode and straight-through derivatives differ by more than 5 % (a quantiser cuts the exact
-    derivative there, to zero or to a residual), and on every day of a variable whose exact-mode derivative is
-    zero on every season day (rain and irrigation reach the outputs only through the soil-water rounding): a
-    pass on the exact derivative says nothing about the reported one; not judged counts as undecidable, and a
-    level-2 fail is always kept. **Level 3** (on the straight-through derivative, the one reported): it agrees
+    with each other -> undecidable (a quantum or a threshold inside 1e-3 units). A threshold **at** the
+    point (a weather value exactly on it, e.g. ``TMAX`` = 35.0 degC, the ``PETPT`` advection threshold:
+    weather files hold one decimal) makes every central small-step difference the mean of the two slopes,
+    steady across the steps; on central days the one-sided small-step differences are compared as well,
+    and where each is steady but they differ level 2 is ``kink`` (undecidable) when the exact derivative is
+    one of the two (column ``kink_side``: the side the program takes) and ``fail`` when it is neither. It is
+    **not judged** where the exact-mode and straight-through derivatives differ by more than the level-2
+    tolerance 1e-3 (a quantiser cuts the exact derivative there, to zero or to a residual), and on every day
+    of a variable whose exact-mode derivative is zero on every season day while the straight-through one is
+    not (rain and irrigation reach the outputs only through the soil-water rounding): a pass on the exact
+    derivative says nothing about the reported one; not judged counts as undecidable, and a level-2 fail
+    (outside a kink) is kept. **Level 3** (on the straight-through derivative, the one reported): it agrees
     with the secant at every user step (to 5 %), else the day fails: curvature, a threshold or a stage day
     inside a user step is a failure, not an undecidable case. The day's trust level is that of
     :mod:`agrijax.calib.trust` (3: level 3 passes and level 2 does not fail; 2: level 2 passes, level 3 fails;
@@ -117,23 +123,36 @@ for the batched reruns; the gradient pass runs on one device).
 CA-TPA seasons 2015-2021: 27 seasons, 1468 checked day x variable rows of ``HWAM``, 127 of them with no
 response). Where the season is not water limited (UFGA8201 t4 1982, CA-TPA 2021) the straight-through and
 exact derivatives are equal, every checked ``SRAD`` day with a response is at trust level 3 and ``RAIN`` /
-``IRRD`` are ``inert`` (no response on any checked day, not "validated"); the same check on every day
-(:meth:`WeatherSensitivity.brute_force`, UFGA8201 t4 1982) puts 92 % of the ``SRAD`` days with a response and
-61-62 % of the temperature days at level 3 (the others at level 2: a stage day or curvature inside the 0.1-1
-degC steps). In water-limited seasons the response to one day's weather is a staircase (the soil-water
-rounding, the ``TURFAC`` and root-length-density truncations, the runoff and drainage thresholds) and the
-exact derivative is cut by those quantisers: of the checked days with a response 32 % (``SRAD``), 37 % / 40 %
-(``TMAX`` / ``TMIN``) and 2-4 % (``RAIN``, ``IRRD``) are at level 3, 5-15 % at level 2, the labels say "not
-validated". Of the 1341 rows with a response, level 2 passes on 384 (all ``SRAD`` / ``TMAX`` / ``TMIN``, on
-days where the reported derivative equals the exact one to 5 %), is undecidable on 45, not judged on 910 (the
-two derivatives differ) and fails on 2 (``TMAX`` in grain filling, UFGA8201 t2 1980 day 113 and t4 1987 day
-115: a smooth response that both derivatives miss, open). For ``RAIN`` and ``IRRD`` the exact derivative is
-zero on every day (cut by the soil-water rounding), so their level 2 is not judged and their reported
-straight-through derivative is tested at the user steps only, where it mostly fails: it is not shown correct.
-Cost on one device: one call's two reverse passes (straight-through and exact) 0.16-0.26 s (first call) or
+``IRRD`` are ``inert`` on the checked days (no response on 4 sampled days each; not "validated"). The
+same check on every day (:meth:`WeatherSensitivity.brute_force`) puts, on UFGA8201 t4 1982, 92 % of the
+``SRAD`` days with a response and 61-62 % of the temperature days at level 3 (the others at level 2: a
+stage day or curvature inside the 0.1-1 degC steps), ``RAIN`` inert on all 130 days and one ``IRRD`` day
+with a response (level 2), so ``IRRD`` "inert" holds for the sampled days only; on the water-limited UFGA8201
+t2 1982 it puts 12 % (``SRAD``), 17 % (``TMAX``), 17 % (``TMIN``) and 0 % (``RAIN``) of the days with a
+response at level 3. In water-limited seasons the response to one day's weather is a staircase (the
+soil-water rounding, the ``TURFAC`` and root-length-density truncations, the runoff and drainage thresholds)
+and the exact derivative is cut by those quantisers: of the **checked** days with a response (the top
+``|derivative|`` days plus 4 random ones: a sample weighted to the largest derivatives, not an estimate over
+all days; on t2 1982 it gives 9 / 27 / 50 % against the brute force's 12 / 17 / 17 %) 32 % (``SRAD``), 37 % /
+40 % (``TMAX`` / ``TMIN``) and 2-4 % (``RAIN``, ``IRRD``) are at level 3, 0-11 % at level 2, the labels say
+"not validated". Of the 1341 rows with a response, level 2 passes on 271 (all ``SRAD`` / ``TMAX`` /
+``TMIN``, on days where the reported derivative equals the exact one to the level-2 tolerance 1e-3: there
+the small steps test the reported derivative itself), is not judged on 1069 (the two derivatives differ by
+more than 1e-3: on 159 of the 919 ``SRAD`` / ``TMAX`` / ``TMIN`` rows by 1e-3 to 5 %, on 488 by more) and is
+``kink`` on 1; none fails. Two rows sit on a kink at the point: ``TMAX`` exactly 35.0 degC, the ``PETPT``
+advection threshold (``TMAX .GT. 35.0``), UFGA8201 t4 1987 day 115 and t2 1980 day 113. There ``EO`` is
+``1.1 EEQ`` on the left and ``EEQ ((TMAX - 35) 0.05 + 1.1)`` on the right, the exact derivative is the
+left-hand one (-11.118 and -0.233 kg ha-1 per degC, equal to the backward small-step differences), the
+forward differences give -12.557 and -1.232 (a warmer day), and the central differences their mean
+(-11.837, -0.732) at every step; nothing is missing from the derivative. 94 of the 3846 calendar ``TMAX``
+season days are exactly 35.0 (``daily["caveat"]``); on most of them ``EO`` does not reach the output that day
+and the two sides agree. For ``RAIN`` and ``IRRD`` the exact derivative is zero on every day (cut by the
+soil-water rounding), so their level 2 is not judged and their reported straight-through derivative is
+tested at the user steps only, where it mostly fails: it is not shown correct.
+Cost on one device: one call's two reverse passes (straight-through and exact) 0.13-0.26 s (first call) or
 0.16-0.19 s (warm repeat) for 190 simulated days (130-day season and padding) x 5 variables x 2 outputs,
-against 1.06-1.10 s for the 521-651 equivalent per-day reruns batched on the same device: 4.2-6.6x (6.3-8.4x
-in earlier runs); one forward season 0.010-0.014 s.
+against 1.03-1.20 s for the 521-651 equivalent per-day reruns batched on the same device: 4.2-9.2x over four
+runs; one forward season 0.008-0.015 s.
 """
 
 from __future__ import annotations
@@ -209,6 +228,20 @@ STATUS_PASS, STATUS_FAIL, STATUS_UNDECIDABLE = "pass", "fail", "undecidable"
 #: straight-through one (cut by a quantiser on the path, to zero or to a residual), or is zero on every
 #: day of the season
 STATUS_NOT_JUDGED = "not judged"
+#: level 2 at a kink at the point (a weather value exactly on a model threshold): the small-step
+#: one-sided differences are each steady but differ, and the exact derivative equals one of them (the
+#: one-sided derivative the program takes); counted as undecidable (level 3 decides)
+STATUS_KINK = "kink"
+#: calendar caveats of a ``TMAX`` day exactly on a ``PETPT`` threshold (``daily["caveat"]``)
+TMAX_HOT_CAVEAT = (
+    "TMAX exactly on the PETPT advection threshold (35 degC, PET.for 907 'TMAX .GT. 35.0'): EO has a kink "
+    "there; where EO reaches the output that day the derivative is the left-hand one (a cooler day) and a "
+    "warmer day's slope is steeper"
+)
+TMAX_COLD_CAVEAT = (
+    "TMAX exactly on the PETPT cold threshold (5 degC, PET.for 909 'TMAX .LT. 5.0'): EO jumps just below "
+    "it; where EO reaches the output that day the derivative is the right-hand one (a warmer day)"
+)
 #: a checked day whose derivatives and differences are all zero (below ``abs_floor``): no response
 STATUS_ZERO = "zero"
 #: checked-day statuses (``single_day["status"]``, ``daily["checked"]``)
@@ -307,6 +340,15 @@ def _with_caveat(v: str, label: str) -> str:
 
 
 # ------------------------------------------------------------------------------ verdicts (no model)
+def _pt_thresholds() -> tuple[float, float]:
+    """The ``TMAX`` values of the ``PETPT`` thresholds (``hot_threshold`` / ``cold_threshold`` of
+    :data:`agrijax.processes.pet.coefficients.DSSAT_PT`): ``EO`` has a kink there and, the comparisons
+    being strict (``TMAX .GT. 35.0`` / ``TMAX .LT. 5.0``), the derivative is the left-hand one."""
+    from agrijax.processes.pet.coefficients import DSSAT_PT
+
+    return float(DSSAT_PT.hot_threshold), float(DSSAT_PT.cold_threshold)
+
+
 def day_verdict(
     ad: Any,
     ad_exact: Any,
@@ -316,6 +358,8 @@ def day_verdict(
     h_scale: Any,
     cfg: WeatherTrustConfig = DEFAULT_CONFIG,
     judged: Any = None,
+    right: Sequence[Any] | None = None,
+    left: Sequence[Any] | None = None,
 ) -> dict[str, np.ndarray]:
     """The verdicts of days ``[E, D]`` (outputs x days): ``ad`` / ``ad_exact`` the straight-through and
     exact-mode derivatives, ``small`` / ``large`` the differences at the three small and the three
@@ -325,15 +369,26 @@ def day_verdict(
     ``level`` follows :mod:`agrijax.calib.trust`: 1 if level 2 fails, or is undecidable and level 3
     fails; 2 if level 2 passes and level 3 fails; 3 if level 3 passes (and level 2 does not fail).
 
+    ``right`` / ``left`` (lists of ``[E, D]``, NaN on forward-only days): the one-sided differences
+    ``(y(x + h) - y(x)) / h`` and ``(y(x) - y(x - h)) / h`` at the small steps. A **kink at the point**
+    (a weather value exactly on a model threshold, e.g. ``TMAX`` = 35.0 degC, the ``PETPT`` advection
+    threshold) makes the central small-step differences ``(right + left) / 2`` at every step, so they
+    agree with each other and say nothing about either side. Where each side agrees with itself across
+    the small steps (to ``cfg.small_rtol``) and the two sides differ (beyond ``cfg.small_rtol``), level 2
+    is :data:`STATUS_KINK` (counted as undecidable: level 3 decides) when the exact derivative equals one
+    side (``kink_side`` = ``"left"`` / ``"right"``: the one-sided derivative the program takes), and
+    ``fail`` when it equals neither (``kink_side`` = ``"neither"``).
+
     Level 2 is **not judged** (:data:`STATUS_NOT_JUDGED`, counted as undecidable: level 3 decides) where
-    the straight-through and exact-mode derivatives differ by more than the level-3 tolerance
-    ``cfg.rtol`` (the exact one is cut by a quantiser, to zero or to a residual: a level-2 pass on it
-    says nothing about the reported derivative), and wherever ``judged`` (``[E, D]`` bool) is False (the
-    caller's: the exact derivative is zero on every day of the season). A level-2 **fail** is always
-    kept (the exact derivative is wrong, whatever is reported).
+    the straight-through and exact-mode derivatives differ by more than the level-2 tolerance
+    ``cfg.small_rtol`` (the exact one is cut by a quantiser, to zero or to a residual: a level-2 pass on
+    it says nothing about the reported derivative), and wherever ``judged`` (``[E, D]`` bool) is False
+    (the caller's: the exact derivative is zero on every day of the season). A level-2 **fail** is kept
+    (outside a kink at the point: the small steps show the exact derivative wrong on both sides, whatever
+    is reported).
     ``status`` is ``zero`` (:data:`STATUS_ZERO`) where both derivatives and every difference are zero
     (no response: neither a pass nor a failure), else ``pass`` at level 3 and ``fail`` otherwise."""
-    from agrijax.calib.trust import L2_FAIL, L2_UNDECIDABLE, TrustConfig, fd_diagnostics
+    from agrijax.calib.trust import _TINY, L2_FAIL, L2_UNDECIDABLE, TrustConfig, fd_diagnostics
 
     # the step values only index fd0 / fd1 here (the differences are given): positions 1 and 2
     tcfg = TrustConfig(
@@ -347,24 +402,49 @@ def day_verdict(
     ad_a, adx_a = np.abs(np.asarray(ad, dtype=float)), np.abs(np.asarray(ad_exact, dtype=float))
     floor = cfg.abs_floor * np.maximum(np.abs(np.asarray(y0, dtype=float)), 1.0)[:, None]
     floor = floor / np.asarray(h_scale, dtype=float)[None, :]
+    status0 = np.asarray(d["status0"], dtype=object)
+    adx = np.asarray(ad_exact, dtype=float)
+    shape = np.shape(status0)
+    nan = np.full(shape, np.nan)
+    kink = np.zeros(shape, dtype=bool)
+    side = np.full(shape, "", dtype=object)
+    fd_r, fd_l = nan, nan
+    if right is not None and left is not None:
+        sr = np.stack([np.asarray(a, dtype=float) for a in right])
+        sl = np.stack([np.asarray(a, dtype=float) for a in left])
+        # the middle small step, as fd_small (calib/trust.py: fd_steps[0] = the second small step)
+        fd_r, fd_l = sr[1], sl[1]
+
+        def steady(f: np.ndarray) -> np.ndarray:
+            ok = np.all(np.isfinite(f), axis=0)
+            fz = np.where(np.isfinite(f), f, 0.0)
+            spread = (fz.max(axis=0) - fz.min(axis=0)) / np.maximum(np.abs(fz).max(axis=0), _TINY)
+            return ok & (np.all(np.abs(fz) <= floor[None], axis=0) | (spread <= cfg.small_rtol))
+
+        def near(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+            m = np.maximum(np.abs(a), np.abs(b))
+            return (m <= floor) | (np.abs(a - b) <= cfg.small_rtol * m)
+
+        fr0, fl0 = np.where(np.isfinite(fd_r), fd_r, 0.0), np.where(np.isfinite(fd_l), fd_l, 0.0)
+        kink = steady(sr) & steady(sl) & ~near(fr0, fl0)
+        on_l, on_r = near(adx, fl0), near(adx, fr0)
+        side = np.where(kink, np.where(on_l, "left", np.where(on_r, "right", "neither")), "").astype(object)
+        status0 = np.where(kink, np.where(on_l | on_r, STATUS_KINK, L2_FAIL), status0).astype(object)
     # level 2 judges the exact derivative: it says something about the reported one only where the two
-    # agree (to the level-3 tolerance; both below the floor agree). A failing level 2 is kept (it shows
+    # agree to the level-2 tolerance (both below the floor agree). A failing level 2 is kept (it shows
     # the exact derivative wrong, whatever is reported)
     differ = (np.maximum(ad_a, adx_a) > floor) & (
-        np.abs(np.asarray(ad, dtype=float) - np.asarray(ad_exact, dtype=float))
-        > cfg.rtol * np.maximum(ad_a, adx_a)
+        np.abs(np.asarray(ad, dtype=float) - adx) > cfg.small_rtol * np.maximum(ad_a, adx_a)
     )
     cut = differ
     if judged is not None:
         cut = cut | ~np.asarray(judged, dtype=bool)
-    cut = cut & (d["status0"] != L2_FAIL)
+    cut = cut & (status0 != L2_FAIL)
     fds = np.abs(np.stack([np.asarray(f, dtype=float) for f in (*small, *large)]))
     zero = (ad_a <= floor) & (adx_a <= floor) & np.all(fds <= floor[None], axis=0)
-    l2 = np.where(
-        cut, STATUS_NOT_JUDGED, np.where(d["status0"] == L2_UNDECIDABLE, STATUS_UNDECIDABLE, d["status0"])
-    )
+    l2 = np.where(cut, STATUS_NOT_JUDGED, np.where(status0 == L2_UNDECIDABLE, STATUS_UNDECIDABLE, status0))
     l3 = np.asarray(d["agree1"], dtype=bool)
-    open_l2 = (l2 == STATUS_UNDECIDABLE) | (l2 == STATUS_NOT_JUDGED)
+    open_l2 = (l2 == STATUS_UNDECIDABLE) | (l2 == STATUS_NOT_JUDGED) | (l2 == STATUS_KINK)
     level = np.where(l2 == L2_FAIL, 1, np.where(l3, 3, np.where(open_l2, 1, 2)))
     return {
         "level2": l2.astype(object),
@@ -372,6 +452,9 @@ def day_verdict(
         "level": level,
         "status": np.where(zero, STATUS_ZERO, np.where(level == 3, STATUS_PASS, STATUS_FAIL)).astype(object),
         "fd_small": d["fd0"],
+        "fd_small_right": fd_r,
+        "fd_small_left": fd_l,
+        "kink_side": side,
         "rel_err_small": d["rel_err0"],
         "spread_small": d["spread0"],
         "rel_err_large_max": d["rel_err1_max"],
@@ -390,6 +473,14 @@ def _variable_label(rows: Any) -> str:
         return f"{LABEL_INERT}: zero derivative and no response on all {len(days)} checked days"
     bad = {t for t, x, s in zip(day, lv, st, strict=True) if s != STATUS_ZERO and x != 3}
     return LABEL_VALIDATED if not bad else f"{LABEL_FAILS}: {len(bad)} of {len(days)} checked days fail"
+
+
+def _day_caveat(v: str, value: float) -> str:
+    """The calendar caveat of one day's value: a ``TMAX`` exactly on a ``PETPT`` threshold."""
+    if v != "TMAX":
+        return ""
+    hot, cold = _pt_thresholds()
+    return TMAX_HOT_CAVEAT if value == hot else TMAX_COLD_CAVEAT if value == cold else ""
 
 
 def _stage_runs(stage: np.ndarray) -> list[tuple[int, int, int]]:
@@ -701,7 +792,9 @@ class WeatherSensitivity:
     ``date``, ``day`` (index from the simulation start), ``dap`` (days after planting), ``stage`` and
     ``stage_name`` (the stage the crop is in that day), ``value`` (the weather), ``derivative`` (d output
     / d variable that day, straight-through), ``derivative_exact`` (the program's own), ``unit``,
-    ``checked`` (``pass`` / ``fail`` where the single-day check reran that day). :attr:`stages` sums it
+    ``checked`` (``pass`` / ``fail`` where the single-day check reran that day), ``caveat`` (a ``TMAX``
+    exactly on a ``PETPT`` threshold: at 35.0 degC the derivative is the left-hand one, a warmer day's
+    slope is steeper, :data:`TMAX_HOT_CAVEAT`; at 5.0 the right-hand one). :attr:`stages` sums it
     per growth stage: ``sum`` (the change of the output for +1 unit on every day of the stage),
     ``share`` (of the season's sum of ``|derivative|``), ``per_pct`` (for +1 % of the stage's values:
     radiation, rain, irrigation). :attr:`values` are the outputs, :attr:`trust` the label of each
@@ -972,12 +1065,20 @@ class WeatherSensitivity:
                 if not ctx.weather_files:
                     raise ValueError("attribution: no weather files known; pass climatology= or anomaly=")
                 own = sorted({d.year for d in ctx.dates[:t_cal]}) if leave_season_out else []
+                years_l = None if years is None else [int(y) for y in years]
                 try:
-                    climatology_tab = _station_climatology(ctx.weather_files, years, own)
+                    climatology_tab = _station_climatology(ctx.weather_files, years_l, own)
                 except ValueError as err:
                     if not own:
                         raise
-                    asked = "" if years is None else f" among years={sorted(int(y) for y in years)}"
+                    try:  # the same years with the season's own: is leave-one-out the cause?
+                        _station_climatology(ctx.weather_files, years_l)
+                        loo = True
+                    except ValueError:
+                        loo = False
+                    if not loo:
+                        raise
+                    asked = "" if years_l is None else f" among years={sorted(years_l)}"
                     raise ValueError(
                         f"attribution: the station files hold only the season's own year(s) {own}{asked}, "
                         "which leave_season_out=True leaves out of the climatology: pass "
@@ -1192,12 +1293,20 @@ def _check_results(
     def fd(ip: int, im: int, h: float) -> np.ndarray:
         return (yy[ip, :e_n] - (yy[im, :e_n] if im >= 0 else y0)) / (2.0 * h if im >= 0 else h)
 
+    def fd_right(ip: int, im: int, h: float) -> np.ndarray:
+        return (yy[ip, :e_n] - y0) / h if im >= 0 else np.full(e_n, np.nan)
+
+    def fd_left(ip: int, im: int, h: float) -> np.ndarray:
+        return (y0 - yy[im, :e_n]) / h if im >= 0 else np.full(e_n, np.nan)
+
     out: dict[tuple[str, int], dict[str, Any]] = {}
     for v in dict.fromkeys(k[0] for k in keys):
         ts = [t for (vv, t) in keys if vv == v]
         if not ts:
             continue
         small = [np.stack([fd(*keys[(v, t)]["small"][j]) for t in ts], axis=1) for j in range(3)]
+        right = [np.stack([fd_right(*keys[(v, t)]["small"][j]) for t in ts], axis=1) for j in range(3)]
+        left = [np.stack([fd_left(*keys[(v, t)]["small"][j]) for t in ts], axis=1) for j in range(3)]
         large = [np.stack([fd(*keys[(v, t)]["large"][j]) for t in ts], axis=1) for j in range(3)]
         ad = np.stack([g[:, t, _IX[v]] for t in ts], axis=1)
         adx = np.stack([g_exact[:, t, _IX[v]] for t in ts], axis=1)
@@ -1206,11 +1315,14 @@ def _check_results(
             np.abs(g[:, :t_cal, _IX[v]]) > floor, axis=1
         )
         judged = np.repeat(~cut[:, None], len(ts), axis=1)
-        ver = day_verdict(ad, adx, small, large, y0, np.full(len(ts), max(cfg.steps[v])), cfg, judged)
+        ver = day_verdict(
+            ad, adx, small, large, y0, np.full(len(ts), max(cfg.steps[v])), cfg, judged, right, left
+        )
         for k, t in enumerate(ts):
             out[(v, t)] = {
                 "fds_large": [f[:, k] for f in large],
                 "verdict": {name: arr[:, k] for name, arr in ver.items()},
+                "exact_cut": cut,
             }
     return out
 
@@ -1244,6 +1356,10 @@ def _day_rows(
                     "derivative": float(g[e, t, _IX[v]]),
                     "derivative_exact": float(g_exact[e, t, _IX[v]]),
                     "fd_small": float(ver["fd_small"][e]),
+                    "fd_small_right": float(ver["fd_small_right"][e]),
+                    "fd_small_left": float(ver["fd_small_left"][e]),
+                    "kink_side": str(ver["kink_side"][e]),
+                    "exact_cut": bool(r["exact_cut"][e]),
                     **{f"fd_{h:g}": float(r["fds_large"][j][e]) for j, h in enumerate(cfg.steps[v])},
                     "level2": str(ver["level2"][e]),
                     "rel_err_small": float(ver["rel_err_small"][e]),
@@ -1251,6 +1367,7 @@ def _day_rows(
                     "rel_err_large_max": float(ver["rel_err_large_max"][e]),
                     "level": int(ver["level"][e]),
                     "status": str(ver["status"][e]),
+                    "caveat": _day_caveat(v, float(x[t, _IX[v]])),
                 }
             )
     return rows
@@ -1260,7 +1377,7 @@ def _shares(table: Any, by: Sequence[str]) -> Any:
     """Per group of ``by``: the rows checked (``days``), how many have no response (``zero_days``:
     derivatives and differences all zero), and over the **others** (``nonzero_days``; NaN when there
     are none) the shares at trust level 3 / 2 / 1 and of the level-2 outcomes (pass / fail /
-    undecidable / not judged), with the label they give."""
+    undecidable / not judged / kink), with the label they give."""
     import pandas as pd
 
     rows = []
@@ -1287,6 +1404,7 @@ def _shares(table: Any, by: Sequence[str]) -> Any:
                 "small_fail": share(l2 == STATUS_FAIL),
                 "small_undecidable": share(l2 == STATUS_UNDECIDABLE),
                 "small_not_judged": share(l2 == STATUS_NOT_JUDGED),
+                "small_kink": share(l2 == STATUS_KINK),
                 "label": _with_caveat(str(v), _variable_label(grp)),
             }
         )
@@ -1422,6 +1540,7 @@ def _analyse(
                         "derivative_exact": float(g_exact[e, t, _IX[v]]),
                         "unit": f"{unit_o} per {VARIABLES[v][0]}",
                         "checked": status_of.get((out, v, t), ""),
+                        "caveat": _day_caveat(v, float(x[t, _IX[v]])),
                     }
                 )
     daily = pd.DataFrame(rows)
@@ -1477,13 +1596,37 @@ def _analyse(
             "the single-day verdicts of RAIN / IRRD."
         )
     if checks is not None:
-        nj = checks.single_day
-        nj_vs = [v for v in vs if (nj.loc[nj["variable"] == v, "level2"] == STATUS_NOT_JUDGED).all()]
-        if nj_vs:
+        sd = checks.single_day
+        cut_of = {
+            v: sorted(set(sd.loc[(sd["variable"] == v) & sd["exact_cut"], "output"].astype(str))) for v in vs
+        }
+        cut_vs = [f"{v} ({', '.join(o)})" for v, o in cut_of.items() if o]
+        if cut_vs:
             notes.append(
-                f"level 2 not judged for {', '.join(nj_vs)}: the exact-mode derivative is zero on every "
-                "day (cut by a quantiser on every path, e.g. the soil-water rounding); the reported "
-                "straight-through derivative is checked at the user steps (level 3) only."
+                f"level 2 not judged for {'; '.join(cut_vs)}: the exact-mode derivative is zero on every "
+                "season day while the straight-through one is not (cut by a quantiser on every path, e.g. "
+                "the soil-water rounding); the reported derivative is checked at the user steps (level 3) "
+                "only."
+            )
+        other = [
+            v
+            for v in vs
+            if not cut_of[v]
+            and len(sel := sd[(sd["variable"] == v) & (sd["status"] != STATUS_ZERO)])
+            and (sel["level2"] == STATUS_NOT_JUDGED).all()
+        ]
+        if other:
+            notes.append(
+                f"level 2 not judged on every checked day of {', '.join(other)}: the reported "
+                "(straight-through) and exact-mode derivatives differ there (beyond the level-2 tolerance); "
+                "the reported derivative is checked at the user steps (level 3) only."
+            )
+        kinks = sd[sd["kink_side"] != ""]
+        if len(kinks):
+            notes.append(
+                f"{len(kinks)} checked row(s) sit on a kink at the point (a weather value exactly on a model "
+                "threshold, e.g. TMAX = 35 degC for PETPT): the derivative is one-sided (column kink_side; "
+                "fd_small_right / fd_small_left give both slopes) and level 2 is 'kink' (undecidable) there."
             )
     ctx = _Context(
         progs, i, g, g_exact, t_cal, stage, dates, yrdoy, e_mat, e_silk, cfg, [Path(f) for f in weather_files]
