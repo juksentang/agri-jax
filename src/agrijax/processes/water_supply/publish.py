@@ -44,7 +44,7 @@ from jaxtyping import Array
 
 from agrijax.core.grad import real4_store
 from agrijax.core.grids import SoilGrid, remap_intensive
-from agrijax.core.process import process
+from agrijax.core.process import GradientConvention, process
 from agrijax.core.state import Forcing, Params, field
 
 from .rootwu import RootwuState
@@ -97,6 +97,16 @@ class PublishUptakeParams(Params):
             "RWU is not rewritten (the reference zeroes RWU of layers with SW < LL and on PET <= 0 days)",
             "rwu stays ROOTWU's output; only the node uptake is published",
             "no effect at CA-TPA: DSSATDRV exit RWU equals ROOTWU exit RWU on all 1088 crop days",
+        ),
+    ),
+    gradient_conventions=(
+        GradientConvention(
+            "agrijax.processes.water_supply.publish.rzwqm_publish_uptake",
+            "real4_store",
+            "SW and LL rounded to REAL*4 for the SW < LL / SW > LL comparisons of "
+            "DSSATDRV.for:1543-1569; the convert pair's derivative; under core.grad.unrounded the identity",
+            "the stored values are only compared (jnp.where conditions): no derivative flows through them",
+            "publish.py rzwqm_publish_uptake; tests of the RZWQM2-DSSAT coupling",
         ),
     ),
 )

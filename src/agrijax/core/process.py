@@ -71,8 +71,12 @@ __all__ = [
     "GRIDS",
     "NO_REFERENCE",
     "PROVENANCE",
+    "QUANTISERS",
+    "STE_CONVENTION",
+    "STE_HELPERS",
     "Deviation",
     "DuplicateProcessError",
+    "GradientConvention",
     "MissingFaithfulError",
     "Process",
     "ProcessInfo",
@@ -227,6 +231,36 @@ class Deviation:
     evidence: str
 
 
+#: the quantisers of :mod:`agrijax.core.grad` (identity derivative in ``ste``, 0 in ``exact``, the
+#: identity itself under ``unrounded``; ``real4_store``: the cast's derivative in every mode)
+QUANTISERS: tuple[str, ...] = ("trunc_st", "round_st", "real4_store")
+#: every helper of :mod:`agrijax.core.grad` whose derivative is a convention: the quantisers and the
+#: event surrogates (``event_ste`` ramp, ``select_ste`` jump); every call site is registered as a
+#: :class:`GradientConvention` of the process that runs it
+STE_HELPERS: tuple[str, ...] = (*QUANTISERS, "event_ste", "select_ste")
+#: the derivative convention of trunc_st / round_st, for the ``what`` of a :class:`GradientConvention`
+STE_CONVENTION = (
+    "ste / implicit modes: identity (straight-through: the derivative of the model without the "
+    "quantum, agrijax.core.grad module docstring); exact mode: 0; under agrijax.core.grad.unrounded "
+    "the quantiser is the identity"
+)
+
+
+@dataclass(frozen=True)
+class GradientConvention:
+    """How the derivative is taken through one quantiser call site (the forward value is the
+    reference's, so this is not a :class:`Deviation`): ``site`` is the function that calls it
+    (``module.function``), ``helper`` the helper (:data:`STE_HELPERS`), ``what`` the quantity and
+    the reference statement, ``why`` the reason for the convention and ``evidence`` where it is
+    measured."""
+
+    site: str
+    helper: str
+    what: str
+    why: str
+    evidence: str
+
+
 @dataclass(frozen=True)
 class ProcessInfo:
     """Registry metadata of a keyed process (see the module docstring)."""
@@ -237,6 +271,7 @@ class ProcessInfo:
     grid: str
     deviates: tuple[Deviation, ...]
     ref_build: str = ""
+    gradient_conventions: tuple[GradientConvention, ...] = ()
 
     @property
     def slot(self) -> str:
@@ -269,6 +304,11 @@ class ProcessInfo:
         for d in self.deviates:
             if not (d.what.strip() and d.why.strip() and d.evidence.strip()):
                 out.append(f"incomplete deviation {d!r}")
+        for g in self.gradient_conventions:
+            if not all(x.strip() for x in (g.site, g.what, g.why, g.evidence)):
+                out.append(f"incomplete gradient convention {g!r}")
+            if g.helper not in STE_HELPERS:
+                out.append(f"gradient convention helper {g.helper!r} not in {STE_HELPERS}")
         if self.ref_version == NO_REFERENCE:
             if self.variant == FAITHFUL:
                 out.append("a process without reference cannot be the 'faithful' variant")
@@ -291,6 +331,10 @@ class ProcessInfo:
             "grid": self.grid,
             "sources": [{"what": s.what, "ref": s.ref} for s in self.sources],
             "deviates": [{"what": d.what, "why": d.why, "evidence": d.evidence} for d in self.deviates],
+            "gradient_conventions": [
+                {"site": g.site, "helper": g.helper, "what": g.what, "why": g.why, "evidence": g.evidence}
+                for g in self.gradient_conventions
+            ],
         }
 
 
@@ -577,6 +621,7 @@ def _make_info(
     grid: str | None,
     deviates: Iterable[Deviation | Sequence[str]] | None,
     ref_build: str,
+    gradient_conventions: Iterable[GradientConvention] = (),
 ) -> ProcessInfo | None:
     given = {
         "provenance": provenance,
@@ -586,6 +631,7 @@ def _make_info(
     }
     if key is None:
         extra = [n for n, v in given.items() if v is not None] + (["ref_build"] if ref_build else [])
+        extra += ["gradient_conventions"] if tuple(gradient_conventions) else []
         if extra:
             raise ValueError(f"registry metadata {extra} given without a key (slot/impl@ref_version:variant)")
         return None
@@ -600,6 +646,7 @@ def _make_info(
         grid=grid,
         deviates=tuple(_as_deviation(d) for d in deviates),
         ref_build=ref_build,
+        gradient_conventions=tuple(gradient_conventions),
     )
     problems = info.problems()
     if problems:
@@ -622,6 +669,7 @@ def process(
     grid: str | None = None,
     deviates: Iterable[Deviation | Sequence[str]] | None = None,
     ref_build: str = "",
+    gradient_conventions: Iterable[GradientConvention] = (),
 ) -> Any:
     """Declare a process function.
 
@@ -672,8 +720,12 @@ def process(
         ``()`` when there are none. A variant other than ``faithful`` must list at least one.
     ref_build:
         The reference binary or source revision the key's ``ref_version`` was checked against.
+    gradient_conventions:
+        The quantiser call sites the process runs (:class:`GradientConvention`): how the derivative
+        goes through a truncation, rounding or REAL*4 store whose forward value is the reference's.
+        Every call site in the package must be registered (``tests/unit/test_process_registry.py``).
     """
-    info = _make_info(key, provenance, sources, grid, deviates, ref_build)
+    info = _make_info(key, provenance, sources, grid, deviates, ref_build, gradient_conventions)
 
     def wrap(f: Callable[..., Any]) -> Process:
         _check_signature(f)

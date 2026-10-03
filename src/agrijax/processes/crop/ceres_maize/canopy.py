@@ -48,7 +48,7 @@ import jax.numpy as jnp
 from jaxtyping import Array
 
 from agrijax.core.grad import coef_div, round_st
-from agrijax.core.process import process
+from agrijax.core.process import STE_CONVENTION, GradientConvention, process
 from agrijax.core.units import KG_HA_PER_G_M2
 from agrijax.iface.crop import CanopyRecord
 
@@ -160,6 +160,16 @@ def stalk_height(biomas: Array, grnwt: Array, ears: Array, pltpop: Array, c: Can
             "the harvest reset zeroes the published record, so a season starts from 0 as the "
             "reference's reset at the season's first call does",
             "tests/integration/test_ceres_canopy_catpa.py",
+        ),
+    ),
+    gradient_conventions=(
+        GradientConvention(
+            "agrijax.processes.crop.ceres_maize.canopy.stalk_height",
+            "round_st",
+            "grain mass in kg ha-1 rounded with NINT before the stalk-height regression "
+            "(RZWQM2 DSSATDRV.for:1606-1611); " + STE_CONVENTION,
+            "the 1 kg ha-1 quantum would cut the derivative of the height with respect to grain mass to 0",
+            "scripts/diag/dssat_grad_gap.py: no contribution to the G2 / G3 derivatives of the DSSAT day",
         ),
     ),
 )

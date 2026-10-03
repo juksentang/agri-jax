@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from jax.typing import ArrayLike
 from jaxtyping import Array
 
-from agrijax.core.process import process
+from agrijax.core.process import STE_CONVENTION, GradientConvention, process
 
 from ._util import safe_div, trunc_st
 from .coefficients import RootgrCoefficients
@@ -174,6 +174,21 @@ def root_length_growth(
             "DSSAT single precision (REAL*4) is not reproduced",
             "the kernels run in float64 (float32 with AGRI_JAX_X64=0)",
             "tests/integration/test_ceres_dssat.py tolerances",
+        ),
+    ),
+    gradient_conventions=(
+        GradientConvention(
+            "agrijax.processes.crop.ceres_maize.roots.root_length_growth",
+            "trunc_st",
+            "RLV = REAL(INT(RLV*1000))/1000 (MZ_ROOTS.for, MZ_ROOTGR INTEGR); " + STE_CONVENTION,
+            "the derivative of the 1e-3 staircase is 0 between quanta; the straight-through one is the "
+            "slope an optimiser step sees. In water-limited seasons it is the whole difference between "
+            "the ste and exact G2 / G3 derivatives of the DSSAT maize day (via root water uptake): "
+            "0.3 to 2.8 % of d(yield), 1.2 to 8 % of d(tops weight) on UFGA8201 t4, "
+            "1979/1982/1985 x sowing -14/0/+14 d (for P5 / PHINT the TURFAC truncation and the SW "
+            "rounding carry part of the difference as well)",
+            "scripts/diag/dssat_grad_gap.py (ste with this site exact equals exact bit for bit); "
+            "tests/integration/test_facade_grad.py::test_scenario_batch",
         ),
     ),
 )

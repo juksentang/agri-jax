@@ -64,7 +64,7 @@ from jaxtyping import Array
 from agrijax.core.grids import SoilGrid, remap_extensive, remap_intensive
 from agrijax.core.ledger import Channel
 from agrijax.core.ports import port
-from agrijax.core.process import process
+from agrijax.core.process import STE_CONVENTION, GradientConvention, process
 from agrijax.core.state import Forcing, Params, State, field, get_path
 from agrijax.core.units import CM_PER_MM, MM_PER_CM
 from agrijax.iface.soil import SinkInputs
@@ -431,6 +431,26 @@ def bucket_rate(state: BucketState, params: BucketParams, forcing_t: BucketForci
         ("mulch water update", "Soil/Mulch/MULCHWAT.for INTEGR"),
     ),
     deviates=(_REAL,),
+    gradient_conventions=(
+        GradientConvention(
+            "agrijax.processes.soil_water.bucket.kernels.integrate_sw",
+            "round_st",
+            "SW = ANINT(SW*1.E6)/1.E6 (WATBAL.for:503-505); " + STE_CONVENTION,
+            "a perturbation below the 1e-6 quantum leaves SW unchanged, so the exact derivative cuts every "
+            "path through the soil water; with the RLV truncation of MZ_ROOTS it carries the difference "
+            "between the ste and exact G2 / G3 derivatives of the DSSAT maize day",
+            "scripts/diag/dssat_grad_gap.py; tests/integration/test_facade_grad.py::test_scenario_batch",
+        ),
+        GradientConvention(
+            "agrijax.processes.soil_water.bucket.kernels.integrate_sw",
+            "real4_store",
+            "the rounded SW stored in REAL SW(NL) (WATBAL.for:503-505, real4_sw); ste / exact: the "
+            "convert pair's derivative (identity, tangent rounded to binary32); under "
+            "agrijax.core.grad.unrounded the identity",
+            "a relative change of at most 2**-24: the derivative of the store is kept as the cast's",
+            "core/grad.py real4_store docstring; scripts/diag/dssat_grad_gap.py",
+        ),
+    ),
 )
 def bucket_integrate(state: BucketState, params: BucketParams, forcing_t: BucketForcing) -> BucketState:
     """``WATBAL`` INTEGR: the day's water content from the RATE changes, the root uptake (P4
