@@ -150,7 +150,7 @@ and the two sides agree. For ``RAIN`` and ``IRRD`` the exact derivative is zero 
 soil-water rounding), so their level 2 is not judged and their reported straight-through derivative is
 tested at the user steps only, where it mostly fails: it is not shown correct.
 Cost on one device: one call's two reverse passes (straight-through and exact) 0.13-0.26 s (first call) or
-0.16-0.19 s (warm repeat) for 190 simulated days (130-day season and padding) x 5 variables x 2 outputs,
+0.13-0.19 s (warm repeat) for 190 simulated days (130-day season and padding) x 5 variables x 2 outputs,
 against 1.03-1.20 s for the 521-651 equivalent per-day reruns batched on the same device: 4.2-9.2x over four
 runs; one forward season 0.008-0.015 s.
 """
@@ -866,6 +866,17 @@ class WeatherSensitivity:
         lines.extend(self.notes)
         return "\n".join(lines)
 
+    def _subset(self, variables: Sequence[str] | str | None, where: str = "variables") -> list[str]:
+        """``variables`` parsed as the facade parses them (one name or a sequence, any case, distinct),
+        each one of :attr:`variables` (the variables this result was computed for); ``None``: all."""
+        if variables is None:
+            return list(self.variables)
+        vs = _parse_variables(variables)
+        bad = [v for v in vs if v not in self.variables]
+        if bad:
+            raise ValueError(f"{where}: {bad} not among the analysed variables {list(self.variables)}")
+        return vs
+
     def plot(self, output: str | None = None, **kw: Any) -> Any:
         """:func:`agrijax.report.plot.weather_sensitivity` (needs matplotlib)."""
         from agrijax.report.plot import weather_sensitivity as _p
@@ -937,7 +948,7 @@ class WeatherSensitivity:
 
     def brute_force(
         self,
-        variables: Sequence[str] | None = None,
+        variables: Sequence[str] | str | None = None,
         *,
         check: bool = True,
         step: Mapping[str, float] | None = None,
@@ -950,12 +961,14 @@ class WeatherSensitivity:
         columns of ``checks.single_day``; ``attrs["shares"]`` the level shares per output and variable.
         ``check=False``: the plain per-day perturbation approach, one forward rerun per day at ``step``
         (default the middle user step), the difference and the derivative only (for the cost comparison).
-        ``attrs``: rows run and their wall time; ``one_device``: on one device, as the gradient pass."""
+        ``attrs``: rows run and their wall time; ``one_device``: on one device, as the gradient pass.
+        ``variables``: one name or a sequence, parsed as the facade's (any case), each one of
+        :attr:`variables` (default: all of them); any other name raises ``ValueError``."""
         import pandas as pd
 
         self._ready("weather_sensitivity(...).brute_force")
         ctx = self._ctx
-        vs = list(self.variables if variables is None else variables)
+        vs = self._subset(variables, "brute_force")
         which = "one" if one_device else "many"
         x = ctx.progs.weather_of(ctx.i)
         if check:
@@ -1013,9 +1026,10 @@ class WeatherSensitivity:
         """First-order climate attribution (module docstring): ``derivative x (weather - climatology)``
         per day for ``SRAD``, ``TMAX``, ``TMIN``, ``RAIN`` (those of :attr:`variables`).
 
-        ``climatology``: a table indexed by the day of a leap year (1-366, :func:`climatology`) with
-        those columns; default the day-of-year mean of the station's weather files (``years``: which
-        ones; default all of them), **without the season's own years** (``leave_season_out``: an anomaly
+        ``climatology``: a table indexed by the day of a leap year (exactly 1-366, Feb 29 = 60, as
+        :func:`climatology` returns it; a 365-day index raises ``ValueError``) with those columns;
+        default the day-of-year mean of the station's weather files (``years``: which ones; default all
+        of them), **without the season's own years** (``leave_season_out``: an anomaly
         against a mean that contains the season itself is shrunk by about 1 / N). ``anomaly``: instead,
         the anomaly itself (a table with those columns: with a plain 0-based index, one row per day from
         the simulation start; else indexed by ``YYYYDDD`` covering every simulated day, or a
@@ -1086,6 +1100,7 @@ class WeatherSensitivity:
                     ) from err
             else:
                 climatology_tab = pd.DataFrame(climatology)
+                _check_leap_index(climatology_tab, vs)
             used_years = list(climatology_tab.attrs.get("years", []))
             doy = [_leap_doy(d) for d in ctx.dates[:t_cal]]
             clim = np.stack([np.asarray(climatology_tab.loc[doy, v], dtype=float) for v in vs], axis=1)
@@ -1215,8 +1230,27 @@ def _cached(owner: Any, key: Any, build: Callable[[], _Programs]) -> _Programs:
     return store[key]
 
 
+def _check_leap_index(tab: Any, vs: Sequence[str]) -> None:
+    """A user climatology must be indexed by the day of a leap year, exactly 1-366 (Feb 29 = 60), and
+    hold the columns ``vs``: a 365-day day-of-year table would read the next day's values from Mar 1 on."""
+    try:
+        idx = [int(i) for i in tab.index]
+    except (TypeError, ValueError):
+        idx = []
+    if sorted(idx) != list(range(1, 367)):
+        raise ValueError(
+            f"attribution: climatology= must be indexed by the day of a leap year, exactly 1-366 "
+            f"(Feb 29 = 60, Mar 1 = 61 in every year; got {len(tab.index)} rows"
+            + (f", {min(idx)}-{max(idx)}" if idx else "")
+            + "): use agrijax.facade_weather.climatology(...), or map a 365-day table onto it"
+        )
+    miss = [v for v in vs if v not in tab.columns]
+    if miss:
+        raise ValueError(f"attribution: climatology= lacks the columns {miss}")
+
+
 def _parse_variables(variables: Sequence[str] | str) -> list[str]:
-    vs = [variables] if isinstance(variables, str) else [str(v).upper() for v in variables]
+    vs = [variables.upper()] if isinstance(variables, str) else [str(v).upper() for v in variables]
     bad = [v for v in vs if v not in VARIABLES]
     if bad or not vs or len(set(vs)) != len(vs):
         raise ValueError(f"variables {vs}: distinct names out of {list(VARIABLES)}")

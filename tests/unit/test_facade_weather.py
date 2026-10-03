@@ -194,6 +194,51 @@ def test_a_kink_at_the_point_is_not_a_level_2_fail():
     assert s["level2"][0][0] == "pass"
 
 
+def test_check_results_wires_the_one_sided_differences_of_a_kink():
+    # the rows of _check_rows on a function with a kink at the point on two TMAX days: day 2 follows the
+    # left slope (the exact derivative is the left one), day 4 the right slope; _check_results must build
+    # the right- / left-hand differences from the plus / minus rows of the right day and pass them to
+    # day_verdict in that order, and _day_rows must carry them (a swap would flip both kink sides)
+    cfg = fw.WeatherTrustConfig()
+    n_days, base = 6, 5000.0
+    slopes = {2: (-11.1176, -12.5568), 4: (-0.2330, -1.2320)}  # day: (left slope, right slope)
+    x = np.zeros((n_days, len(fw.VARIABLES)))
+    x[:, fw._IX["TMAX"]] = 35.0
+    days = [("TMAX", t, "top") for t in slopes]
+    deltas, keys = fw._check_rows(days, x, n_days, cfg)
+    assert not any(keys[("TMAX", t)]["one_sided"] for t in slopes)  # central days: plus and minus rows
+
+    def y(d: np.ndarray) -> float:
+        h = d[:, fw._IX["TMAX"]]
+        return base + sum(sl * min(h[t], 0.0) + sr * max(h[t], 0.0) for t, (sl, sr) in slopes.items())
+
+    yy = np.array([[y(d)] for d in deltas])
+    g = np.zeros((1, n_days, len(fw.VARIABLES)))
+    gx = np.zeros_like(g)
+    g[0, 2, fw._IX["TMAX"]] = gx[0, 2, fw._IX["TMAX"]] = slopes[2][0]  # left side
+    g[0, 4, fw._IX["TMAX"]] = gx[0, 4, fw._IX["TMAX"]] = slopes[4][1]  # right side
+    res = fw._check_results(keys, yy, g, gx, 1, cfg, n_days)
+    for t, side in ((2, "left"), (4, "right")):
+        ver = res[("TMAX", t)]["verdict"]
+        sl, sr = slopes[t]
+        assert ver["level2"][0] == fw.STATUS_KINK
+        assert ver["kink_side"][0] == side
+        np.testing.assert_allclose(ver["fd_small_left"][0], sl, rtol=1e-5)
+        np.testing.assert_allclose(ver["fd_small_right"][0], sr, rtol=1e-5)
+        np.testing.assert_allclose(ver["fd_small"][0], (sl + sr) / 2.0, rtol=1e-5)
+        assert not res[("TMAX", t)]["exact_cut"][0]
+    dates = [dt.date(1987, 4, 20) + dt.timedelta(days=k) for k in range(n_days)]
+    rows = pd.DataFrame(
+        fw._day_rows(keys, res, ["HWAM"], x, g, gx, dates, np.ones(n_days, int), cfg)
+    ).set_index("day")
+    assert list(rows.loc[[2, 4], "kink_side"]) == ["left", "right"]
+    assert list(rows.loc[[2, 4], "level2"]) == [fw.STATUS_KINK] * 2
+    np.testing.assert_allclose(rows.loc[[2, 4], "fd_small_left"], [slopes[2][0], slopes[4][0]], rtol=1e-5)
+    np.testing.assert_allclose(rows.loc[[2, 4], "fd_small_right"], [slopes[2][1], slopes[4][1]], rtol=1e-5)
+    assert not bool(rows["exact_cut"].to_numpy().any())
+    assert set(rows["caveat"]) == {fw.TMAX_HOT_CAVEAT}
+
+
 def test_calendar_caveat_on_the_petpt_thresholds():
     assert fw._day_caveat("TMAX", 35.0) == fw.TMAX_HOT_CAVEAT
     assert fw._day_caveat("TMAX", 5.0) == fw.TMAX_COLD_CAVEAT
@@ -542,6 +587,15 @@ def test_toy_companions(toy):
     same = ws.checks.single_day.merge(bf, on=["output", "variable", "day"], suffixes=("", "_bf"))
     assert (same["level"] == same["level_bf"]).all()  # the check and the brute force agree day by day
     plain = ws.brute_force(["SRAD", "RAIN"], check=False)
+    # variables= parsed as the facade's: one name or a sequence, any case, among the analysed ones
+    assert ws._subset("srad") == ["SRAD"] and ws._subset(["tmin", "RAIN"]) == ["TMIN", "RAIN"]
+    assert ws._subset(None) == ws.variables
+    assert ws.brute_force("srad", check=False).attrs["rows"] == 1 + (MAT + 1)
+    for bad in ("S", ["IRRD"], ["SRAD", "srad"], []):  # not a variable, not analysed, twice, none
+        with pytest.raises(ValueError, match=r"variables|analysed"):
+            ws.brute_force(bad)
+    with pytest.raises(ValueError, match="variables"):  # was four empty panels 'S', 'R', 'A', 'D'
+        ws.plot(variables="SR")
     assert plain.attrs["rows"] == 1 + 2 * (MAT + 1)
     lin = plain[plain["output"] == "HWAM"]
     np.testing.assert_allclose(lin["fd"], lin["derivative"], rtol=1e-6)
@@ -549,6 +603,11 @@ def test_toy_companions(toy):
         {v: np.full(366, m) for v, m in (("SRAD", 18.0), ("TMAX", 27.0), ("TMIN", 14.0), ("RAIN", 3.0))},
         index=pd.RangeIndex(1, 367, name="doy"),
     )
+    for bad in (clim.iloc[:365], clim.set_axis(pd.RangeIndex(0, 366))):  # a 365-day or 0-based table
+        with pytest.raises(ValueError, match="leap year"):
+            ws.attribution(bad)
+    with pytest.raises(ValueError, match="lacks the columns"):
+        ws.attribution(clim.drop(columns="RAIN"))
     att = ws.attribution(clim)
     tot = att.total[att.total["output"] == "HWAM"].set_index("variable")
     np.testing.assert_allclose(tot["linear"], tot["rerun"], rtol=1e-9, atol=1e-9)  # linear output
