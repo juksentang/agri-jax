@@ -111,32 +111,31 @@ def _attrib(ws, out: Path, tag: str, years=None) -> dict:
 
 
 def _brute(ws, out: Path, tag: str) -> dict:
+    """The single-day check on every day (same steps, scheme and verdict), and the plain per-day
+    reruns (one forward rerun per day x variable) timed on all devices and on one device."""
     bf = ws.brute_force()
-    ws.brute_force(one_device=True)  # compiles the one-device program
-    bf1 = ws.brute_force(one_device=True)
     _save(out, f"{tag}_brute_force", bf)
-    stats = {}
-    for (o, v), g in bf.groupby(["output", "variable"]):
-        big = g["derivative"].abs() > 1e-3 * g["derivative"].abs().max()
-        stats[f"{o}/{v}"] = {
-            "days": len(g),
-            "median_rel_diff_on_nonzero": float(g.loc[big, "rel_diff"].median()) if big.any() else 0.0,
-            "frac_within_5pct_nonzero": float((g.loc[big, "rel_diff"] <= 0.05).mean()) if big.any() else 1.0,
-            "sum_fd": float(g["fd"].sum()),
-            "sum_ad": float(g["derivative"].sum()),
-        }
-    print("\n-- brute force (every day one-sided at the middle step)")
-    print(json.dumps(stats, indent=1))
+    shares = bf.attrs["shares"]
+    _save(out, f"{tag}_brute_force_shares", shares)
+    print("\n-- brute force: the single-day check on every day")
+    print(shares.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
+    plain = ws.brute_force(check=False)
+    ws.brute_force(check=False, one_device=True)  # compiles the one-device program
+    plain1 = ws.brute_force(check=False, one_device=True)
+    two = ws.timing["gradient_s"] + ws.timing["gradient_exact_s"]
     rec = {
-        "rows": bf.attrs["rows"],
-        "run_s": bf.attrs["run_s"],
-        "devices": bf.attrs["devices"],
-        "run_one_device_s": bf1.attrs["run_s"],
-        "stats": stats,
+        "check_rows": bf.attrs["rows"],
+        "check_run_s": bf.attrs["run_s"],
+        "shares": shares.to_dict("records"),
+        "plain_rows": plain.attrs["rows"],
+        "plain_run_s": plain.attrs["run_s"],
+        "plain_run_one_device_s": plain1.attrs["run_s"],
+        "devices": plain.attrs["devices"],
+        "gradient_ste_plus_exact_s": two,
     }
     print(
-        f"brute force: {rec['rows']} runs in {rec['run_s']:.2f} s on {rec['devices']} devices; "
-        f"{bf1.attrs['run_s']:.2f} s on one device; gradient {ws.timing['gradient_s']:.3f} s (one device)"
+        f"plain per-day reruns: {rec['plain_rows']} runs, {rec['plain_run_s']:.3f} s (all devices), "
+        f"{rec['plain_run_one_device_s']:.3f} s on one device; one call's two gradient passes {two:.3f} s"
     )
     return rec
 
@@ -181,7 +180,9 @@ def main() -> int:
                 _, s1 = progs.values(z, np.zeros(1, np.int64), "one")
                 rec["forward_one_season_one_device_s"] = s1
                 _, g2 = progs.gradient([0], "ste")[1:]
+                _, g3 = progs.gradient([0], "exact")[1:]
                 rec["gradient_repeat_s"] = g2
+                rec["gradient_exact_repeat_s"] = g3
                 print(f"one season forward on one device {s1:.3f} s; gradient pass (repeat) {g2:.3f} s")
             res[tag] = rec
             (out / "g1_results.json").write_text(json.dumps(res, indent=1, default=str))

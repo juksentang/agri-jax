@@ -2,17 +2,22 @@
 
 * ``HMET``'s ``TAVG`` is linear in ``(TMAX, TMIN)`` for a given day length: the float64 weights sum to
   1 and reproduce the float32 reference transcription to its rounding;
-* the three-valued single-day verdict: pass, fail (consistent differences, wrong derivative),
-  undecidable (the differences disagree with each other), both zero;
+* the day verdict follows ``agrijax.calib.trust``'s levels: level 2 three-valued on the exact derivative
+  at the small steps, level 3 = the straight-through derivative agrees with every user-step secant
+  (disagreeing secants fail, they are never undecidable), the day's level 1 / 2 / 3; the labels and
+  caveats (radiation and temperature: the stage calendar; rain and irrigation: germination);
+* the right-hand derivative of the mulch interception at 0 mm of rain (1 - cover, not 1), values unchanged;
 * the perturbation hook adds a day's change to every place the model reads it (and only that day);
-* the single-day rows (top-k and random days, forward-only steps near 0) and the whole-season rows;
+* the single-day rows (top-k and random days; one difference scheme per day: forward at every step
+  where the value would go below 0, else central) and the whole-season rows;
 * the whole pipeline (``_analyse``: calendar, stages, single-day check, whole-season check, labels,
   phenology-free companion, brute force, attribution) on a toy season whose outputs are known
   functions of the weather: exact for a linear output (every check passes, the whole-season gap and
   the attribution's rerun-minus-linear are 0), a quadratic output (central differences exact; the
-  forward-only rain differences on dry days are undecidable), with the temperature caveat;
-* the climatology of weather files (day-of-year means, Feb 29), the stage helpers, the facade
-  signatures.
+  forward-only rain differences fail at the user steps), with the caveats in every row;
+* the climatology of weather files (day-of-year means, Feb 29, leave-one-out: the attribution's default
+  climatology leaves the season's own year out), the stage helpers, the facade signatures, and the
+  facade's cache: a second ``year=`` call reuses the scenario's inputs and programs.
 """
 
 from __future__ import annotations
@@ -59,25 +64,68 @@ def test_tavg_weights_sum_to_one_and_reproduce_hmet():
 
 
 # ------------------------------------------------------------------------------ the verdict
-def test_single_day_verdict_three_values():
+def test_day_verdict_follows_the_trust_levels():
     cfg = fw.WeatherTrustConfig()
-    y0 = np.full(5, 1000.0)
-    ad = np.array([2.0, 2.0, 2.0, 0.0, 3.0])
-    fds = [
-        np.array([2.0, 1.0, 2.0, 0.0, 3.0]),
-        np.array([2.01, 1.0, 3.0, 0.0, 3.0]),
-        np.array([1.99, 1.01, 9.0, 0.0, 3.1]),
-    ]
-    v = fw.single_day_verdict(ad, fds, y0, 1.0, cfg)
-    assert list(v["status"]) == ["pass", "fail", "undecidable", "pass", "pass"]
-    assert v["rel_err"][3] == 0.0 and v["spread"][3] == 0.0
-    np.testing.assert_allclose(v["fd"], fds[0])
-    assert fw._variable_label(["pass", "pass"]) == fw.LABEL_VALIDATED
-    assert fw._variable_label(["pass", "undecidable"]) == fw.LABEL_PARTIAL
-    assert fw._variable_label(["undecidable", "fail"]) == fw.LABEL_FAILS
-    assert fw.TEMPERATURE_CAVEAT in fw._with_caveat("TMAX", fw.LABEL_VALIDATED)
-    assert fw.TEMPERATURE_CAVEAT in fw._with_caveat("SRAD", fw.LABEL_VALIDATED)
-    assert fw._with_caveat("RAIN", fw.LABEL_VALIDATED) == fw.LABEL_VALIDATED
+    y0 = np.array([1000.0])
+    one = np.ones((1, 6))
+    ad = 2.0 * one
+    adx = 2.0 * one
+    adx[0, 4] = 1.0  # case 4: the exact derivative is wrong at consistent small steps
+    small = [2.0 * one, 2.0 * one, 2.0 * one]
+    for f in small:
+        f[0, 2] = f[0, 3] = 0.0  # cases 2, 3: inconsistent small steps (a quantum inside)
+    small[0][0, 2] = small[0][0, 3] = 5.0
+    small[1][0, 5] = small[2][0, 5] = small[0][0, 5] = 0.0  # case 5: everything zero ...
+    large = [2.0 * one, 2.0 * one, 2.0 * one]
+    large[2][0, 1] = 2.5  # case 1: one user-step secant 25 % off (curvature): fails, never undecidable
+    large[2][0, 3] = 2.5  # case 3: small undecidable and a secant off
+    ad[0, 5] = adx[0, 5] = 0.0
+    for f in large:
+        f[0, 5] = 0.0  # ... both zero
+    v = fw.day_verdict(ad, adx, small, large, y0, np.ones(6), cfg)
+    assert list(v["level2"][0]) == ["pass", "pass", "undecidable", "undecidable", "fail", "pass"]
+    assert list(v["level3"][0]) == [True, False, True, False, True, True]
+    assert list(v["level"][0]) == [3, 2, 3, 1, 1, 3]
+    assert list(v["status"][0]) == ["pass", "fail", "pass", "fail", "fail", "pass"]
+    np.testing.assert_allclose(v["rel_err_large_max"][0, 1], 0.2)
+    assert fw._variable_label([3, 3]) == fw.LABEL_VALIDATED
+    assert fw._variable_label([3, 2, 1]) == f"{fw.LABEL_FAILS}: 2 of 3 checked days fail"
+    for var in ("TMAX", "TMIN", "SRAD"):
+        assert fw.TEMPERATURE_CAVEAT in fw._with_caveat(var, fw.LABEL_VALIDATED)
+    for var in ("RAIN", "IRRD"):
+        lab = fw._with_caveat(var, fw.LABEL_VALIDATED)
+        assert fw.WATER_CAVEAT in lab and fw.TEMPERATURE_CAVEAT not in lab
+
+
+def test_mulch_interception_right_derivative_at_zero_rain():
+    from agrijax.processes.soil_water.bucket import kernels as K
+
+    def run(w, mass=2000.0, mulchwat=0.0, cover=0.3):
+        return K.mulch_rate(w, mulchwat, 0.0, mass, cover, 0.0, 3.5, True)
+
+    def tangents(**kw):
+        (r, dr) = jax.jvp(lambda w: run(w, **kw), (jnp.asarray(0.0),), (jnp.asarray(1.0),))
+        return r, dr
+
+    r, dr = tangents()
+    assert float(r.watavl) == 0.0 and float(r.mulwatadd) == 0.0  # values as the dry branch gives them
+    np.testing.assert_allclose([float(dr.watavl), float(dr.mulwatadd)], [0.7, 0.3])
+    h = 1e-6  # the right-hand difference of the forward model
+    np.testing.assert_allclose(float(run(h).watavl) / h, 0.7, rtol=1e-9)
+    np.testing.assert_allclose(float(run(h).mulwatadd) / h, 0.3, rtol=1e-9)
+    # no mulch, or a saturated mulch (deficit <= 0): all of the rain goes on, derivative 1
+    for kw in ({"mass": 0.0}, {"mulchwat": 1e4}):
+        _, dr = tangents(**kw)
+        np.testing.assert_allclose([float(dr.watavl), float(dr.mulwatadd)], [1.0, 0.0])
+    # above 0 mm nothing changes
+    _r1, dr1 = jax.jvp(lambda w: run(w), (jnp.asarray(0.5),), (jnp.asarray(1.0),))
+    np.testing.assert_allclose(float(dr1.watavl), 0.7)
+    for mode in ("ste", "exact"):  # a derivative of the function, the same in every gradient mode
+        from agrijax.core.grad import gradient_mode
+
+        with gradient_mode(mode):
+            _, dr = tangents()
+        np.testing.assert_allclose(float(dr.watavl), 0.7)
 
 
 def test_stage_helpers():
@@ -156,22 +204,29 @@ def test_single_day_and_whole_season_rows():
     g0[:t_n, fw._IX["RAIN"]] = [0.0, 0.0, 1.0, 0.0, 2.0, 0.0]
     x = np.ones((n_days, len(fw.VARIABLES)))
     x[:, fw._IX["RAIN"]] = 0.0
+    x[2, fw._IX["RAIN"]] = 3.0
     x[4, fw._IX["RAIN"]] = 10.0
-    deltas, keys = fw._single_day_rows(g0, x, ["SRAD", "RAIN"], t_n, n_days, cfg)
-    assert np.all(deltas[0] == 0.0)
-    by = {}
-    for v, t, kind, ip, im, hp, hm in keys:
-        by.setdefault((v, t, kind), []).append((ip, im, hp, hm))
-        assert deltas[ip][t, fw._IX[v]] == hp and np.count_nonzero(deltas[ip]) == 1
-        if im >= 0:
-            assert deltas[im][t, fw._IX[v]] == -hm
-    tops = {(v, t) for (v, t, k) in by if k == "top"}
+    days = fw._check_days(g0, ["SRAD", "RAIN"], t_n, cfg)
+    tops = {(v, t) for (v, t, k) in days if k == "top"}
     assert tops == {("SRAD", 1), ("SRAD", 3), ("RAIN", 4), ("RAIN", 2)}
-    assert sum(1 for (v, _, k) in by if k == "random") == 2
-    # rain 0 on day 2: forward only; rain 10 mm on day 4: central at every step (1, 2, 5 mm)
-    assert all(im < 0 and hm == 0.0 for (ip, im, hp, hm) in by[("RAIN", 2, "top")])
-    assert all(im >= 0 for (ip, im, hp, hm) in by[("RAIN", 4, "top")])
-    assert all(len(r) == 3 for r in by.values())
+    assert sum(1 for (_, _, k) in days if k == "random") == 2
+    deltas, keys = fw._check_rows(days, x, n_days, cfg)
+    assert np.all(deltas[0] == 0.0)
+    for (v, t), ent in keys.items():
+        for grp in ("small", "large"):
+            assert [h for (_, _, h) in ent[grp]] == list(
+                (cfg.small_steps if grp == "small" else cfg.steps)[v]
+            )
+            for ip, im, h in ent[grp]:
+                assert deltas[ip][t, fw._IX[v]] == h and np.count_nonzero(deltas[ip]) == 1
+                assert (im < 0) == ent["one_sided"]
+                if im >= 0:
+                    assert deltas[im][t, fw._IX[v]] == -h
+    # one scheme per day: 3 mm of rain is below the largest step (5 mm): forward at every step, also
+    # at 1 and 2 mm; 10 mm: central at every step; SRAD 1 MJ = the largest step: central
+    assert keys[("RAIN", 2)]["one_sided"] and not keys[("RAIN", 4)]["one_sided"]
+    assert not keys[("SRAD", 1)]["one_sided"]
+    assert len(deltas) == 1 + sum(6 if e["one_sided"] else 12 for e in keys.values())
     ws = fw._whole_season_deltas(["SRAD", "TMAX", "TMIN", "RAIN"], x, cfg)
     labs = [lab for lab, _ in ws]
     assert labs == [
@@ -269,16 +324,25 @@ def test_toy_checks(toy):
     sd = ws.checks.single_day
     lin = sd[sd["output"] == "HWAM"]
     assert set(lin["status"]) == {"pass"}
+    assert set(lin["level"]) == {3} and set(lin["level2"]) == {"pass"}
     quad = sd[sd["output"] == "CWAM"]
-    # central differences of a quadratic are exact; forward-only ones at 0 mm rain are h-dependent
-    assert set(quad.loc[~quad["one_sided"], "status"]) == {"pass"}
-    dry = quad[quad["one_sided"] & (quad["value"] == 0.0)]
-    assert len(dry) and set(dry["status"]) == {"undecidable"}
+    # central differences of a quadratic are exact; forward ones carry h / 2 of curvature: at the user
+    # steps that is a level-3 failure (level 2 passes: at 1e-3..1e-5 mm the curvature is negligible)
+    assert set(quad.loc[~quad["one_sided"], "level"]) == {3}
+    fwd = quad[quad["one_sided"]]
+    assert len(fwd) and set(fwd["level"]) == {2} and set(fwd["level2"]) == {"pass"}
+    assert set(fwd["status"]) == {"fail"}
     assert ws.trust["SRAD"] == f"{fw.LABEL_VALIDATED} ({fw.TEMPERATURE_CAVEAT})"
-    assert ws.trust["RAIN"] == fw.LABEL_PARTIAL
+    n_rain = int((sd["variable"] == "RAIN").sum())
+    assert (
+        ws.trust["RAIN"] == f"{fw.LABEL_FAILS}: {len(fwd)} of {n_rain} checked days fail ({fw.WATER_CAVEAT})"
+    )
     assert ws.trust["TMAX"].startswith(fw.LABEL_VALIDATED) and fw.TEMPERATURE_CAVEAT in ws.trust["TMAX"]
-    s = ws.checks.summary
+    s = ws.checks.summary.set_index(["output", "variable"])
     assert int(s["days"].sum()) == len(sd)
+    np.testing.assert_allclose(s[["level3", "level2", "level1"]].sum(axis=1), 1.0)
+    assert s.loc[("HWAM", "RAIN"), "level3"] == 1.0
+    np.testing.assert_allclose(s.loc[("CWAM", "RAIN"), "level2"], len(fwd) / s.loc[("CWAM", "RAIN"), "days"])
     whole = ws.checks.whole_season
     h = whole[whole["output"] == "HWAM"].set_index("perturbation")
     np.testing.assert_allclose(h["gap"], 0.0, atol=1e-9)
@@ -288,7 +352,7 @@ def test_toy_checks(toy):
     q = whole[whole["output"] == "CWAM"].set_index("perturbation")
     np.testing.assert_allclose(q["gap"], 0.0, atol=1e-9)  # central difference of a quadratic
     assert np.all(q["curvature"] > 0.0)
-    assert ws.daily["checked"].isin(["", "pass", "fail", "undecidable"]).all()
+    assert ws.daily["checked"].isin(["", "pass", "fail"]).all()
     assert "temperature derivatives" in str(ws)
 
 
@@ -298,9 +362,17 @@ def test_toy_companions(toy):
     h = pf[pf["output"] == "HWAM"]
     np.testing.assert_allclose(h["gap"], 0.0, atol=1e-9)
     assert list(h["mdat_shift"]) == [1, -1]
-    bf = ws.brute_force(["SRAD", "RAIN"])
-    assert bf.attrs["rows"] == 1 + 2 * (MAT + 1)
-    lin = bf[bf["output"] == "HWAM"]
+    bf = ws.brute_force(["SRAD", "RAIN"])  # the same check on every day
+    n_fwd = int((WEATHER[: MAT + 1, fw._IX["RAIN"]] < 5.0).sum())
+    assert bf.attrs["rows"] == 1 + 12 * (MAT + 1) + 12 * (MAT + 1 - n_fwd) + 6 * n_fwd
+    assert len(bf) == 2 * 2 * (MAT + 1) and set(bf.loc[bf["output"] == "HWAM", "level"]) == {3}
+    sh = bf.attrs["shares"].set_index(["output", "variable"])
+    np.testing.assert_allclose(sh.loc[("CWAM", "RAIN"), "level3"], 1.0 - n_fwd / (MAT + 1))
+    same = ws.checks.single_day.merge(bf, on=["output", "variable", "day"], suffixes=("", "_bf"))
+    assert (same["level"] == same["level_bf"]).all()  # the check and the brute force agree day by day
+    plain = ws.brute_force(["SRAD", "RAIN"], check=False)
+    assert plain.attrs["rows"] == 1 + 2 * (MAT + 1)
+    lin = plain[plain["output"] == "HWAM"]
     np.testing.assert_allclose(lin["fd"], lin["derivative"], rtol=1e-6)
     clim = pd.DataFrame(
         {v: np.full(366, m) for v, m in (("SRAD", 18.0), ("TMAX", 27.0), ("TMIN", 14.0), ("RAIN", 3.0))},
@@ -314,7 +386,17 @@ def test_toy_companions(toy):
     )
     a = att.daily[(att.daily["output"] == "HWAM") & (att.daily["variable"] == "SRAD")]
     np.testing.assert_allclose(a["anomaly"], WEATHER[: MAT + 1, fw._IX["SRAD"]] - 18.0)
-    assert fw.TEMPERATURE_CAVEAT in tot.loc["TMAX", "caveat"] and tot.loc["RAIN", "caveat"] == ""
+    for frame in (att.daily, att.by_stage, att.total):
+        assert frame["caveat"].str.contains(fw.LINEAR_CAVEAT, regex=False).all()
+    assert (
+        fw.TEMPERATURE_CAVEAT in tot.loc["TMAX", "caveat"]
+        and fw.WATER_CAVEAT not in tot.loc["TMAX", "caveat"]
+    )
+    assert (
+        fw.WATER_CAVEAT in tot.loc["RAIN", "caveat"]
+        and fw.TEMPERATURE_CAVEAT not in tot.loc["RAIN", "caveat"]
+    )
+    assert fw.WATER_CAVEAT in tot.loc["ALL", "caveat"] and fw.TEMPERATURE_CAVEAT in tot.loc["ALL", "caveat"]
     yrdoy = ws._ctx.yrdoy[: MAT + 1]
     an = pd.DataFrame({v: np.ones(MAT + 1) for v in ("SRAD", "TMAX", "TMIN", "RAIN")}, index=yrdoy)
     att2 = ws.attribution(anomaly=an, rerun=False)
@@ -363,6 +445,69 @@ def test_climatology_of_weather_files(tmp_path):
     assert fw.station_files(tmp_path, "TEST") == sorted(files)
     with pytest.raises(ValueError, match="no weather"):
         fw.climatology(files, years=[1950])
+
+
+def test_attribution_leaves_the_season_year_out(toy, tmp_path):
+    from agrijax.io.dssat.wth import write_wth
+
+    ws, _ = toy
+    files = []
+    for y, srad in ((1981, 10.0), (1982, 30.0), (1983, 14.0)):  # the toy season is 1982
+        dates = pd.date_range(f"{y}-01-01", f"{y}-12-31")
+        df = pd.DataFrame({"date": dates, "srad": srad, "tmax": 25.0, "tmin": 12.0, "rain": 1.0})
+        files.append(write_wth(df, tmp_path / f"TEST{y % 100:02d}01.WTH", site=SITE))
+    np.testing.assert_allclose(fw.climatology(files, exclude=[1982])["SRAD"], 12.0)
+    ctx = ws._ctx
+    old = ctx.weather_files
+    try:
+        ctx.weather_files = files
+        att = ws.attribution(rerun=False)
+        assert att.years == [1981, 1983]
+        a = att.daily[(att.daily["output"] == "HWAM") & (att.daily["variable"] == "SRAD")]
+        np.testing.assert_allclose(a["climatology"], 12.0)
+        assert ws.attribution(rerun=False, leave_season_out=False).years == [1981, 1982, 1983]
+    finally:
+        ctx.weather_files = old
+
+
+def test_facade_reuses_a_scenario_and_its_programs(monkeypatch):
+    calls = {"scenarios": 0, "ws": []}
+    exp = ajd.Experiment(
+        "TEST", ajd.Path("/nonexistent/TEST.MZX"), ajd.Path("/nonexistent"), "", {2: "t"}, {}, "", "XX"
+    )
+    run = SimpleNamespace(name="run")
+
+    def scenarios(self, trno, years=None, sowing_shift=(0,), soil_evaporation=None):
+        calls["scenarios"] += 1
+        return SimpleNamespace(runs=[run], table=pd.DataFrame({"year": [1985]}))
+
+    def fake_ws(runs, names, **kw):
+        calls["ws"].append((runs, names, kw["owner"], kw["key"]))
+        return ["result"]
+
+    monkeypatch.setattr(ajd.Experiment, "scenarios", scenarios)
+    monkeypatch.setattr(fw, "weather_sensitivity", fake_ws)
+    for _ in range(2):
+        assert exp.weather_sensitivity(2, year=1985) == "result"
+    assert calls["scenarios"] == 1  # the scenario's inputs are built once
+    (r1, n1, o1, k1), (r2, n2, o2, k2) = calls["ws"]
+    assert o1 is exp and o2 is exp and k1 == k2  # the programs are cached on the experiment by content
+    assert r1[0] is run and r2[0] is run and n1 == n2 == ["TEST_t02 1985 +0 d"]
+    exp.weather_sensitivity(2, year=1985, sowing_shift=7)
+    assert calls["scenarios"] == 2 and calls["ws"][-1][3] != k1
+
+
+def test_cache_builds_once_per_owner_and_key():
+    class Owner:
+        pass
+
+    built = []
+    own = Owner()
+    for _ in range(2):
+        fw._cached(own, ("k", 1), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
+    assert len(built) == 1
+    fw._cached(own, ("k", 2), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
+    assert len(built) == 2
 
 
 def test_variables_parsing_and_facade_signatures():

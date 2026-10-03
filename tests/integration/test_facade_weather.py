@@ -7,11 +7,13 @@ example data; no DSSAT run).
   ``TMAX`` (with ``TAVG`` through ``HMET``'s weights) or ``RAIN`` changed in the treatment's inputs
   (``FreeRunInputs.series`` and the crop weather) and simulated by the single-season program gives the
   batched rerun's yield;
-* the derivative of the days the check passed equals the central difference of those independent
-  runs;
-* the calendar, the stage table, the labels (temperature caveat), the whole-season check (the
-  ``SRAD`` prediction within the measured gap; the temperature gap carries the maturity shift) and the
-  attribution's structure.
+* on grain-filling days chosen by stage (not by the check), below the 35 degC threshold, the
+  temperature derivative equals the central difference of those independent runs, and equals the
+  exact-mode derivative;
+* the calendar, the stage table, the labels (with their caveats) and level shares, the whole-season
+  check (radiation and temperature move the stage days), the attribution's structure (leave-one-out
+  climatology, the caveat on every row);
+* a second ``year=`` call compiles nothing.
 """
 
 from __future__ import annotations
@@ -36,9 +38,6 @@ OUTPUTS = ["HWAM", "CWAM"]
 VARIABLES = ["SRAD", "TMAX", "TMIN", "RAIN"]
 #: batched rerun against the single-season program (two programs, the same arithmetic)
 PROGRAM_RTOL = 1e-9
-#: central difference of the independent runs against the derivative on a day the check passed
-#: (the check's own tolerance)
-FD_RTOL = 0.05
 
 
 @pytest.fixture(scope="module")
@@ -115,19 +114,16 @@ def test_the_perturbation_reaches_the_model_where_an_independent_construction_pu
         assert float(y[0, 0]) == pytest.approx(_yield(_perturbed(x, t, var, h)), rel=PROGRAM_RTOL), (var, t)
 
 
-def test_derivatives_of_passing_days_equal_independent_central_differences(exp, ws):
+def test_grain_filling_temperature_derivative_equals_independent_differences(exp, ws):
     x = exp.inputs(TRNO)
-    sd = ws.checks.single_day
-    ok = sd[
-        (sd["output"] == "HWAM") & (sd["status"] == "pass") & ~sd["one_sided"] & (sd["selected"] == "top")
-    ]
-    assert len(ok) >= 4
-    for var in ok["variable"].unique():
-        r = ok[ok["variable"] == var].iloc[0]
-        h = fw.DEFAULT_CONFIG.steps[var][0]
-        t = int(r["day"])
-        fd = (_yield(_perturbed(x, t, var, h)) - _yield(_perturbed(x, t, var, -h))) / (2 * h)
-        assert r["derivative"] == pytest.approx(fd, rel=FD_RTOL), (var, t, r["derivative"], fd)
+    d = ws.daily[(ws.daily["output"] == "HWAM") & (ws.daily["variable"] == "TMAX")]
+    fill = d[(d["stage"] == 5) & (d["value"] < 34.0) & (d["derivative"] != 0.0)].head(2)
+    assert len(fill) == 2
+    for _, r in fill.iterrows():
+        t, h = int(r["day"]), 0.1
+        fd = (_yield(_perturbed(x, t, "TMAX", h)) - _yield(_perturbed(x, t, "TMAX", -h))) / (2 * h)
+        assert r["derivative"] == pytest.approx(fd, rel=1e-3), (t, r["derivative"], fd)
+        assert r["derivative"] == pytest.approx(r["derivative_exact"], rel=1e-9)
 
 
 def test_calendar_stages_labels_and_checks(ws):
@@ -135,9 +131,11 @@ def test_calendar_stages_labels_and_checks(ws):
     assert len(ws.daily) == len(OUTPUTS) * t_cal * len(VARIABLES)
     assert list(ws.trust) == VARIABLES
     for v, lab in ws.trust.items():
-        base = lab.split(" (phenology")[0]
-        assert base in (fw.LABEL_VALIDATED, fw.LABEL_PARTIAL, fw.LABEL_FAILS)
+        assert lab.startswith((fw.LABEL_VALIDATED, fw.LABEL_FAILS))
         assert (fw.TEMPERATURE_CAVEAT in lab) == (v in fw.PHENOLOGY)
+        assert (fw.WATER_CAVEAT in lab) == (v in fw.WATER)
+    summ = ws.checks.summary
+    np.testing.assert_allclose(summ[["level3", "level2", "level1"]].sum(axis=1), 1.0)
     for (o, v), g in ws.daily.groupby(["output", "variable"]):
         st = ws.stages[(ws.stages["output"] == o) & (ws.stages["variable"] == v)]
         assert st["sum"].sum() == pytest.approx(g["derivative"].sum(), rel=1e-9, abs=1e-12)
@@ -149,13 +147,12 @@ def test_calendar_stages_labels_and_checks(ws):
     assert srad["adat_shift_plus"] < 0  # radiation moves the early stage days (growing-point temperature)
     temp = whole.loc[("HWAM", "TMAX and TMIN +-1 degC")]
     assert temp["mdat_shift_plus"] < 0 < temp["mdat_shift_minus"]  # warmer: earlier maturity
-    assert len(ws.checks.single_day) and set(ws.checks.single_day["status"]) <= {
-        "pass",
-        "fail",
-        "undecidable",
-    }
+    sd = ws.checks.single_day
+    assert len(sd) and set(sd["status"]) <= {"pass", "fail"} and set(sd["level"]) <= {1, 2, 3}
     att = ws.attribution()
-    assert len(att.years) > 10
+    assert len(att.years) > 10 and 1982 not in att.years  # leave-one-out
+    for frame in (att.daily, att.by_stage, att.total):
+        assert frame["caveat"].str.contains(fw.LINEAR_CAVEAT, regex=False).all()
     tot = att.total[att.total["output"] == "HWAM"].set_index("variable")
     assert list(tot.index) == [*VARIABLES, "ALL"]
     assert np.isfinite(tot["linear"]).all() and np.isfinite(tot["rerun"]).all()
@@ -165,3 +162,12 @@ def test_calendar_stages_labels_and_checks(ws):
         int(temp["mdat_shift_plus"]),
     ]
     print("\n" + str(ws))
+
+
+def test_a_second_year_call_compiles_nothing(exp):
+    first = exp.weather_sensitivity(TRNO, outputs=["HWAM"], variables=["SRAD"], year=1985, check=False)
+    compiled = first._ctx.progs.compile_s
+    again = exp.weather_sensitivity(TRNO, outputs=["HWAM"], variables=["SRAD"], year=1985, check=False)
+    assert again._ctx.progs is first._ctx.progs
+    assert again._ctx.progs.compile_s == compiled and again.timing["compile_s"] == 0.0
+    np.testing.assert_array_equal(again.daily["derivative"], first.daily["derivative"])
