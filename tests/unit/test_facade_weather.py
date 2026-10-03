@@ -155,23 +155,45 @@ def test_a_kink_at_the_point_is_not_a_level_2_fail():
     cfg = fw.WeatherTrustConfig()
     y0 = np.array([5000.0])
     lft, rgt = -11.1176, -12.5568
-    ad = np.array([[-11.1163, lft, rgt, -5.0]])  # day 0: straight-through 1e-4 off the exact (as measured)
-    adx = np.array([[lft, lft, rgt, -5.0]])  # day 2: the program takes the right side
-    cen = np.array([[(lft + rgt) / 2] * 3 + [-11.837]])
-    right = [np.array([[rgt, rgt, rgt, rgt]])] * 3
-    left = [np.array([[lft, lft, lft, lft]])] * 3
+    mid, btw = (lft + rgt) / 2, lft + 0.25 * (rgt - lft)
+    # day 0: straight-through 1e-4 off the exact (as measured); day 2: the program takes the right side;
+    # day 4: the mean of the sides (JAX at a tie of abs / maximum / minimum / clip); day 5: in between
+    ad = np.array([[-11.1163, lft, rgt, -5.0, mid, btw]])
+    adx = np.array([[lft, lft, rgt, -5.0, mid, btw]])
+    cen = np.array([[mid] * 3 + [-11.837, mid, mid]])
+    right = [np.full((1, 6), rgt)] * 3
+    left = [np.full((1, 6), lft)] * 3
     large = [cen] * 3
-    v = fw.day_verdict(ad, adx, [cen] * 3, large, y0, np.ones(4), cfg, None, right, left)
-    # days 0, 1: a kink, the left side; day 2: the right side; day 3: the exact derivative is neither
-    # side: fail
-    assert list(v["level2"][0]) == [fw.STATUS_KINK, fw.STATUS_KINK, fw.STATUS_KINK, "fail"]
-    assert list(v["kink_side"][0]) == ["left", "left", "right", "neither"]
-    assert list(v["level"][0]) == [1, 1, 1, 1]  # undecidable, and the central user-step secants differ
+    v = fw.day_verdict(ad, adx, [cen] * 3, large, y0, np.ones(6), cfg, None, right, left)
+    # days 0, 1: a kink, the left side; day 2: the right side; day 3: the exact derivative lies outside
+    # both sides: fail; days 4, 5: a subgradient (the mean, a value between): a kink, not a fail
+    k = fw.STATUS_KINK
+    assert list(v["level2"][0]) == [k, k, k, "fail", k, k]
+    assert list(v["kink_side"][0]) == ["left", "left", "right", "neither", "mean", "between"]
+    # undecidable, and the central user-step secants differ; day 4: the reported mean agrees with every
+    # central secant (calib/trust.py's level 3); day 5: 3 % off them, within level 3's 5 %
+    assert list(v["level"][0]) == [1, 1, 1, 1, 3, 3]
+    # f(x) = 2x + |x| at x = 0: JAX's derivative 2 = the mean of the sides 1 and 3, every central
+    # secant 2: level 3, as calib/trust.py on the central differences alone
+    two = [np.array([[2.0]])] * 3
+    f = fw.day_verdict(
+        two[0],
+        two[0],
+        two,
+        two,
+        np.array([1.0]),
+        np.ones(1),
+        cfg,
+        None,
+        [np.array([[3.0]])] * 3,
+        [np.array([[1.0]])] * 3,
+    )
+    assert f["level2"][0][0] == k and f["kink_side"][0][0] == "mean" and f["level"][0][0] == 3
     np.testing.assert_allclose(v["fd_small_right"][0], rgt)
     np.testing.assert_allclose(v["fd_small_left"][0], lft)
     # without the one-sided differences (forward-only days, or the caller's choice) the old verdict
-    w = fw.day_verdict(ad, adx, [cen] * 3, large, y0, np.ones(4), cfg)
-    assert w["level2"][0][1] == "fail" and list(w["kink_side"][0]) == [""] * 4
+    w = fw.day_verdict(ad, adx, [cen] * 3, large, y0, np.ones(6), cfg)
+    assert w["level2"][0][1] == "fail" and list(w["kink_side"][0]) == [""] * 6
     # a smooth day: both sides equal the central difference, no kink
     s = fw.day_verdict(
         adx[:, :1],
@@ -596,6 +618,14 @@ def test_toy_companions(toy):
             ws.brute_force(bad)
     with pytest.raises(ValueError, match="variables"):  # was four empty panels 'S', 'R', 'A', 'D'
         ws.plot(variables="SR")
+    # output= parsed as the facade's (any case), among the analysed outputs: was an empty table / figure
+    assert ws._output("hwam") == "HWAM" and ws._output(None) == "HWAM"
+    assert ws.calendar("cwam").equals(ws.calendar("CWAM"))
+    for bad in ("H#AM", "XYZ", ["HWAM"]):  # a known output not analysed, an unknown one, not a string
+        with pytest.raises(ValueError, match=r"calendar: .*analysed outputs"):
+            ws.calendar(bad)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match=r"plot: .*analysed outputs"):
+            ws.plot(output=bad)  # type: ignore[arg-type]
     assert plain.attrs["rows"] == 1 + 2 * (MAT + 1)
     lin = plain[plain["output"] == "HWAM"]
     np.testing.assert_allclose(lin["fd"], lin["derivative"], rtol=1e-6)
@@ -698,6 +728,10 @@ def test_climatology_of_weather_files(tmp_path):
     assert list(tab.index) == list(range(1, 367))
     np.testing.assert_allclose(tab.loc[100, ["SRAD", "TMAX", "TMIN"]], [11.0, 26.0, 12.0])
     np.testing.assert_allclose(tab.loc[60, "SRAD"], 12.0)  # Feb 29: only 2000
+    assert tab.attrs["n_years"][100] == 2 and tab.attrs["n_years"][60] == 1  # the years behind each day
+    # a partial-year file: the days it does not cover have no year behind them (only filled)
+    part = fw.climatology([files[0]], years=[1999]).attrs["n_years"]
+    assert set(part.values()) == {0, 1} and part[60] == 0
     one = fw.climatology(files, years=[1999])
     np.testing.assert_allclose(one["SRAD"], 10.0)
     assert fw.station_files(tmp_path, "TEST") == sorted(files)
@@ -724,6 +758,20 @@ def test_attribution_leaves_the_season_year_out(toy, tmp_path):
         assert att.years == [1981, 1983]
         a = att.daily[(att.daily["output"] == "HWAM") & (att.daily["variable"] == "SRAD")]
         np.testing.assert_allclose(a["climatology"], 12.0)
+        np.testing.assert_allclose(a["n_years"], 2.0)  # the years behind each day's climatology
+        # a station whose other years cover part of the year only: the season's days (from Mar 1) have
+        # no year behind them; refused, never filled flat from the nearest covered day
+        part = []
+        for y in (1981, 1983):
+            dates = pd.date_range(f"{y}-04-01", f"{y}-12-31")
+            df = pd.DataFrame({"date": dates, "srad": 10.0, "tmax": 25.0, "tmin": 12.0, "rain": 1.0})
+            part.append(write_wth(df, tmp_path / f"PART{y % 100:02d}01.WTH", site=SITE))
+        ctx.weather_files = [part[0], files[1], part[1]]
+        with pytest.raises(ValueError, match=r"18 simulated days have no year behind them.*1982-03-01"):
+            ws.attribution(rerun=False)
+        full = ws.attribution(rerun=False, leave_season_out=False)  # 1982 itself covers the season
+        np.testing.assert_allclose(full.daily["n_years"], 1.0)
+        ctx.weather_files = files
         assert ws.attribution(rerun=False, leave_season_out=False).years == [1981, 1982, 1983]
         ctx.weather_files = [files[1]]  # only the season's own year: say so, and how to proceed
         with pytest.raises(

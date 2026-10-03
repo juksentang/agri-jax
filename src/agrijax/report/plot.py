@@ -187,10 +187,10 @@ def weather_sensitivity(
     stages shaded alternately and named, the days the trust check reran marked (dot: trust level 3, cross:
     the day failed at the check's steps, open circle: no response), the variable's trust label in the
     panel title. ``variables``: one name or a sequence (any case) among the analysed ones (default all);
-    any other name raises ``ValueError``."""
+    any other name raises ``ValueError``; ``output`` likewise (any case, one of the analysed outputs)."""
     vs = ws._subset(variables, "plot")
+    o = ws._output(output, "plot")
     plt = _plt()
-    o = ws.outputs[0] if output is None else output
     d = ws.daily[ws.daily["output"] == o]
     fig, axes = plt.subplots(len(vs), 1, figsize=(8.0, 1.9 * len(vs) + 0.6), sharex=True, squeeze=False)
     st = ws.stages[(ws.stages["output"] == o) & (ws.stages["variable"] == vs[0])]

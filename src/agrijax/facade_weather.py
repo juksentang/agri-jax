@@ -78,7 +78,9 @@ whole-season check reports any shift as well.
     weather files hold one decimal) makes every central small-step difference the mean of the two slopes,
     steady across the steps; on central days the one-sided small-step differences are compared as well,
     and where each is steady but they differ level 2 is ``kink`` (undecidable) when the exact derivative is
-    one of the two (column ``kink_side``: the side the program takes) and ``fail`` when it is neither. It is
+    a subgradient there, i.e. lies between the two (column ``kink_side``: ``left`` / ``right``, the side
+    the program takes, ``mean``, what JAX returns at a tie of ``abs`` / ``maximum`` / ``minimum`` /
+    ``clip``, or ``between``), and ``fail`` when it lies outside both (``neither``). It is
     **not judged** where the exact-mode and straight-through derivatives differ by more than the level-2
     tolerance 1e-3 (a quantiser cuts the exact derivative there, to zero or to a residual), and on every day
     of a variable whose exact-mode derivative is zero on every season day while the straight-through one is
@@ -375,17 +377,20 @@ def day_verdict(
     threshold) makes the central small-step differences ``(right + left) / 2`` at every step, so they
     agree with each other and say nothing about either side. Where each side agrees with itself across
     the small steps (to ``cfg.small_rtol``) and the two sides differ (beyond ``cfg.small_rtol``), level 2
-    is :data:`STATUS_KINK` (counted as undecidable: level 3 decides) when the exact derivative equals one
-    side (``kink_side`` = ``"left"`` / ``"right"``: the one-sided derivative the program takes), and
-    ``fail`` when it equals neither (``kink_side`` = ``"neither"``).
+    is :data:`STATUS_KINK` (counted as undecidable: level 3 decides) when the exact derivative is a
+    subgradient of the kink, i.e. lies between the two sides (to ``cfg.small_rtol``): ``kink_side`` =
+    ``"left"`` / ``"right"`` (the one-sided derivative the program takes), ``"mean"`` (their mean: what
+    JAX returns at a tie of ``jnp.abs`` / ``jnp.maximum`` / ``jnp.minimum`` / ``jnp.clip``) or
+    ``"between"`` (another value between them); level 2 is ``fail`` only when the exact derivative lies
+    outside the two sides (``kink_side`` = ``"neither"``).
 
     Level 2 is **not judged** (:data:`STATUS_NOT_JUDGED`, counted as undecidable: level 3 decides) where
     the straight-through and exact-mode derivatives differ by more than the level-2 tolerance
     ``cfg.small_rtol`` (the exact one is cut by a quantiser, to zero or to a residual: a level-2 pass on
     it says nothing about the reported derivative), and wherever ``judged`` (``[E, D]`` bool) is False
     (the caller's: the exact derivative is zero on every day of the season). A level-2 **fail** is kept
-    (outside a kink at the point: the small steps show the exact derivative wrong on both sides, whatever
-    is reported).
+    (on a smooth day the small steps contradict the exact derivative; at a kink at the point it lies
+    outside both one-sided slopes; either way, whatever is reported).
     ``status`` is ``zero`` (:data:`STATUS_ZERO`) where both derivatives and every difference are zero
     (no response: neither a pass nor a failure), else ``pass`` at level 3 and ``fail`` otherwise."""
     from agrijax.calib.trust import _TINY, L2_FAIL, L2_UNDECIDABLE, TrustConfig, fd_diagnostics
@@ -427,9 +432,19 @@ def day_verdict(
 
         fr0, fl0 = np.where(np.isfinite(fd_r), fd_r, 0.0), np.where(np.isfinite(fd_l), fd_l, 0.0)
         kink = steady(sr) & steady(sl) & ~near(fr0, fl0)
-        on_l, on_r = near(adx, fl0), near(adx, fr0)
-        side = np.where(kink, np.where(on_l, "left", np.where(on_r, "right", "neither")), "").astype(object)
-        status0 = np.where(kink, np.where(on_l | on_r, STATUS_KINK, L2_FAIL), status0).astype(object)
+        on_l, on_r, on_m = near(adx, fl0), near(adx, fr0), near(adx, (fl0 + fr0) / 2.0)
+        lo, hi = np.minimum(fl0, fr0), np.maximum(fl0, fr0)
+        inside = on_l | on_r | on_m | ((adx >= lo) & (adx <= hi))  # a subgradient of the kink
+        side = np.where(
+            kink,
+            np.where(
+                on_l,
+                "left",
+                np.where(on_r, "right", np.where(on_m, "mean", np.where(inside, "between", "neither"))),
+            ),
+            "",
+        ).astype(object)
+        status0 = np.where(kink, np.where(inside, STATUS_KINK, L2_FAIL), status0).astype(object)
     # level 2 judges the exact derivative: it says something about the reported one only where the two
     # agree to the level-2 tolerance (both below the floor agree). A failing level 2 is kept (it shows
     # the exact derivative wrong, whatever is reported)
@@ -501,6 +516,10 @@ def _morning_stage(istage_end: np.ndarray) -> np.ndarray:
 
 
 # ------------------------------------------------------------------------------ climatology
+#: Feb 29 in the day-of-leap-year index of :func:`climatology`
+_FEB29 = 60
+
+
 def _leap_doy(d: _dt.date) -> int:
     """Day of a leap year (1-366) with the same month and day: Feb 29 has its own slot."""
     return _dt.date(2000, d.month, d.day).timetuple().tm_yday
@@ -512,7 +531,11 @@ def climatology(
     """The day-of-year mean of ``SRAD``, ``TMAX``, ``TMIN``, ``RAIN`` over the weather files ``files``
     (DSSAT ``.WTH``; only the ``years`` given, default all, without ``exclude``): pandas, indexed by the
     day of a leap year (1-366, Feb 29 its own day, filled from Feb 28 / Mar 1 when no year has it),
-    with the years used in ``attrs["years"]``."""
+    with the years used in ``attrs["years"]`` and, in ``attrs["n_years"]`` (``{day: count}``), the number
+    of years behind each day: files may hold part of a year only, so different days can average
+    different years, and a day no year covers (``n_years`` 0) is only filled, by interpolation between
+    the nearest covered days (flat beyond the first / last covered day: no wrap over the new year), and
+    is not a climatology (:meth:`WeatherSensitivity.attribution` refuses it)."""
     import pandas as pd
 
     from agrijax.io.dssat import read_wth
@@ -530,13 +553,16 @@ def climatology(
     allw: Any = pd.concat(frames).drop_duplicates(subset="date")
     doy = [_leap_doy(d) for d in allw["date"].dt.date]
     cols = {"srad": "SRAD", "tmax": "TMAX", "tmin": "TMIN", "rain": "RAIN"}
-    tab: Any = allw[list(cols)].rename(columns=cols).assign(doy=doy).groupby("doy").mean()
+    grouped = allw[list(cols)].rename(columns=cols).assign(doy=doy).groupby("doy")
+    tab: Any = grouped.mean()
+    count = grouped.size().reindex(range(1, 367), fill_value=0)
     tab = tab.reindex(range(1, 367))
-    if tab.loc[60].isna().any():  # Feb 29 (leap day 60) from its neighbours
-        tab.loc[60] = (tab.loc[59] + tab.loc[61]) / 2.0
+    if tab.loc[_FEB29].isna().any():  # Feb 29 from its neighbours
+        tab.loc[_FEB29] = (tab.loc[_FEB29 - 1] + tab.loc[_FEB29 + 1]) / 2.0
     tab = tab.interpolate(limit_direction="both")
     tab.index.name = "doy"
     tab.attrs["years"] = sorted({d.year for d in allw["date"].dt.date})
+    tab.attrs["n_years"] = {int(k): int(n) for k, n in count.items()}
     return tab
 
 
@@ -763,8 +789,11 @@ class WeatherChecks:
 class Attribution:
     """First-order climate attribution of one season (:meth:`WeatherSensitivity.attribution`).
 
-    :attr:`daily`: one row per (output, day, variable): the weather, the climatology, the anomaly and
-    the contribution ``derivative x anomaly``; :attr:`by_stage`: contributions summed per growth stage;
+    :attr:`daily`: one row per (output, day, variable): the weather, the climatology (``n_years``: the
+    number of station years behind that day's climatology, NaN for an anomaly or a climatology table
+    passed in without :func:`climatology`'s ``attrs["n_years"]``),
+    the anomaly and the contribution ``derivative x anomaly``; :attr:`by_stage`: contributions summed per
+    growth stage;
     :attr:`total`: per output and variable, the summed contribution (``linear``) and the rerun on the
     climatological weather (``rerun``: the output minus the output with that variable, or all of them
     for ``ALL``, replaced by the climatology), with the caveat column. :attr:`years`: the climatology's
@@ -816,8 +845,9 @@ class WeatherSensitivity:
     # ---------------------------------------------------------------- views
     def calendar(self, output: str | None = None, *, exact: bool = False) -> Any:
         """``d output / d variable`` as a table: one row per day (date index, with the stage), one
-        column per variable (``exact=True``: the exact-mode derivative)."""
-        o = self.outputs[0] if output is None else output
+        column per variable (``exact=True``: the exact-mode derivative). ``output``: any case, one of
+        :attr:`outputs` (default the first); any other name raises ``ValueError``."""
+        o = self._output(output, "calendar")
         d = self.daily[self.daily["output"] == o]
         col = "derivative_exact" if exact else "derivative"
         tab = d.pivot_table(index=["date", "stage"], columns="variable", values=col, sort=False)
@@ -876,6 +906,25 @@ class WeatherSensitivity:
         if bad:
             raise ValueError(f"{where}: {bad} not among the analysed variables {list(self.variables)}")
         return vs
+
+    def _output(self, output: str | None, where: str = "output") -> str:
+        """``output`` parsed as the facade parses outputs (any case), one of :attr:`outputs` (the outputs
+        this result was computed for); ``None``: the first."""
+        if output is None:
+            return self.outputs[0]
+        from agrijax.facade_grad import _parse_outputs
+
+        try:
+            (o,) = _parse_outputs(output) if isinstance(output, str) else [None]
+        except ValueError as err:
+            raise ValueError(f"{where}: {err}; analysed outputs {list(self.outputs)}") from err
+        if o is None:
+            raise ValueError(
+                f"{where}: name one output (a string), got {output!r}; analysed outputs {list(self.outputs)}"
+            )
+        if o not in self.outputs:
+            raise ValueError(f"{where}: {output!r} not among the analysed outputs {list(self.outputs)}")
+        return o
 
     def plot(self, output: str | None = None, **kw: Any) -> Any:
         """:func:`agrijax.report.plot.weather_sensitivity` (needs matplotlib)."""
@@ -1030,7 +1079,8 @@ class WeatherSensitivity:
         :func:`climatology` returns it; a 365-day index raises ``ValueError``) with those columns;
         default the day-of-year mean of the station's weather files (``years``: which ones; default all
         of them), **without the season's own years** (``leave_season_out``: an anomaly
-        against a mean that contains the season itself is shrunk by about 1 / N). ``anomaly``: instead,
+        against a mean that contains the season itself is shrunk by about 1 / N, N the years behind that
+        day: column ``n_years``; a simulated day no year covers raises ``ValueError``). ``anomaly``: instead,
         the anomaly itself (a table with those columns: with a plain 0-based index, one row per day from
         the simulation start; else indexed by ``YYYYDDD`` covering every simulated day, or a
         ``ValueError`` names the missing days). ``rerun``: also run
@@ -1046,6 +1096,7 @@ class WeatherSensitivity:
         t_cal = ctx.t_cal
         x = ctx.progs.weather_of(ctx.i)[:t_cal]
         used_years: list[int] = []
+        n_years = np.full(t_cal, np.nan)  # the years behind each day's climatology (station files only)
         if anomaly is not None:
             an_t = pd.DataFrame(anomaly)
             idx = an_t.index
@@ -1103,6 +1154,25 @@ class WeatherSensitivity:
                 _check_leap_index(climatology_tab, vs)
             used_years = list(climatology_tab.attrs.get("years", []))
             doy = [_leap_doy(d) for d in ctx.dates[:t_cal]]
+            cover = climatology_tab.attrs.get("n_years")  # station files (climatology()): the coverage
+            if isinstance(cover, dict):
+                n_years = np.asarray([cover[k] for k in doy], dtype=float)
+                # Feb 29 without a leap year is the mean of Feb 28 and Mar 1: covered when both are
+                feb29 = cover[_FEB29 - 1] > 0 and cover[_FEB29 + 1] > 0
+                bare = sorted(
+                    {
+                        str(ctx.dates[t])
+                        for t, k in enumerate(doy)
+                        if cover[k] == 0 and not (k == _FEB29 and feb29)
+                    }
+                )
+                if bare:
+                    raise ValueError(
+                        f"attribution: {len(bare)} simulated days have no year behind them in the station "
+                        f"climatology (years {used_years}; first {bare[:3]}): the weather files cover "
+                        "part of the year only. Pass years= (years that cover the season), "
+                        "leave_season_out=False, climatology= or anomaly="
+                    )
             clim = np.stack([np.asarray(climatology_tab.loc[doy, v], dtype=float) for v in vs], axis=1)
             an = x[:, [_IX[v] for v in vs]] - clim
         contrib = np.stack([ctx.g[:, :t_cal, _IX[v]] * an[None, :, k] for k, v in enumerate(vs)], axis=-1)
@@ -1121,6 +1191,7 @@ class WeatherSensitivity:
                             "variable": v,
                             "value": float(x[t, _IX[v]]),
                             "climatology": float(clim[t, k]),
+                            "n_years": n_years[t],
                             "anomaly": float(an[t, k]),
                             "derivative": float(ctx.g[e, t, _IX[v]]),
                             "contribution": float(contrib[e, t, k]),
