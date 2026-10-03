@@ -183,7 +183,8 @@ def weather_sensitivity(ws: Any, *, output: str | None = None, variables: Sequen
     """The weather sensitivity calendar of a :class:`~agrijax.facade_weather.WeatherSensitivity`: one
     panel per variable, the daily derivative of ``output`` (default the first) as bars, the growth
     stages shaded alternately and named, the days the trust check reran marked (dot: trust level 3, cross:
-    the day failed at the check's steps, open circle: no response), the variable's trust label in the panel title."""
+    the day failed at the check's steps, open circle: no response), the variable's trust label in the
+    panel title."""
     plt = _plt()
     o = ws.outputs[0] if output is None else output
     vs = list(ws.variables if variables is None else variables)
