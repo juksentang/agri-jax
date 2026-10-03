@@ -245,6 +245,9 @@ def test_a_straight_through_derivative_is_checked_on_both_of_its_paths():
     assert r["fd_small_unrounded"] == pytest.approx(2 * 0.4305 + 1.0, rel=1e-6)
     assert r["rel_err_small"] < 1e-6 and r["rel_err_large"] < 0.05
     assert (r["class"], r["level"], r["level2"]) == ("smooth", 3, "pass")
+    # without the diagnostics (as the calibration runs it): no unrounded model, the same verdicts
+    q = trust_report(bound, x, lo, hi, ["x"], ["y"], diagnostics=False)["params"]["x"]["outputs"]["y"]
+    assert "ad_unrounded" not in q and (q["level"], q["level2"], q["ad_exact"]) == (3, "pass", r["ad_exact"])
     # unbound (no counterparts to test the program with): the surrogate fails the small steps, which
     # agree with each other (a derivative error as far as the check can tell)
     plain = trust_report(_quantised, x, lo, hi, ["x"], ["y"])["params"]["x"]["outputs"]["y"]

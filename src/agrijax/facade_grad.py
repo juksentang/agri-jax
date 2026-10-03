@@ -101,7 +101,8 @@ derivatives of ``HWAM``, ``CWAM`` and ``H#AM`` with respect to ``G2`` and ``G3``
 straight-through path reaches them: ``ad`` equals ``ad_exact``). Over the 1979 / 1982 / 1985 x sowing
 -14 / 0 / +14 days scenarios, of the 36 (scenario, output, coefficient) pairs of ``HWAM`` / ``CWAM`` x
 ``G2`` / ``G3``, level 2 passes for 18, is undecidable for 18 (the 1e-4 difference, or all of them in
-1979 at 0 days, straddle a quantum) and fails for none; 23 are validated. The other 13 fail level 3:
+1979 at 0 days, straddle a quantum) and fails for none; 23 are validated = 13 (level 2 pass, level 3
+pass) + 10 (level 2 undecidable, level 3 pass). The other 13 fail level 3:
 
 * level 2 passed, level 3 failed (level 2): 1979 -14 ``CWAM``/``G2`` (a jump in the scan, 5 % secant
   11 % off), 1979 +14 ``CWAM``/``G2`` (secants 7 % off), 1985 +14 ``HWAM``/``G3`` (a jump),

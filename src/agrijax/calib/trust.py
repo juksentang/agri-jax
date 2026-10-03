@@ -446,6 +446,7 @@ def trust_report(
     *,
     f_exact: Callable[[Array], Array] | None = None,
     f_unrounded: Callable[[Array], Array] | None = None,
+    diagnostics: bool = True,
 ) -> dict[str, Any]:
     """The gradient-trust report of ``f`` at ``x`` (JSON-serialisable dict).
 
@@ -457,7 +458,9 @@ def trust_report(
     default :func:`counterparts` of ``f`` (for a ``ModeBound`` in the ``ste`` / ``implicit`` mode).
     Each output then also reports ``ad_exact`` (``rel_err_small`` is measured on it),
     ``ad_unrounded``, ``fd_small_unrounded``, ``rel_err_small_unrounded`` and ``ste_offset``
-    (``ad / ad_unrounded - 1``)."""
+    (``ad / ad_unrounded - 1``). ``diagnostics=False`` skips the unrounded model (it is never a gate,
+    so the verdicts are the same; a calibration need not compile it) unless ``f_unrounded`` is
+    given."""
     x = np.asarray(x, dtype=float)
     lo = np.asarray(lower, dtype=float)
     hi = np.asarray(upper, dtype=float)
@@ -469,7 +472,7 @@ def trust_report(
         width,
         cfg,
         f_exact=dx if f_exact is None else f_exact,
-        f_unrounded=du if f_unrounded is None else f_unrounded,
+        f_unrounded=(du if diagnostics else None) if f_unrounded is None else f_unrounded,
     )
     sens = sensitivity(fd["ad"], fd["y0"], width)
     params: dict[str, Any] = {}

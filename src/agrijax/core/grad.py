@@ -20,13 +20,16 @@ depends on the **gradient mode**:
 **The straight-through derivative, defined.** For a model whose only non-smooth steps are the
 quantisers of this module (:func:`trunc_st`, :func:`round_st`, :func:`real4_store`), the ``ste``
 derivative is the derivative of the model with the quantisation removed, taken along the quantised
-trajectory: every quantiser contributes the identity. :func:`unrounded` (a trace-time switch,
-orthogonal to the gradient mode; :func:`bind_unrounded` fixes it on a function) builds that model
-itself: every quantiser returns its argument unchanged (value and derivative), so its finite
-differences test the ``ste`` derivative directly (:mod:`agrijax.calib.trust`, level 2). It is the
-one setting here that changes forward values; it is never on unless asked for. The events
-(:func:`event_ste`, :func:`select_ste`) are thresholds, not quantisers: :func:`unrounded` leaves them
-as they are.
+trajectory: every quantiser contributes the identity (``trunc_st`` / ``round_st``; ``real4_store``
+contributes the identity with the tangent rounded to binary32, in the ``exact`` mode too: unlike
+``trunc_st`` / ``round_st``, whose exact-mode derivative is 0, its exact derivative is that of the
+cast). :func:`unrounded` (a trace-time switch, orthogonal to the gradient mode; :func:`bind_unrounded`
+fixes it on a function) builds that model itself: every quantiser returns its argument unchanged
+(value and derivative); :mod:`agrijax.calib.trust` reports it as a diagnostic. It is the one setting
+here that changes forward values; it is never on unless asked for. Like the mode it is read at trace
+time: a function already jitted keeps its earlier setting (bind it with :func:`bind_unrounded`). The
+events (:func:`event_ste`, :func:`select_ste`) are thresholds, not quantisers: :func:`unrounded`
+leaves them as they are.
 
 The mode is resolved **at trace time**, never traced: the forward program is the same in every
 mode (tested bit for bit), and a mode is orthogonal to the process variants of the registry.
@@ -216,10 +219,14 @@ class ModeBound(Generic[_P, _R]):
 @contextlib.contextmanager
 def unrounded() -> Iterator[None]:
     """Trace the quantisers of this module as the identity (module docstring: the model whose exact
-    derivative the ``ste`` derivative is). Read at trace time, like the gradient mode::
+    derivative the ``ste`` derivative is). Read at trace time, like the gradient mode, so it applies
+    to what is traced inside the block; a function already jitted keeps its earlier setting (``jax.jit``
+    caches the traced program by the function and its argument shapes, not by this switch). Build the
+    unrounded function once with :func:`bind_unrounded`, which enters the switch whenever it is
+    traced::
 
-        with unrounded():
-            y = jax.jit(f)(theta)   # traced here: no truncation, rounding or REAL*4 store
+        f_unrounded = jax.jit(bind_unrounded(f))
+        y = f_unrounded(theta)      # no truncation, rounding or REAL*4 store, whatever f was before
     """
     token = _UNROUNDED.set(True)
     try:

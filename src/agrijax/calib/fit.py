@@ -635,11 +635,13 @@ def fit_cultivar(
 
         if problem.jax_loss is None:
             raise ValueError("method 'adam' needs a problem with a JAX loss (jax_loss)")
-        # the mode-bound loss itself (trust_report jits it): its exact-mode counterpart is derived
-        # from it for the small-step test of the straight-through derivative
+        # the mode-bound loss itself (trust_report jits it and derives its exact-mode counterpart)
         f = problem.jax_loss(obj.obs[list(cal)], obj.winv[list(cal)])
         names = [problem.treatments[b].name for b in cal]
-        rep = trust_report(f, pub, sp.lower, sp.upper, CUL_ORDER, names, TrustConfig(n_scan=TRUST_SCAN))
+        # the exact counterpart is derived (level 2 judges it); the unrounded model is a diagnostic only
+        rep = trust_report(
+            f, pub, sp.lower, sp.upper, CUL_ORDER, names, TrustConfig(n_scan=TRUST_SCAN), diagnostics=False
+        )
         plan = ceres_gradient_plan(rep)
         trust.update(
             {
