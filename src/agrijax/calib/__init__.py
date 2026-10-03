@@ -26,6 +26,7 @@ an explicit ``gradient_mode`` context of another mode raises
 :class:`~agrijax.core.grad.ModeMismatchError`. To compare modes, build one simulator per mode.
 """
 
+from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 from agrijax.calib.objective import (
@@ -61,17 +62,23 @@ from agrijax.calib.trust import (
 )
 
 if TYPE_CHECKING:
-    from agrijax.calib.workflow import CalibrationResult, calibrate
+    from agrijax.calib.observations import ObservationError
+    from agrijax.calib.workflow import CalibrationResult, ScopeError, calibrate
 
-#: names served lazily from :mod:`agrijax.calib.workflow` (it imports the crop and day models)
-_LAZY = {"calibrate", "CalibrationResult", "ScopeError", "ObservationError"}
+#: names served lazily, with the submodule that defines them: :mod:`agrijax.calib.workflow` imports the
+#: crop and day models; :class:`ObservationError` is defined in :mod:`agrijax.calib.observations`
+#: (which does not, and which :mod:`~agrijax.calib.workflow` re-exports)
+_LAZY = {
+    "calibrate": "workflow",
+    "CalibrationResult": "workflow",
+    "ScopeError": "workflow",
+    "ObservationError": "observations",
+}
 
 
 def __getattr__(name: str) -> Any:
     if name in _LAZY:
-        from agrijax.calib import workflow
-
-        return getattr(workflow, name)
+        return getattr(import_module(f"agrijax.calib.{_LAZY[name]}"), name)
     raise AttributeError(f"module 'agrijax.calib' has no attribute {name!r}")
 
 
@@ -84,10 +91,12 @@ __all__ = [
     "GradientPlan",
     "Group",
     "Objective",
+    "ObservationError",
     "OptResult",
     "OrderedChain",
     "ParamSpace",
     "ParamSpec",
+    "ScopeError",
     "Target",
     "TrustConfig",
     "adam",
