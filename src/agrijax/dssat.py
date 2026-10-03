@@ -1012,7 +1012,7 @@ class Experiment:
 
         Each distinct season (treatment, year, shift, swap, outputs) compiles its own programs (about
         12 s) and keeps them on the experiment (the last
-        :data:`~agrijax.facade_weather.CACHE_PER_OWNER`); repeating a call compiles nothing. To sweep
+        :data:`~agrijax.facade_weather.CACHE_ENTRIES`); repeating a call compiles nothing. To sweep
         years or sowing dates, use one batched program:
         ``exp.scenarios(treatment, years=[...]).weather_sensitivity(...)``."""
         from agrijax import facade_weather as fw

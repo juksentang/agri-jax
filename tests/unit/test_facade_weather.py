@@ -832,16 +832,16 @@ def test_cache_builds_once_per_owner_and_key():
     assert len(built) == 1
     fw._cached(own, ("k", 2), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
     assert len(built) == 2
-    # at most CACHE_PER_OWNER keys per owner, the least recently used dropped first
+    # at most CACHE_ENTRIES keys per owner, the least recently used dropped first
     fw._cached(own, ("k", 1), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
-    for j in range(3, 3 + fw.CACHE_PER_OWNER - 1):
+    for j in range(3, 3 + fw.CACHE_ENTRIES - 1):
         fw._cached(own, ("k", j), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
-    assert len(built) == 2 + fw.CACHE_PER_OWNER - 1
+    assert len(built) == 2 + fw.CACHE_ENTRIES - 1
     fw._cached(own, ("k", 1), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
-    assert len(built) == 2 + fw.CACHE_PER_OWNER - 1  # recently used: kept
+    assert len(built) == 2 + fw.CACHE_ENTRIES - 1  # recently used: kept
     fw._cached(own, ("k", 2), lambda: built.append(1) or "progs")  # type: ignore[arg-type,return-value]
-    assert len(built) == 2 + fw.CACHE_PER_OWNER  # dropped: rebuilt
-    assert len(fw._CACHE[id(own)][1]) == fw.CACHE_PER_OWNER
+    assert len(built) == 2 + fw.CACHE_ENTRIES  # dropped: rebuilt
+    assert len(fw._CACHE[id(own)][1]) == fw.CACHE_ENTRIES
 
 
 def test_variables_parsing_and_facade_signatures():
