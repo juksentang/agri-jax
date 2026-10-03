@@ -415,3 +415,20 @@ def test_unrounded_removes_every_quantiser_and_only_inside_its_context():
     assert float(y_ste) != pytest.approx(3.0 * float(x), rel=1e-6)
     assert float(dy_ste) == pytest.approx(3.0, rel=1e-6)
     assert "Unrounded" in repr(G.bind_unrounded(f))
+
+
+def test_unrounded_is_read_at_trace_time_and_bind_unrounded_keeps_it():
+    """A function jitted before the switch keeps its rounded program inside ``with unrounded()`` (jit's
+    cache does not key on the switch); ``bind_unrounded`` gives the unrounded program wherever it is
+    traced."""
+    x = jnp.asarray(2.7)
+
+    def f(z):
+        return G.trunc_st(z)
+
+    fj = jax.jit(f)
+    assert float(fj(x)) == 2.0  # traced here, rounded
+    with G.unrounded():
+        assert float(fj(x)) == 2.0  # the cached rounded program, not the unrounded one
+    assert float(jax.jit(G.bind_unrounded(f))(x)) == pytest.approx(2.7)
+    assert float(fj(x)) == 2.0
