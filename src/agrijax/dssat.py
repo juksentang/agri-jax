@@ -501,6 +501,47 @@ class Scenarios:
 
         return sensitivity(self, outputs=outputs, params=params, cultivar=cultivar, scan_points=scan_points)
 
+    def weather_sensitivity(
+        self,
+        outputs: Sequence[str] | str = ("HWAM",),
+        variables: Sequence[str] | str = ("SRAD", "TMAX", "TMIN", "RAIN"),
+        *,
+        check: bool = True,
+        config: Any = None,
+    ) -> Any:
+        """The derivative of the end values with respect to every day's weather (``"SRAD"``, ``"TMAX"``,
+        ``"TMIN"``, ``"RAIN"``, and ``"IRRD"`` the effective irrigation: applied x efficiency) on every
+        scenario at the published cultivar: one reverse-mode pass over all of them, the trust checks
+        batched. A
+        :class:`~agrijax.facade_weather.WeatherSensitivities` (one
+        :class:`~agrijax.facade_weather.WeatherSensitivity` per scenario, indexable by year). Temperature
+        derivatives keep the growth-stage calendar fixed. Details: :mod:`agrijax.facade_weather`."""
+        from agrijax import facade_weather as fw
+
+        exp = self._exp
+        files = (
+            fw.station_files(exp.data / "example_data" / "Weather", exp.station) if exp is not None else []
+        )
+        names = [
+            f"{self.treatment} {int(self.table.loc[i, 'year'])} {int(self.table.loc[i, 'sowing_shift']):+d} d"
+            for i in range(len(self.runs))
+        ]
+        res = fw.WeatherSensitivities(
+            fw.weather_sensitivity(
+                self.runs,
+                names,
+                outputs=outputs,
+                variables=variables,
+                check=check,
+                config=config,
+                weather_files=files,
+                owner=self,
+                key=("weather",),
+            )
+        )
+        res.years = [int(y) for y in self.table["year"]]
+        return res
+
 
 @dataclass
 class DssatBatch:
@@ -944,6 +985,78 @@ class Experiment:
             scan_points=scan_points,
             soil_evaporation=soil_evaporation,
         )
+
+    def weather_sensitivity(
+        self,
+        treatment: int,
+        outputs: Sequence[str] | str = ("HWAM",),
+        variables: Sequence[str] | str = ("SRAD", "TMAX", "TMIN", "RAIN"),
+        *,
+        year: int | None = None,
+        sowing_shift: int = 0,
+        check: bool = True,
+        config: Any = None,
+        soil_evaporation: str | None = None,
+    ) -> Any:
+        """The derivative of one season's end values (``"HWAM"``, ``"CWAM"``, ``"H#AM"``, ``"LAI@60"``-style)
+        with respect to every day's weather, ``"SRAD"``, ``"TMAX"``, ``"TMIN"``, ``"RAIN"`` (and
+        ``"IRRD"``, the effective irrigation: applied x efficiency), from the simulation start to maturity,
+        in one reverse-mode pass on the full free-run day at the published cultivar: a
+        :class:`~agrijax.facade_weather.WeatherSensitivity` (``.daily``, ``.stages``, ``.trust``,
+        ``.checks``, ``.attribution()``, ``.phenology_free()``, ``.plot()``). ``year`` / ``sowing_shift``:
+        another weather year / sowing date (as :meth:`scenarios`); ``soil_evaporation`` as in :meth:`run`.
+        ``check``: run the trust check (single-day and whole-season reruns; ``config`` a
+        :class:`~agrijax.facade_weather.WeatherTrustConfig`). Temperature derivatives keep the
+        growth-stage calendar fixed (they exclude earlier / later development). Float64 on JAX's default
+        devices only. Details: :mod:`agrijax.facade_weather`.
+
+        Each distinct season (treatment, year, shift, swap, outputs) compiles its own programs (about
+        12 s) and keeps them on the experiment (the last
+        :data:`~agrijax.facade_weather.CACHE_PER_OWNER`); repeating a call compiles nothing. To sweep
+        years or sowing dates, use one batched program:
+        ``exp.scenarios(treatment, years=[...]).weather_sensitivity(...)``."""
+        from agrijax import facade_weather as fw
+
+        trno = self._trno(treatment)
+        files = fw.station_files(self.data / "example_data" / "Weather", self.station)
+        shift = int(sowing_shift)
+        swap = None
+        if soil_evaporation is not None:
+            from agrijax import facade_swap
+
+            swap = facade_swap.swap_code(self, trno, soil_evaporation)
+        tag = "" if swap is None else f" MESEV={swap}"
+        if year is None and shift == 0:
+            runs = [self.inputs(trno, soil_evaporation)]
+            name = f"{self.name}_t{trno:02d}{tag}"
+            key: Any = ("weather", trno, swap)
+        else:
+            # the scenario's inputs and programs are kept on the experiment by content (treatment, year,
+            # shift, swap; year=None is the experiment's own year): a second call with the same scenario
+            # rebuilds and recompiles nothing
+            yr = int(self.inputs(trno).days[0]) // 1000 if year is None else int(year)
+            skey = ("weather_scenario", trno, yr, shift, swap)
+            if skey not in self._inputs:
+                scen = self.scenarios(
+                    trno, years=[yr], sowing_shift=[shift], soil_evaporation=soil_evaporation
+                )
+                self._inputs[skey] = (scen.runs[0], int(scen.table.loc[0, "year"]))
+            run, y = self._inputs[skey]
+            runs = [run]
+            name = f"{self.name}_t{trno:02d} {y} {shift:+d} d{tag}"
+            key = skey
+        (res,) = fw.weather_sensitivity(
+            runs,
+            [name],
+            outputs=outputs,
+            variables=variables,
+            check=check,
+            config=config,
+            weather_files=files,
+            owner=self,
+            key=key,
+        )
+        return res
 
 
 def experiment(

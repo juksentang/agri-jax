@@ -8,7 +8,8 @@ return the matplotlib ``Figure``.
 * :func:`season` - the season's LAI, tops and grain weight, soil water, with DSSAT dashed;
 * :func:`compare` - Agri-JAX against DSSAT day by day (1:1 panels, the RMSE in each title);
 * :func:`batch` - the distribution of a batch's yields per scenario group;
-* :func:`calibration` - observed, published-cultivar and calibrated values per target.
+* :func:`calibration` - observed, published-cultivar and calibrated values per target;
+* :func:`weather_sensitivity` - the weather sensitivity calendar, one panel per variable.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["batch", "calibration", "compare", "season"]
+__all__ = ["batch", "calibration", "compare", "season", "weather_sensitivity"]
 
 #: series colors (categorical slots 1 and 2 of a colour-vision-deficiency-checked palette)
 AGRIJAX = "#2a78d6"
@@ -174,5 +175,51 @@ def calibration(res: Any, *, set_: str = "calibration") -> Any:
         ax.set_xticks([])
         _style(ax)
     axes[0].legend(frameon=False, fontsize=7)
+    fig.tight_layout()
+    return fig
+
+
+def weather_sensitivity(
+    ws: Any, *, output: str | None = None, variables: Sequence[str] | str | None = None
+) -> Any:
+    """The weather sensitivity calendar of a :class:`~agrijax.facade_weather.WeatherSensitivity`: one
+    panel per variable, the daily derivative of ``output`` (default the first) as bars, the growth
+    stages shaded alternately and named, the days the trust check reran marked (dot: trust level 3, cross:
+    the day failed at the check's steps, open circle: no response), the variable's trust label in the
+    panel title. ``variables``: one name or a sequence (any case) among the analysed ones (default all);
+    any other name raises ``ValueError``; ``output`` likewise (any case, one of the analysed outputs)."""
+    vs = ws._subset(variables, "plot")
+    o = ws._output(output, "plot")
+    plt = _plt()
+    d = ws.daily[ws.daily["output"] == o]
+    fig, axes = plt.subplots(len(vs), 1, figsize=(8.0, 1.9 * len(vs) + 0.6), sharex=True, squeeze=False)
+    st = ws.stages[(ws.stages["output"] == o) & (ws.stages["variable"] == vs[0])]
+    marks = {"pass": ("o", "full"), "fail": ("x", "full"), "zero": ("o", "none")}
+    for ax, v in zip(axes[:, 0], vs, strict=True):
+        t = d[d["variable"] == v]
+        for k, (_, row) in enumerate(st.iterrows()):
+            if k % 2:
+                ax.axvspan(row["first"], row["last"], color="#f0efeb", lw=0)
+        ax.bar(t["date"], t["derivative"], width=1.0, color=AGRIJAX)
+        for status, (m, fill) in marks.items():
+            c = t[t["checked"] == status]
+            if len(c):
+                ax.plot(c["date"], c["derivative"], m, color=DSSAT, fillstyle=fill, markersize=4, ls="none")
+        ax.axhline(0.0, color=MUTED, lw=0.6)
+        unit = t["unit"].iloc[0] if len(t) else ""
+        ax.set_ylabel(f"d{o}/d{v}\n[{unit}]", fontsize=7)
+        ax.set_title(f"{v}: {ws.trust.get(v, '')}", fontsize=8, loc="left")
+        _style(ax)
+    top = axes[0, 0]
+    for _, row in st.iterrows():
+        top.annotate(
+            str(row["stage"]),
+            (row["first"], 1.0),
+            xycoords=("data", "axes fraction"),
+            fontsize=6,
+            color=MUTED,
+            va="bottom",
+        )
+    fig.suptitle(f"{ws.name}: sensitivity of {o} to the daily weather (stage codes on top)", fontsize=9)
     fig.tight_layout()
     return fig

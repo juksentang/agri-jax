@@ -138,6 +138,11 @@ def soilev_rate(
     esx = jnp.where(esx <= es_b2, es_b2 + winf, esx)
     esx = jnp.minimum(esx, eos)
     es2 = jnp.where(winf > 0.0, esx, jnp.minimum(es_b2, eos))
+    # at WINF = 0 the dry branch MIN(ES, EOS) is selected and its derivative kept (d ES / d WINF = 0).
+    # The right-hand derivative of ES alone (1 while 0 < ES < EOS) is not used: WATBAL infiltrates
+    # only PINF > 1e-4 cm (watbal.bucket_rate), so on 0 < WINF <= 1e-3 mm the extra ES would take
+    # water that never reached the soil (d profile / d rain = -1 there); from 1e-3 mm up the rain
+    # infiltrates and evaporates again (secant of the profile water 0, as this derivative gives)
     s2_2 = s2 + es2 - winf
     t_2 = (s2_2 / c.stage2_rate) ** 2
     # branch 3: stage 1 reset by rain (lines 121-124)
