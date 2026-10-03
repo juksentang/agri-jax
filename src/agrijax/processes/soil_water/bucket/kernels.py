@@ -31,7 +31,7 @@ from jaxtyping import Array
 
 from agrijax.core.coefficients import numerical_guard
 from agrijax.core.depth_scan import depth_scan
-from agrijax.core.grad import real4_store, round_st
+from agrijax.core.grad import one_sided_tangent, real4_store, round_st
 from agrijax.core.units import CM_PER_MM, HOURS_PER_DAY, MM_PER_CM
 
 from .coefficients import WATBAL_COEFFICIENTS, WatbalCoefficients
@@ -153,6 +153,12 @@ def mulch_rate(
     add = jnp.maximum(jnp.minimum(deficit, watavl * cover), 0.0)
     add = jnp.where(wet, add, 0.0)
     left = jnp.where(wet, jnp.maximum(watavl - add, 0.0), watavl)
+    # rain cannot go below 0: at WATAVL = 0 the dry branch is selected, but just above it the mulch
+    # takes WATAVL * COVER (while its deficit is positive). The derivative there is the right-hand one:
+    # d(left) = (1 - COVER) dWATAVL, d(add) = COVER dWATAVL (values unchanged, core.grad.one_sided_tangent)
+    at_zero = (mass > c.mulch_mass_min) & (watavl == 0.0) & (deficit > 0.0)
+    left = left + one_sided_tangent(watavl, -jnp.asarray(cover), at_zero & on)
+    add = add + one_sided_tangent(watavl, cover, at_zero & on)
     z = jnp.zeros_like(watavl)
     return MulchRate(
         watavl=jnp.where(on, left, watavl),

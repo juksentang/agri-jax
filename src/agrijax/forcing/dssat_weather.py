@@ -36,6 +36,7 @@ __all__ = [
     "SunTimes",
     "daylength486",
     "hourly_mean_temperature",
+    "hourly_mean_temperature_weights",
     "wind_at_2m",
 ]
 
@@ -240,6 +241,48 @@ def hourly_mean_temperature(
         tn_h = (tmini + (tsndn - tmini) * _rn(np.exp, arg)).astype(f)
         tavg = (tavg + np.where(day, td, tn_h)).astype(f)
     return (tavg / f(ts)).astype(f)
+
+
+def hourly_mean_temperature_weights(
+    dayl: Any, c: DailyWeatherCoefficients = DSSAT486_WEATHER
+) -> tuple[np.ndarray, np.ndarray]:
+    """Host-side: ``(d TAVG / d TMAX, d TAVG / d TMIN)`` of ``HMET`` [-, float64] for days of length
+    ``dayl`` [h] (sunrise and sunset ``noon -+ dayl / 2`` as in :func:`daylength486`).
+
+    For a given day length every term of :func:`hourly_mean_temperature` is linear and homogeneous
+    in ``(TMAX, TMIN)`` (the sine curve ``TMIN + (TMAX - TMIN) sin(.)``, the sunset temperature, the
+    night minimum ``(TMIN - TSNDN e^-B) / (1 - e^-B)`` and the decay towards it), so ``TAVG = wx TMAX
+    + wn TMIN`` exactly with the weights returned here (``wx + wn = 1``), evaluated in float64 in the
+    hour-by-hour order of ``HMET.for`` 68-116 / ``HTEMP`` 261-304. They carry a change of the day's
+    ``TMAX`` / ``TMIN`` into ``TAVG`` (:mod:`agrijax.facade_weather`)."""
+    dl = np.asarray(dayl, dtype=np.float64)
+    one = np.float64(1.0)
+    snup = c.noon - dl / c.halves
+    sndn = c.noon + dl / c.halves
+    a, b, cc = c.tmax_lag, c.night_decay, c.tmin_lag
+    half_pi = c.quarter_turn * c.pi
+    ts = int(c.hours)
+    tincr = c.day_hours / ts
+    tmn = snup + cc
+    tmx = tmn + dl / c.halves + a
+    s_dn = np.sin(half_pi * (sndn - tmn) / (tmx - tmn))  # TSNDN = TMIN + (TMAX - TMIN) s_dn
+    eb = np.exp(-b)
+    hdecay = c.day_hours + cc - dl
+    # the weights of TSNDN and TMINI on TMAX (x) and on TMIN (n)
+    tsndn_x, tsndn_n = s_dn, one - s_dn
+    tmini_x = -tsndn_x * eb / (one - eb)
+    tmini_n = (one - tsndn_n * eb) / (one - eb)
+    wx = np.zeros_like(dl)
+    wn = np.zeros_like(dl)
+    for h in range(1, ts + 1):
+        hs = h * tincr
+        day = (hs >= snup + cc) & (hs <= sndn)
+        sh = np.sin(half_pi * (hs - tmn) / (tmx - tmn))
+        tnight = np.where(hs < snup + cc, c.day_hours + hs - sndn, hs - sndn)
+        e = np.exp(-b * tnight / hdecay)
+        wx = wx + np.where(day, sh, tmini_x + (tsndn_x - tmini_x) * e)
+        wn = wn + np.where(day, one - sh, tmini_n + (tsndn_n - tmini_n) * e)
+    return wx / ts, wn / ts
 
 
 def wind_at_2m(wind: Any, windht: Any, c: DailyWeatherCoefficients = DSSAT486_WEATHER) -> np.ndarray:

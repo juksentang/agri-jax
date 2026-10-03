@@ -197,8 +197,15 @@ class DaySimulator:
         self.seasons = 0
 
     # ---------------------------------------------------------------- the traced simulation
-    def _sim_fn(self, g: tuple[int, str]) -> Callable[..., Any]:
-        """``sim(inputs, tab, theta [S, 6], tid [S]) -> [S, E]`` of group ``g`` (traceable)."""
+    def _sim_fn(
+        self, g: tuple[int, str], forcing_hook: Callable[..., Any] | None = None
+    ) -> Callable[..., Any]:
+        """``sim(inputs, tab, theta [S, 6], tid [S]) -> [S, E]`` of group ``g`` (traceable).
+
+        ``forcing_hook``: ``hook(forcing_t, t, tid, *extra) -> forcing_t``, applied to every day's
+        forcing of the samples before the day runs; ``sim`` then takes the hook's ``extra``
+        arguments after ``tid`` (the weather sensitivity, :mod:`agrijax.facade_weather`, adds its
+        perturbation there). Without it the program is the one the calibration runs."""
         import equinox as eqx
         import jax
         import jax.numpy as jnp
@@ -227,13 +234,22 @@ class DaySimulator:
             crop = eqx.tree_at(lambda x: x.cultivar, params["crop"], cul)
             return {**params, "crop": crop}
 
-        def sim(inputs: Any, tab: Any, theta: Any, tid: Any) -> Any:
+        def sim(inputs: Any, tab: Any, theta: Any, tid: Any, *extra: Any) -> Any:
             params_tr, forcing_tr, state_tr = inputs
             params = set_cultivar(jax.tree.map(lambda x: x[tid], params_tr), theta)
             state0 = jax.tree.map(lambda x: x[tid], state_tr)
 
-            def body(s: Any, t: Any) -> Any:
-                return step(s, params, jax.tree.map(lambda x: x[tid, t], forcing_tr))
+            if forcing_hook is None:
+
+                def body(s: Any, t: Any) -> Any:
+                    return step(s, params, jax.tree.map(lambda x: x[tid, t], forcing_tr))
+
+            else:
+                hook = forcing_hook
+
+                def body(s: Any, t: Any) -> Any:
+                    f_t = hook(jax.tree.map(lambda x: x[tid, t], forcing_tr), t, tid, *extra)
+                    return step(s, params, f_t)
 
             _, outs = jax.lax.scan(body, state0, jnp.arange(n_days))
             y = jnp.stack([outs[n] for n in OUT_NAMES], axis=0)  # [O, T, S]
