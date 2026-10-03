@@ -1011,18 +1011,22 @@ class Experiment:
         trno = self._trno(treatment)
         files = fw.station_files(self.data / "example_data" / "Weather", self.station)
         if year is None and int(sowing_shift) == 0:
-            x = self.inputs(trno)
+            runs = [self.inputs(trno)]
             name = f"{self.name}_t{trno:02d}"
-            owner: Any = self
             key: Any = ("weather", trno)
-            runs = [x]
         else:
-            scen = self.scenarios(
-                trno, years=None if year is None else [int(year)], sowing_shift=[int(sowing_shift)]
-            )
-            runs = scen.runs
-            name = f"{self.name}_t{trno:02d} {int(scen.table.loc[0, 'year'])} {int(sowing_shift):+d} d"
-            owner, key = scen, ("weather",)
+            # the scenario's inputs and programs are kept on the experiment by content (treatment, year,
+            # shift): a second call with the same scenario rebuilds and recompiles nothing
+            skey = ("weather_scenario", trno, None if year is None else int(year), int(sowing_shift))
+            if skey not in self._inputs:
+                scen = self.scenarios(
+                    trno, years=None if year is None else [int(year)], sowing_shift=[int(sowing_shift)]
+                )
+                self._inputs[skey] = (scen.runs[0], int(scen.table.loc[0, "year"]))
+            run, y = self._inputs[skey]
+            runs = [run]
+            name = f"{self.name}_t{trno:02d} {y} {int(sowing_shift):+d} d"
+            key = skey
         (res,) = fw.weather_sensitivity(
             runs,
             [name],
@@ -1031,7 +1035,7 @@ class Experiment:
             check=check,
             config=config,
             weather_files=files,
-            owner=owner,
+            owner=self,
             key=key,
         )
         return res

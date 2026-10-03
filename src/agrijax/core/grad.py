@@ -83,6 +83,7 @@ __all__ = [
     "curv_lin",
     "event_ste",
     "gradient_mode",
+    "one_sided_tangent",
     "real4_store",
     "resolve_gradient_mode",
     "round_st",
@@ -479,6 +480,18 @@ def _event_ste_jvp(primals: tuple[Array, Array], tangents: tuple[Array, Array]) 
     margin, rate = primals
     _, t_out = jax.jvp(_ramp, primals, tangents)
     return _event_ste(margin, rate), t_out
+
+
+def one_sided_tangent(x: ArrayLike, slope: ArrayLike, where: ArrayLike) -> Array:
+    """A term of value 0 whose derivative is ``slope * dx`` where ``where`` holds (0 elsewhere): added
+    to a quantity at a **domain boundary** of ``x`` (an input that cannot go below it, rain at 0 mm),
+    it turns the derivative of the branch the forward expression selects *at* the boundary into the
+    one-sided derivative of the branch that holds just inside the domain. Forward values are unchanged
+    (the term is ``slope * (x - x)`` with the second ``x`` constant: +-0.0), in every gradient mode: it
+    is the derivative of the function on its domain, not a convention, so it is not a quantiser call
+    site (:class:`agrijax.core.process.GradientConvention`)."""
+    x = jnp.asarray(x)
+    return jnp.where(jnp.asarray(where), jnp.asarray(slope), 0.0) * (x - lax.stop_gradient(x))
 
 
 def event_ste(margin: ArrayLike, rate: ArrayLike, *, mode: str | None = None) -> Array:
