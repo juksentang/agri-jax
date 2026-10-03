@@ -1276,12 +1276,12 @@ class _Context:
 _CACHE: dict[int, tuple[Any, OrderedDict[Any, _Programs]]] = {}
 #: compiled program sets kept per owner (least recently used dropped first): each holds its inputs on
 #: the devices and its executables; a sweep over years belongs in one ``scenarios(...)`` call
-CACHE_PER_OWNER = 4
+CACHE_ENTRIES = 4
 
 
 def _cached(owner: Any, key: Any, build: Callable[[], _Programs]) -> _Programs:
     """The programs of ``key`` kept on ``owner`` (an experiment or a scenario set) while it lives, at
-    most :data:`CACHE_PER_OWNER` keys per owner (the least recently used is dropped; results made from
+    most :data:`CACHE_ENTRIES` keys per owner (the least recently used is dropped; results made from
     it keep their own reference)."""
     if owner is None:
         return build()
@@ -1296,7 +1296,7 @@ def _cached(owner: Any, key: Any, build: Callable[[], _Programs]) -> _Programs:
         store.move_to_end(key)
     else:
         store[key] = build()
-        while len(store) > CACHE_PER_OWNER:
+        while len(store) > CACHE_ENTRIES:
             store.popitem(last=False)
     return store[key]
 
