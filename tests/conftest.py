@@ -17,6 +17,12 @@
   otherwise pass CI without running.
 * Loads the conformance kit's pytest plugin (``--agrijax-key``, the ``conformance_case`` fixture
   of ``tests/unit/conformance/``).
+
+Milestone names used in the docstrings of the test tiers: **M1** is the Richards redistribution
+replay of the CA-TPA scenario against RZWQM2 (``tests/integration/test_richards_catpa.py``) and its
+year-by-year extensions; **M2** is the CERES-Maize crop against ``dscsm048`` on the 58 maize example
+treatments (``tests/integration/test_ceres_dssat.py``); **M3** is the day in the RZWQM2 4.6 order
+(stage ``m3`` of :mod:`agrijax.iface.contract`).
 """
 
 from __future__ import annotations

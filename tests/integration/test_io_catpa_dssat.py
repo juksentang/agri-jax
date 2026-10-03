@@ -167,7 +167,7 @@ def ref(data_dir: Path) -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def runs(ref: dict[str, Any], tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     # the cases are built in this run's own directory (the node-local AGRI_JAX_RUN_ROOT, else a
-    # pytest temporary directory), never in the shared data directory: concurrent lines would race
+    # pytest temporary directory), never in the shared data directory: concurrent runs would race
     run_root = os.environ.get("AGRI_JAX_RUN_ROOT")
     base = Path(run_root) if run_root else tmp_path_factory.mktemp("catpa_dssat")
     root = base / CASE_DIR

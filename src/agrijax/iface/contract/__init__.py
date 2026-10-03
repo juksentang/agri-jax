@@ -778,8 +778,8 @@ def dssat_day_problems(slot: str = "maize") -> list[str]:
             out.append(f"{e.row} {e.entry}: unknown status {e.status!r}")
         if not e.owner.strip() or not e.source.strip():
             out.append(f"{e.row} {e.entry}: a row names its owner and its reference call site")
-        if e.status == "replay" and e.owner in ("", "D2"):
-            out.append(f"{e.row} {e.entry}: a replay row names the line whose process replaces it")
+        if e.status == "replay" and e.owner in ("", "day_adapters"):
+            out.append(f"{e.row} {e.entry}: a replay row names the module whose process replaces it")
         for pid in e.ports_out:
             if pid not in PORTS and pid not in DSSAT_PORTS:
                 out.append(f"{e.row} {e.entry}: unknown port {pid!r}")

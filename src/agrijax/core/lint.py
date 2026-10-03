@@ -66,8 +66,8 @@ AJ007  warning  A bare numeric literal in a ``@process`` function or a numerical
                 are. AJ007 is a warning; ``--strict`` (what CI and pre-commit run) makes it fail
                 like every other warning, and ``--strict-aj007`` fails on AJ007 alone.
 AJ008  warning  An import of another slot's package from code under ``processes/<a>/``: modules of
-                different slots talk only through the port records (M3 coupling contract; parallel
-                development rule 2). A file of slot ``a`` (the directory right below the last
+                different slots talk only through the port records (the coupling contract). A file
+                of slot ``a`` (the directory right below the last
                 ``processes/`` of its path, or the file itself when it sits directly in
                 ``processes/``) may import ``agrijax.core``, the port records ``agrijax.iface``,
                 its own slot ``processes/a`` and third-party packages; ``import
@@ -91,7 +91,7 @@ AJ009  warning  Module state mutated from a function, in a file under ``processe
                 ``dict()``, ``defaultdict()``, ...). Slots keep no hidden state; everything a day
                 changes is in the returned state (three rules). Registries live in ``agrijax.core``.
                 Not enforced by ``--strict`` until the numerical-settings registry moves from
-                ``processes/soil_water/coefficients.py`` to core (gap G24); ``--enforce AJ009``.
+                ``processes/soil_water/coefficients.py`` to core; ``--enforce AJ009``.
 AJ010  warning  A ``@process`` under ``processes/`` whose ``reads``/``writes`` literal names a global
                 path (``iface.``, ``prev.``, ``ledger.``, ``forcing.``): a slot process declares
                 paths relative to its module state, and reaches another slot's record only through
@@ -100,9 +100,10 @@ AJ011  warning  A ``@process`` under ``processes/`` that reads ``<forcing>.<name
                 a field of a port record of ``agrijax.iface`` (a ``State`` class; the names are read
                 from the iface source, not imported): the process takes from the forcing a quantity
                 the contract delivers through a port, so the coupled binding would silently ignore
-                the port (M3 contract section 11, open item 2). Processes whose ``key=`` variant
+                the port (coupling contract). Processes whose ``key=`` variant
                 contains ``replay`` are exempt. Not enforced by ``--strict`` until the known cases
-                (gap G1) are closed; ``--enforce AJ011`` (or ``--strict-aj011``) enforces it.
+                (the soil-water day reads its root water uptake from the forcing) are closed;
+                ``--enforce AJ011`` (or ``--strict-aj011``) enforces it.
 AJ012  warning  An import across the io / processes layers. The file readers ``agrijax.io`` sit
                 below the processes: a file of ``agrijax/io/`` may import from ``agrijax`` only
                 ``agrijax.core``, ``agrijax.forcing``, ``agrijax.port`` and ``agrijax.io``; a file

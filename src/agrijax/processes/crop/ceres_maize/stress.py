@@ -172,7 +172,7 @@ def saturation_factor(
             "the 1e-3 quantum of the turgor factor would cut the derivative of expansion growth to 0",
             "scripts/diag/dssat_grad_gap.py: no contribution to the G2 / G3 derivatives on UFGA8201 t4; "
             "with the SW rounding it carries part of the P5 / PHINT straight-through difference in "
-            "water-limited seasons (independent review of wt/grad_gap)",
+            "water-limited seasons (compared with the exact-mode derivative)",
         ),
     ),
 )

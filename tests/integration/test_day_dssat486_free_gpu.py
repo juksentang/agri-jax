@@ -15,7 +15,7 @@ layer recurrences unrolled), the CPU pass with the CPU's (loops); a third pass o
 loops (``execution(depth_unroll=False)``) must give the bucket's outputs and the stages bit for
 bit and every other output to rounding (:func:`test_gpu_unrolled_matches_gpu_loops`).
 
-Only with a GPU visible to JAX (skipped otherwise); run on rorqual with ``remote.sh --gpu``. Both
+Only with a GPU visible to JAX (skipped otherwise); run on a GPU node (rorqual). Both
 passes run in the same process, the CPU one on JAX's host backend. The inputs are those of the
 ``free`` configuration of :mod:`day_dssat486_free_harness`; the report goes to
 ``<data-dir>/validation/aj_dint/d2_1a_free_run_gpu.json``.

@@ -41,6 +41,7 @@ from agrijax.iface.surface import SnowOut
 from .canopy_params import CeresCanopyParams
 from .coefficients import DSSAT_COEFFICIENTS, CeresCoefficients
 from .constants import ISTAGE_SOWING, MDATE_NONE, XSTAGE_SEASINIT
+from .smoothed_params import SMOOTHING_DEFAULT, SmoothingCoefficients, SoftPhenologyState
 
 __all__ = [
     "NOT_REACHED",
@@ -307,10 +308,21 @@ class CeresMaizeParams(Params):
         ),
         default=None,
     )
+    smoothing: SmoothingCoefficients | None = field(
+        description=(
+            "logistic stage-gate scale of the smoothed phenology variant (None: its default; the "
+            "faithful processes never read it)"
+        ),
+        default=None,
+    )
 
     def coef(self) -> CeresCoefficients:
         """The hard-coded coefficients in force: :attr:`coefficients`, or the DSSAT values."""
         return DSSAT_COEFFICIENTS if self.coefficients is None else self.coefficients
+
+    def smoothing_coef(self) -> SmoothingCoefficients:
+        """The stage-gate scale of the smoothed variant: :attr:`smoothing`, or its default."""
+        return SMOOTHING_DEFAULT if self.smoothing is None else self.smoothing
 
     def in_season(self, season: Array | None) -> CeresMaizeParams:
         """The parameters of season ``season`` (an int32 index, the crop's ``season`` state).
@@ -572,6 +584,13 @@ class CeresMaizeState(State):
     snow_in: SnowOut = port(description="snow of the day (P9); the crop reads the water equivalent swe")
     canopy_out: CanopyRecord = port(
         description="canopy record for the PET module (P6; reset on harvest days)"
+    )
+    soft: SoftPhenologyState | None = field(
+        description=(
+            "soft development clocks of the smoothed phenology variant (None: the faithful processes, "
+            "which never read it; fill with SoftPhenologyState.initial to run the smoothed variant)"
+        ),
+        default=None,
     )
 
     @classmethod

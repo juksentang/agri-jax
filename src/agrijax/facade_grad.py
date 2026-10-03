@@ -56,7 +56,7 @@ labels, from the gradient-trust check of :mod:`agrijax.calib.trust` run at the e
   moving). In a water-limited season their straight-through derivative also carries the quantiser
   paths, the TURFAC truncation and the soil-water rounding as well as RLV, and differs from the exact
   one by 5 to 15 % for ``P5`` and 5 to 157 % for ``PHINT`` (with a change of sign in 1982 -14 days:
-  ``ste`` +0.117, exact -0.205 on grain weight; independent review of this branch). The calibration
+  ``ste`` +0.117, exact -0.205 on grain weight). The calibration
   does not trust them either (they are derivative-free by default there). ``derivative`` is that AD
   value; the central difference is in column ``fd`` to compare with, and the class and level the check
   found stay in the table.

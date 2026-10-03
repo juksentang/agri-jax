@@ -268,7 +268,7 @@ def test_scenario_batch(exp, grad):
             assert a["ad"] == pytest.approx(b["ad"], rel=1e-9, abs=1e-12)
             assert (a["trust"], a["class"], a["level"]) == (b["trust"], b["class"], b["level"]), (o, p)
     assert one.trust == single.trust
-    # the straight-through derivative (regression: before wt/grad_gap the small step was compared with the
+    # the straight-through derivative (regression: the small step used to be compared with the
     # straight-through value itself and these pairs fell back at trust level 1). Level 2 is decided on the
     # exact path, three-valued. 1979 -14 d is water limited: the straight-through yield derivative of G2
     # carries the root length density truncation's path (MZ_ROOTS, a GradientConvention of

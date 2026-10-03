@@ -90,7 +90,7 @@ clamp is (almost) never active: after the fix the final heads lie in [-110, -13]
 
 Timing is unchanged by the fix (job 21688397 before the fix: 1.85 s forward, 15.6 s gradient at n = 1000).
 
-**Review of the fix (2026-09-24).** Signs re-derived from the mixed-form Richards equation with z and q positive
+**Re-derivation of the fix (2026-09-24).** Signs re-derived from the mixed-form Richards equation with z and q positive
 downward, `d theta/dt = -dq/dz - S`, `q = -K (dh/dz - 1)`: the interface flux, the residual
 `(theta(h) - theta_old)/DT + (q_out - q_in)/dz + S`, the top flux (`+` = into the soil), the free-drainage bottom
 `q = K(h_N)` and the tridiagonal entries (off-diagonals `-K_{i+1/2}/dz^2`, diagonal `C/DT +` their negated sum) all
@@ -104,6 +104,6 @@ node spacing and the cell thickness kept apart. Known and left as is, because `e
 physics and the published measurements were taken on it: the daily `aet` output adds the *potential* soil
 evaporation `pe`, not the supply-limited flux applied at the surface.
 
-**Lesson for the real model** (doc 05, lint rule AJ003): a finite forward output is not evidence of a finite
+**Lesson for the real model** (lint rule AJ003): a finite forward output is not evidence of a finite
 forward *state*; guard `jnp.where` branches on the state variable itself, bound every implicit iterate, and
 bisect NaN gradients by truncating the forcing, never by masking the loss.

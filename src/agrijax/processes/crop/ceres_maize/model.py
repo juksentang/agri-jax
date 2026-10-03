@@ -33,11 +33,13 @@ from agrijax.iface.crop import CropWaterIn, RootRecord
 from .growth import ceres_growth, ceres_growth_nstress_replay, ceres_stress
 from .phenology import ceres_phenology
 from .roots import ceres_roots
+from .smoothed import ceres_growth_smoothed, ceres_phenology_smoothed
 from .state import CeresForcing, CeresMaizeParams, CeresMaizeState, CeresReplayForcing
 
 __all__ = [
     "CROP_PROCESSES",
     "CROP_PROCESSES_NSTRESS_REPLAY",
+    "CROP_PROCESSES_SMOOTHED",
     "OUTPUT_UNITS",
     "REPLAY_PROCESSES",
     "ceres_maize_model",
@@ -257,6 +259,15 @@ CROP_PROCESSES_NSTRESS_REPLAY = (
     ceres_phenology,
     ceres_stress,
     ceres_growth_nstress_replay,
+    ceres_roots,
+    ceres_publish,
+)
+#: the same day with the non-faithful smoothed phenology and its blended growth (``state.soft`` filled:
+#: :func:`~.smoothed.with_soft_state`; the gate scale is ``params.smoothing``)
+CROP_PROCESSES_SMOOTHED = (
+    ceres_phenology_smoothed,
+    ceres_stress,
+    ceres_growth_smoothed,
     ceres_roots,
     ceres_publish,
 )

@@ -121,7 +121,7 @@ range, which the rerun makes visible.
 Runs in float64 on the host's JAX devices (``XLA_FLAGS=--xla_force_host_platform_device_count=<cores>``
 for the batched reruns; the gradient pass runs on one device).
 
-**Measured** (rorqual, ``scripts/diag/g1_weather_sensitivity.py``; UFGA8201 t2 / t4 in 1978-1987 and the
+**Measured** (rorqual, ``scripts/diag/weather_sensitivity.py``; UFGA8201 t2 / t4 in 1978-1987 and the
 CA-TPA seasons 2015-2021: 27 seasons, 1468 checked day x variable rows of ``HWAM``, 127 of them with no
 response). Where the season is not water limited (UFGA8201 t4 1982, CA-TPA 2021) the straight-through and
 exact derivatives are equal, every checked ``SRAD`` day with a response is at trust level 3 and ``RAIN`` /

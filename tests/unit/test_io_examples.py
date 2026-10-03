@@ -268,7 +268,7 @@ def test_dssat_data_of_a_mirror_downloads_nothing(tmp_path, monkeypatch, served)
 
 def test_a_directory_not_made_by_agri_jax_is_never_replaced(tmp_path, monkeypatch, served):
     """``install_reference(root)`` / ``fetch_dssat_source(root)`` on a user's existing directory
-    refuse instead of deleting it (review finding: the unpack replaced ``root`` wholesale)."""
+    refuse instead of deleting it (the unpack once replaced ``root`` wholesale)."""
     pages, _ = served
     blob = _tgz("dssat-x", {"bin/dscsm048": b"ELF", "PROVENANCE.txt": b"p"})
     asset = ex.ReleaseAsset("juksentang/agri-jax", "dssat-x", "dssat-x.tar.gz", _sha(blob))

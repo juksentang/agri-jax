@@ -1,8 +1,8 @@
-"""D3-1: staged calibration of CERES-Maize cultivar coefficients on the validated free-run DSSAT day.
+"""Staged calibration of CERES-Maize cultivar coefficients on the validated free-run DSSAT day.
 
 Measurement / driver only; nothing in ``src/`` changes.
 
-**Model.** :mod:`agrijax.models.day_dssat486` exactly as the D2-1a acceptance runs it (configuration
+**Model.** :mod:`agrijax.models.day_dssat486` exactly as its free-run acceptance test runs it (configuration
 ``free`` of ``tests/integration/day_dssat486_free_harness.py``: every entry its own process, REAL*4 soil
 values, the labelled SOILDYN / residue / hourly TAVG replays, ``exact_lags=True``), f64, gradient mode
 ``ste`` bound to every program (:func:`agrijax.core.grad.bind_gradient_mode`). The forcing of a run is
@@ -41,7 +41,7 @@ The entries are gathered on the device, so a model call returns ``[samples, entr
 Every evaluation also yields the original objective, so every method has a best-so-far trajectory of
 the same quantity; quality targets are defined before the runs (:data:`Q_TWIN`, :data:`Q_REAL_FACTOR`).
 
-Benchmark switches (wt/grad_gap): ``AJ_D31_DIR`` writes everything to a separate directory, and
+Benchmark switches: ``AJ_D31_DIR`` writes everything to a separate directory, and
 ``AJ_D31_TRUST`` (``legacy`` / ``split`` / ``three``, :data:`TRUST_LEVEL2`) selects the level-2 test of
 the stage-2 trust report.
 
@@ -113,15 +113,15 @@ LM_ITERS = 40
 LM_LAMBDA0 = 1e-3
 LM_TOL = Q_TWIN * 1e-3
 LM3_ITERS = 25  # stage-3 (joint refinement) iterations
-SECANT_DZ = 0.1  # central-secant half width [z units] (D3-0: about 2.5 % of the width at mid-box)
+SECANT_DZ = 0.1  # central-secant half width [z units] (about 2.5 % of the width at mid-box)
 TRUST_SCAN = 201  # line-scan points (default 41 misses jumps narrower than 2.3 % of the width)
 #: level-2 test of the stage-2 trust report (environment AJ_D31_TRUST): "legacy" compares the
-#: straight-through AD derivative with the small-step difference of the model (the check before
-#: wt/grad_gap); "split" compares the exact-mode derivative with it and the unrounded model's
+#: straight-through AD derivative with the small-step difference of the model (the original level-2
+#: check); "split" compares the exact-mode derivative with it and the unrounded model's
 #: derivative with the unrounded model's small-step difference; "three": the three-valued level 2 of
 #: agrijax.calib.trust (exact-mode derivative, adjacent small steps; secants at 1, 2 and 5 %)
 TRUST_LEVEL2 = os.environ.get("AJ_D31_TRUST", "legacy")
-#: calls of the published cultivar's DSSAT cost model (D4-1, rorqual, dscsm048 build486, daily outputs):
+#: calls of the published cultivar's DSSAT cost model (rates measured on rorqual with dscsm048 build486, daily outputs):
 #: batch 18.2 ms / season, one treatment per invocation 65.1 ms -> start-up 46.9 ms per invocation;
 #: node 192 cores: start-up 55 ms + ceil(seasons / 192) x 18.2 ms per round
 DSSAT_SEASON_S = 0.0182
@@ -2122,7 +2122,7 @@ def _fmt(x: float, d: int = 2) -> str:
 
 def dssat_cost(r: dict[str, Any], upto: float | None) -> dict[str, float]:
     """DSSAT + the same derivative-free trajectory: every candidate one dscsm048 invocation over the
-    problem's treatments (D4-1 rates: :data:`DSSAT_INVOCATION_S` + K x :data:`DSSAT_SEASON_S`), (a)
+    problem's treatments (rates measured on rorqual: :data:`DSSAT_INVOCATION_S` + K x :data:`DSSAT_SEASON_S`), (a)
     serially on one core, (b) each call batch spread over a 192-core node (makespan
     ceil(invocations / 192) x the mean invocation cost + start-up). ``upto``: stop at that wall time
     of the JAX run (equal quality)."""
@@ -2145,7 +2145,7 @@ def dssat_cost(r: dict[str, Any], upto: float | None) -> dict[str, float]:
         inv_total += inv
         seasons += float(np.sum(d * k_of))
         node += DSSAT_NODE_START_S + math.ceil(inv / DSSAT_NODE_CORES) * float(np.sum(d * cost) / inv)
-        # batch basis (D4-1 batch rates: 18.2 ms per season, no per-candidate start-up)
+        # batch basis (measured batch rate: 18.2 ms per season, no per-candidate start-up)
         sz = float(np.sum(d * k_of))
         serial_b += sz * DSSAT_SEASON_S
         node_b += DSSAT_NODE_START_S + math.ceil(sz / DSSAT_NODE_CORES) * DSSAT_SEASON_S

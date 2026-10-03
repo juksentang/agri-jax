@@ -1,4 +1,4 @@
-"""Calibration with ``method="adam"`` before / after the split level-2 trust test (wt/grad_gap).
+"""Calibration with ``method="adam"`` before / after the split level-2 trust test.
 
 ``agrijax.calib.calibrate(..., method="adam")`` is the only calibration path that calls
 ``agrijax.calib.trust.trust_report`` (its gradient plan decides which coefficients Adam moves). "before"
