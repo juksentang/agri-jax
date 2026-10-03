@@ -408,7 +408,9 @@ def test_unrounded_removes_every_quantiser_and_only_inside_its_context():
         assert float(y) == pytest.approx(3.0 * float(x), rel=1e-15 if X64 else 1e-6)
         assert float(dy) == pytest.approx(3.0, rel=1e-12 if X64 else 1e-6)
     with G.unrounded():
-        assert G.unrounded_active() and float(G.trunc_st(jnp.asarray(2.7))) == 2.7
+        assert G.unrounded_active() and float(G.trunc_st(jnp.asarray(2.7))) == float(
+            jnp.asarray(2.7)
+        )  # 2.7 in the active precision
     assert not G.unrounded_active()
     assert float(G.trunc_st(jnp.asarray(2.7))) == 2.0
     y_ste, dy_ste = jax.jvp(G.bind_gradient_mode(f, "ste"), (x,), (jnp.ones(()),))
