@@ -88,6 +88,15 @@ def _summ(ws, out: Path, tag: str) -> dict:
         den = float(np.abs(dv["derivative"]).sum())
         rel[v] = num / den if den else 0.0
     rec["ste_vs_exact_l1"] = rel
+    # the share of the season's sum |derivative| on days without that input (rain / irrigation 0)
+    dry = {}
+    for v in [w for w in ws.variables if w in ("RAIN", "IRRD")]:
+        dv = d[d["variable"] == v]
+        tot = float(dv["derivative"].abs().sum())
+        dry[v] = float(dv.loc[dv["value"] == 0.0, "derivative"].abs().sum()) / tot if tot else 0.0
+    rec["zero_input_share"] = dry
+    if dry:
+        print("share of sum |derivative| on zero-input days:", {k: f"{v:.3g}" for k, v in dry.items()})
     print("ste vs exact (L1 relative):", {k: f"{v:.3g}" for k, v in rel.items()})
     return rec
 
@@ -122,7 +131,7 @@ def _brute(ws, out: Path, tag: str) -> dict:
     plain = ws.brute_force(check=False)
     ws.brute_force(check=False, one_device=True)  # compiles the one-device program
     plain1 = ws.brute_force(check=False, one_device=True)
-    two = ws.timing["gradient_s"] + ws.timing["gradient_exact_s"]
+    two = ws.timing["gradient_s"] + ws.timing["gradient_exact_s"]  # the first call's two passes
     rec = {
         "check_rows": bf.attrs["rows"],
         "check_run_s": bf.attrs["run_s"],
@@ -135,7 +144,8 @@ def _brute(ws, out: Path, tag: str) -> dict:
     }
     print(
         f"plain per-day reruns: {rec['plain_rows']} runs, {rec['plain_run_s']:.3f} s (all devices), "
-        f"{rec['plain_run_one_device_s']:.3f} s on one device; one call's two gradient passes {two:.3f} s"
+        f"{rec['plain_run_one_device_s']:.3f} s on one device; the first call's two gradient passes "
+        f"{two:.3f} s (ratio {rec['plain_run_one_device_s'] / two:.2f}; the repeat passes: below)"
     )
     return rec
 
@@ -183,7 +193,11 @@ def main() -> int:
                 _, g3 = progs.gradient([0], "exact")[1:]
                 rec["gradient_repeat_s"] = g2
                 rec["gradient_exact_repeat_s"] = g3
-                print(f"one season forward on one device {s1:.3f} s; gradient pass (repeat) {g2:.3f} s")
+                bf1 = rec["brute_force"]["plain_run_one_device_s"]
+                print(
+                    f"one season forward on one device {s1:.3f} s; repeat passes {g2:.3f} + {g3:.3f} s "
+                    f"(ratio {bf1 / (g2 + g3):.2f} against the one-device per-day reruns)"
+                )
             res[tag] = rec
             (out / "g1_results.json").write_text(json.dumps(res, indent=1, default=str))
     if "years" in parts:
