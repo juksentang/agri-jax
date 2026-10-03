@@ -67,26 +67,25 @@ whole-season check reports any shift as well.
 :func:`agrijax.calib.trust.fd_diagnostics`; :class:`WeatherTrustConfig`):
 
 (a) single-day reruns: for each variable the ``top_k`` days of largest ``|d output / d variable|`` (first
-    output) and ``random_days`` random season days are rerun with that day's value changed by three
-    small steps (1e-3 / 1e-4 / 1e-5 units) and three user-scale steps (``SRAD`` 0.1 / 0.5 / 1 MJ m-2,
-    temperatures 0.1 / 0.5 / 1 degC, ``RAIN`` / ``IRRD`` 1 / 2 / 5 mm). One difference scheme per day:
-    central at every step, or forward at every step where the value minus the largest step would go
-    below 0 (column ``one_sided``). **Level 2** (three-valued, on the exact-mode derivative): the
-    small-step differences agree with each other (to 1e-3) and with the derivative -> pass, with each
-    other but not with it -> fail, not with each other -> undecidable (a quantum or a threshold inside
-    1e-3 units). It is **not judged** where the exact-mode derivative is zero while the straight-through
-    one is not, and on every day of a variable whose exact-mode derivative is zero on every season day:
-    a quantiser cuts the exact derivative there (rain and irrigation reach the outputs only through the
-    soil-water rounding, so their level 2 is never judged), and a 0 == 0 comparison says nothing about
-    the reported derivative; not judged counts as undecidable. **Level 3** (on the straight-through
-    derivative, the one reported): it agrees with the secant at every user step (to 5 %), else the day
-    fails: curvature, a threshold or a stage day inside a user step is a failure, not an undecidable
-    case. The day's trust level is that of :mod:`agrijax.calib.trust` (3: level 3 passes and level 2
-    does not fail; 2: level 2 passes, level 3 fails; 1: level 2 fails, or is undecidable / not judged
-    and level 3 fails); a day passes at level 3. Both zero (below ``abs_floor``) counts as agreeing; a
-    day where both derivatives and every difference are zero has status ``zero`` (no response: neither
-    a pass nor a failure). Rainfall passes the runoff curve number, infiltration and the drainage
-    thresholds: its outcome is reported as found;
+    output) and ``random_days`` random season days are rerun with that day's value changed by three small
+    steps (1e-3 / 1e-4 / 1e-5 units) and three user-scale steps (``SRAD`` 0.1 / 0.5 / 1 MJ m-2, temperatures
+    0.1 / 0.5 / 1 degC, ``RAIN`` / ``IRRD`` 1 / 2 / 5 mm). One difference scheme per day: central at every
+    step, or forward at every step where the value minus the largest step would go below 0 (column
+    ``one_sided``). **Level 2** (three-valued, on the exact-mode derivative): the small-step differences agree
+    with each other (to 1e-3) and with the derivative -> pass, with each other but not with it -> fail, not
+    with each other -> undecidable (a quantum or a threshold inside 1e-3 units). It is **not judged** where
+    the exact-mode and straight-through derivatives differ by more than 5 % (a quantiser cuts the exact
+    derivative there, to zero or to a residual), and on every day of a variable whose exact-mode derivative is
+    zero on every season day (rain and irrigation reach the outputs only through the soil-water rounding): a
+    pass on the exact derivative says nothing about the reported one; not judged counts as undecidable, and a
+    level-2 fail is always kept. **Level 3** (on the straight-through derivative, the one reported): it agrees
+    with the secant at every user step (to 5 %), else the day fails: curvature, a threshold or a stage day
+    inside a user step is a failure, not an undecidable case. The day's trust level is that of
+    :mod:`agrijax.calib.trust` (3: level 3 passes and level 2 does not fail; 2: level 2 passes, level 3 fails;
+    1: level 2 fails, or is undecidable / not judged and level 3 fails); a day passes at level 3. Both zero
+    (below ``abs_floor``) counts as agreeing; a day where both derivatives and every difference are zero has
+    status ``zero`` (no response: neither a pass nor a failure). Rainfall passes the runoff curve number,
+    infiltration and the drainage thresholds: its outcome is reported as found;
 (b) whole-season reruns: ``SRAD`` x(1 +- 5 %), ``TMAX`` / ``TMIN`` (and both) +- 1 degC, ``RAIN`` and
     ``IRRD`` x(1 +- 10 %) on every simulated day, against the summed gradient ``sum_t d output / d x_t
     * dx_t``; the gap (rerun central difference minus prediction) and its curvature part are reported,
@@ -115,29 +114,32 @@ Runs in float64 on the host's JAX devices (``XLA_FLAGS=--xla_force_host_platform
 for the batched reruns; the gradient pass runs on one device).
 
 **Measured** (rorqual, ``scripts/diag/g1_weather_sensitivity.py``; UFGA8201 t2 / t4 in 1978-1987 and the
-CA-TPA seasons 2015-2021: 27 seasons, 1468 checked day x variable rows of ``HWAM``). Where the season is
-not water limited (UFGA8201 t4 1982, CA-TPA 2021) the straight-through and exact derivatives are equal,
-every checked ``SRAD`` day with a response is at trust level 3 and ``RAIN`` / ``IRRD`` are ``inert`` (no
-response on any checked day, not "validated"); the same check on every day
-(:meth:`WeatherSensitivity.brute_force`, UFGA8201 t4 1982) puts 92 % of the ``SRAD`` days with a response
-and 61-62 % of the temperature days at level 3 (the others at level 2: a stage day or curvature inside
-the 0.1-1 degC steps). In water-limited seasons the response to one day's weather is a staircase (the
-soil-water rounding, the ``TURFAC`` and root-length-density truncations, the runoff and drainage
-thresholds): of the checked days with a response 32 % (``SRAD``), 35 % / 45 % (``TMAX`` / ``TMIN``) and
-2-4 % (``RAIN``, ``IRRD``) are at level 3, the labels say "not validated". Of the 1367 rows with a response,
-level 2 passes on 572 (all ``SRAD`` / ``TMAX`` / ``TMIN``), is undecidable on 254 and not judged on 541,
-and never fails: evidence for the exact derivative of ``SRAD`` / ``TMAX`` / ``TMIN`` where it was
-decidable, nothing more. For ``RAIN`` and ``IRRD`` the exact derivative is zero on every day
-(cut by the soil-water rounding), so their level 2 is not judged and their reported straight-through
-derivative is tested at the user steps only, where it mostly fails: it is not shown correct. Cost on
-one device: one call's two reverse passes (straight-through and exact) 0.13-0.16 s for 190 days x 5
-variables x 2 outputs (first call or warm repeat), against 1.03 s for the 521-651 equivalent per-day
-reruns batched on the same device: 6.3-7.7x (6.4-8.4x in an earlier run); one forward season 0.011 s.
+CA-TPA seasons 2015-2021: 27 seasons, 1468 checked day x variable rows of ``HWAM``, 127 of them with no
+response). Where the season is not water limited (UFGA8201 t4 1982, CA-TPA 2021) the straight-through and
+exact derivatives are equal, every checked ``SRAD`` day with a response is at trust level 3 and ``RAIN`` /
+``IRRD`` are ``inert`` (no response on any checked day, not "validated"); the same check on every day
+(:meth:`WeatherSensitivity.brute_force`, UFGA8201 t4 1982) puts 92 % of the ``SRAD`` days with a response and
+61-62 % of the temperature days at level 3 (the others at level 2: a stage day or curvature inside the 0.1-1
+degC steps). In water-limited seasons the response to one day's weather is a staircase (the soil-water
+rounding, the ``TURFAC`` and root-length-density truncations, the runoff and drainage thresholds) and the
+exact derivative is cut by those quantisers: of the checked days with a response 32 % (``SRAD``), 37 % / 40 %
+(``TMAX`` / ``TMIN``) and 2-4 % (``RAIN``, ``IRRD``) are at level 3, 5-15 % at level 2, the labels say "not
+validated". Of the 1341 rows with a response, level 2 passes on 384 (all ``SRAD`` / ``TMAX`` / ``TMIN``, on
+days where the reported derivative equals the exact one to 5 %), is undecidable on 45, not judged on 910 (the
+two derivatives differ) and fails on 2 (``TMAX`` in grain filling, UFGA8201 t2 1980 day 113 and t4 1987 day
+115: a smooth response that both derivatives miss, open). For ``RAIN`` and ``IRRD`` the exact derivative is
+zero on every day (cut by the soil-water rounding), so their level 2 is not judged and their reported
+straight-through derivative is tested at the user steps only, where it mostly fails: it is not shown correct.
+Cost on one device: one call's two reverse passes (straight-through and exact) 0.16-0.26 s (first call) or
+0.16-0.19 s (warm repeat) for 190 simulated days (130-day season and padding) x 5 variables x 2 outputs,
+against 1.06-1.10 s for the 521-651 equivalent per-day reruns batched on the same device: 4.2-6.6x (6.3-8.4x
+in earlier runs); one forward season 0.010-0.014 s.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import numbers
 import time
 import weakref
 from collections import OrderedDict
@@ -203,13 +205,18 @@ LABEL_FAILS = "not validated"
 #: validated (``calib/trust.py``'s ``inert`` class)
 LABEL_INERT = "inert"
 STATUS_PASS, STATUS_FAIL, STATUS_UNDECIDABLE = "pass", "fail", "undecidable"
-#: level 2 does not test the reported derivative: the exact-mode derivative is zero (cut by a quantiser
-#: on the path) where the straight-through one is not, that day or on every day of the season
+#: level 2 does not test the reported derivative: the exact-mode derivative differs from the
+#: straight-through one (cut by a quantiser on the path, to zero or to a residual), or is zero on every
+#: day of the season
 STATUS_NOT_JUDGED = "not judged"
 #: a checked day whose derivatives and differences are all zero (below ``abs_floor``): no response
 STATUS_ZERO = "zero"
 #: checked-day statuses (``single_day["status"]``, ``daily["checked"]``)
 DAY_STATUSES: tuple[str, ...] = (STATUS_PASS, STATUS_FAIL, STATUS_ZERO)
+#: smallest ``YYYYDDD`` date (year 1000) and smallest year: an index at or above them is a date / a year,
+#: not a position
+_YYYYDDD_MIN = 1000001
+_YEAR_MIN = 1000
 
 #: CERES-Maize ``ISTAGE`` codes: the stage the crop is in (MZ_PHENOL.for INTEGR block comments,
 #: :mod:`agrijax.processes.crop.ceres_maize.constants`)
@@ -319,9 +326,11 @@ def day_verdict(
     fails; 2 if level 2 passes and level 3 fails; 3 if level 3 passes (and level 2 does not fail).
 
     Level 2 is **not judged** (:data:`STATUS_NOT_JUDGED`, counted as undecidable: level 3 decides) where
-    the exact-mode derivative is zero and the straight-through one is not (the exact one is cut by a
-    quantiser: a 0 == 0 comparison says nothing about the reported derivative), and wherever ``judged``
-    (``[E, D]`` bool) is False (the caller's: the exact derivative is zero on every day of the season).
+    the straight-through and exact-mode derivatives differ by more than the level-3 tolerance
+    ``cfg.rtol`` (the exact one is cut by a quantiser, to zero or to a residual: a level-2 pass on it
+    says nothing about the reported derivative), and wherever ``judged`` (``[E, D]`` bool) is False (the
+    caller's: the exact derivative is zero on every day of the season). A level-2 **fail** is always
+    kept (the exact derivative is wrong, whatever is reported).
     ``status`` is ``zero`` (:data:`STATUS_ZERO`) where both derivatives and every difference are zero
     (no response: neither a pass nor a failure), else ``pass`` at level 3 and ``fail`` otherwise."""
     from agrijax.calib.trust import L2_FAIL, L2_UNDECIDABLE, TrustConfig, fd_diagnostics
@@ -338,9 +347,17 @@ def day_verdict(
     ad_a, adx_a = np.abs(np.asarray(ad, dtype=float)), np.abs(np.asarray(ad_exact, dtype=float))
     floor = cfg.abs_floor * np.maximum(np.abs(np.asarray(y0, dtype=float)), 1.0)[:, None]
     floor = floor / np.asarray(h_scale, dtype=float)[None, :]
-    cut = (adx_a <= floor) & (ad_a > floor)
+    # level 2 judges the exact derivative: it says something about the reported one only where the two
+    # agree (to the level-3 tolerance; both below the floor agree). A failing level 2 is kept (it shows
+    # the exact derivative wrong, whatever is reported)
+    differ = (np.maximum(ad_a, adx_a) > floor) & (
+        np.abs(np.asarray(ad, dtype=float) - np.asarray(ad_exact, dtype=float))
+        > cfg.rtol * np.maximum(ad_a, adx_a)
+    )
+    cut = differ
     if judged is not None:
         cut = cut | ~np.asarray(judged, dtype=bool)
+    cut = cut & (d["status0"] != L2_FAIL)
     fds = np.abs(np.stack([np.asarray(f, dtype=float) for f in (*small, *large)]))
     zero = (ad_a <= floor) & (adx_a <= floor) & np.all(fds <= floor[None], axis=0)
     l2 = np.where(
@@ -907,8 +924,9 @@ class WeatherSensitivity:
         those columns; default the day-of-year mean of the station's weather files (``years``: which
         ones; default all of them), **without the season's own years** (``leave_season_out``: an anomaly
         against a mean that contains the season itself is shrunk by about 1 / N). ``anomaly``: instead,
-        the anomaly itself (a table with those columns and one row per day from the simulation start, or
-        indexed by ``YYYYDDD``). ``rerun``: also run
+        the anomaly itself (a table with those columns: with a plain 0-based index, one row per day from
+        the simulation start; else indexed by ``YYYYDDD`` covering every simulated day, or a
+        ``ValueError`` names the missing days). ``rerun``: also run
         the season on the climatological weather (each variable alone, and all together)."""
         import pandas as pd
 
@@ -923,12 +941,31 @@ class WeatherSensitivity:
         used_years: list[int] = []
         if anomaly is not None:
             an_t = pd.DataFrame(anomaly)
-            if set(ctx.yrdoy[:t_cal]).issubset({int(k) for k in an_t.index}):
-                an = np.stack([np.asarray(an_t.loc[ctx.yrdoy[:t_cal], v], dtype=float) for v in vs], axis=1)
-            elif len(an_t) >= t_cal:
+            idx = an_t.index
+            if isinstance(idx, pd.RangeIndex) and idx.start == 0 and idx.step == 1:
+                if len(an_t) < t_cal:
+                    raise ValueError(f"anomaly: {len(an_t)} rows, the season has {t_cal} days")
                 an = np.stack([np.asarray(an_t[v], dtype=float)[:t_cal] for v in vs], axis=1)
             else:
-                raise ValueError(f"anomaly: {len(an_t)} rows, the season has {t_cal} days")
+                try:
+                    keys = {int(k) for k in idx}
+                except (TypeError, ValueError) as err:
+                    raise ValueError(
+                        "anomaly: index by YYYYDDD, or a plain 0-based RangeIndex (one row per day from the "
+                        "simulation start)"
+                    ) from err
+                if not all(k >= _YYYYDDD_MIN for k in keys):
+                    raise ValueError(
+                        "anomaly: index by YYYYDDD (every day from the simulation start), or a plain 0-based "
+                        "RangeIndex"
+                    )
+                missing = [int(d) for d in ctx.yrdoy[:t_cal] if int(d) not in keys]
+                if missing:
+                    raise ValueError(
+                        f"anomaly: {len(missing)} simulated days missing from the YYYYDDD index (first "
+                        f"{missing[:5]}); it must cover {ctx.yrdoy[0]}-{ctx.yrdoy[t_cal - 1]}"
+                    )
+                an = np.stack([np.asarray(an_t.loc[ctx.yrdoy[:t_cal], v], dtype=float) for v in vs], axis=1)
             clim = x[:, [_IX[v] for v in vs]] - an
         else:
             if climatology is None:
@@ -1093,10 +1130,12 @@ def _check_days(
     g0: np.ndarray, vs: Sequence[str], t_cal: int, cfg: WeatherTrustConfig
 ) -> list[tuple[str, int, str]]:
     """The days of the single-day check: per variable the top-k ``|derivative|`` days (nonzero) of the
-    first output, then random season days: ``(variable, day, "top" | "random")``."""
-    rng = np.random.default_rng(cfg.seed)
+    first output, then random season days: ``(variable, day, "top" | "random")``. Each variable draws
+    from its own generator (seeded by ``cfg.seed`` and the variable), so its days do not depend on which
+    other variables are checked."""
     out: list[tuple[str, int, str]] = []
     for v in vs:
+        rng = np.random.default_rng([cfg.seed, _IX[v]])
         score = np.abs(g0[:t_cal, _IX[v]])
         order = [int(t) for t in np.argsort(-score, kind="stable") if score[t] > 0][: cfg.top_k]
         rest = [t for t in range(t_cal) if t not in order]
@@ -1481,7 +1520,8 @@ def weather_sensitivity(
     of one soil layering and evaporation method; ``names`` their names): one reverse-mode pass per
     gradient mode over all of them, the checks batched (module docstring). ``weather_files``: the
     station's ``.WTH`` files, for the default climatology of :meth:`WeatherSensitivity.attribution`.
-    ``owner`` / ``key``: keep the compiled programs on ``owner`` (a second call does not compile)."""
+    ``owner`` / ``key``: keep the compiled programs on ``owner`` (a second call does not compile); a key
+    names its runs: a later call under the same key with other run objects raises ``ValueError``."""
     from agrijax.calib.dssat_day import E_DATE, ISTAGE_SILKING, Entry
     from agrijax.dssat import _x64
     from agrijax.facade_execution import require_default_options
@@ -1496,6 +1536,11 @@ def weather_sensitivity(
     cfg = config or DEFAULT_CONFIG
     ents = [[*_entries(out_names, r), Entry(E_DATE, ISTAGE_SILKING)] for r in runs]
     progs = _cached(owner, (key, tuple(out_names)), lambda: _Programs(runs, ents, len(out_names)))
+    if len(progs.runs) != len(runs) or any(a is not b for a, b in zip(progs.runs, runs, strict=False)):
+        raise ValueError(
+            f"weather_sensitivity: the programs kept under key {key!r} were built for other runs; pass a "
+            "key that names the runs (or owner=None)"
+        )
     c0 = progs.compile_s
     scn = list(range(len(runs)))
     _, g, grad_s = progs.gradient(scn, "ste")
@@ -1531,14 +1576,18 @@ def station_files(directory: str | Path, station: str) -> list[Path]:
 
 class WeatherSensitivities(list):  # type: ignore[type-arg]
     """The results of :meth:`agrijax.dssat.Scenarios.weather_sensitivity`, one per scenario (a list);
-    index by position, or by year (``res[1982]``) where the year is unique."""
+    index by position, or by year (``res[1982]``, any integer type) where the year is unique; a year
+    with no scenario raises ``KeyError``."""
 
     years: list[int]
 
     def __getitem__(self, k: Any) -> Any:
-        if isinstance(k, int) and k >= 1000 and k in getattr(self, "years", []):
-            hits = [i for i, y in enumerate(self.years) if y == k]
+        if isinstance(k, numbers.Integral) and not isinstance(k, bool) and int(k) >= _YEAR_MIN:
+            y = int(k)
+            hits = [i for i, yy in enumerate(getattr(self, "years", [])) if yy == y]
+            if not hits:
+                raise KeyError(f"no scenario for year {y}")
             if len(hits) != 1:
-                raise KeyError(f"year {k} names {len(hits)} scenarios: index by position")
+                raise KeyError(f"year {y} names {len(hits)} scenarios: index by position")
             return super().__getitem__(hits[0])
         return super().__getitem__(k)

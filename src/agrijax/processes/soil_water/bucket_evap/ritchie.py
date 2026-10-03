@@ -15,9 +15,7 @@ removes it from the top layer. ``SUMES1``, ``SUMES2``, ``T`` and ``SWEF`` are th
 only when the day's potential soil evaporation after flood and mulch exceeds 1e-6 mm; the
 process gates that (:mod:`.process`).
 
-Both kernels are elementwise over any leading batch axes; every ``where`` has finite branches. At
-``WINF = 0`` (no rain, a domain boundary) the stage-2 derivative with respect to ``WINF`` is the
-right-hand one (:func:`agrijax.core.grad.one_sided_tangent`; values unchanged).
+Both kernels are elementwise over any leading batch axes; every ``where`` has finite branches.
 
 Source: DSSAT-CSM v4.8.6.0 ``SPAM/SOILEV.for`` (``SOILEV`` lines 30-183, ``ESUP`` lines 200-228) and
 ``SPAM/SPAM.for`` lines 358-367, BSD-3 (Copyright 1998-2026 DSSAT Foundation, University of Florida,
@@ -33,7 +31,6 @@ from jax.typing import ArrayLike
 from jaxtyping import Array
 
 from agrijax.core.coefficients import numerical_guard
-from agrijax.core.grad import one_sided_tangent
 from agrijax.core.units import MM_PER_CM
 
 from .coefficients import EVAP_COEFFICIENTS, SoilevCoefficients
@@ -141,15 +138,11 @@ def soilev_rate(
     esx = jnp.where(esx <= es_b2, es_b2 + winf, esx)
     esx = jnp.minimum(esx, eos)
     es2 = jnp.where(winf > 0.0, esx, jnp.minimum(es_b2, eos))
-    # infiltration cannot go below 0: at WINF = 0 the dry branch MIN(ES, EOS) is selected (d ES / d WINF
-    # = 0, and SUMES2 = SUMES2 + ES - WINF falls with WINF), but just above it ESX = ES + WINF while
-    # 0.6 WINF <= ES (else 0.6 WINF), cut at EOS. The derivative there is the right-hand one (values
-    # unchanged, core.grad.one_sided_tangent): d ES = d WINF while 0 < ES < EOS (so d SUMES2 = 0: the
-    # rain evaporates), 0.6 d WINF for ES <= 0, 0 once EOS binds
-    slope2 = jnp.where(
-        es_b2 > 0.0, jnp.where(es_b2 < eos, 1.0, 0.0), jnp.where(eos > 0.0, c.stage2_infil_frac, 0.0)
-    )
-    es2 = es2 + one_sided_tangent(winf, slope2, winf == 0.0)
+    # at WINF = 0 the dry branch MIN(ES, EOS) is selected and its derivative kept (d ES / d WINF = 0).
+    # The right-hand derivative of ES alone (1 while 0 < ES < EOS) is not used: WATBAL infiltrates
+    # only PINF > 1e-4 cm (watbal.bucket_rate), so on 0 < WINF <= 1e-3 mm the extra ES would take
+    # water that never reached the soil (d profile / d rain = -1 there); from 1e-3 mm up the rain
+    # infiltrates and evaporates again (secant of the profile water 0, as this derivative gives)
     s2_2 = s2 + es2 - winf
     t_2 = (s2_2 / c.stage2_rate) ** 2
     # branch 3: stage 1 reset by rain (lines 121-124)
