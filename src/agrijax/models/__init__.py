@@ -1,1 +1,1 @@
-"""Assembled models: state definition + ordered process list (rzwqm_water_maize, dssat_maize)."""
+"""Assembled models: state definition + ordered process list (the DSSAT-CSM 4.8.6 day)."""

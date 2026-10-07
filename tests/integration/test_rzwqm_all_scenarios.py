@@ -27,13 +27,12 @@ parameter map             every ``all_parameters.csv`` entry of the scenario res
 ========================  ======================================================================
 
 The run-dir length and the exit-0 STOP are handled by :func:`run_rzwqm` itself: the Cropsim-CERES
-module (wheat, canola: ``DSSAT40/CSCER/CSCER040.FOR``) builds the ecotype path in
-``***REMOVED***`` = ``<rundir>/DSSAT/`` + ``WHCER040.ECO``, so the run dir must be <= 45
-characters (a longer one truncates the name, the model prints ``Could not find input file!`` and
-STOPs with exit status 0). ``run_rzwqm`` creates ``<run>/rXXXXXXXX`` and refuses a longer path,
-and raises :class:`FortranRunError` on a STOP marker in ``run.log`` or a short ``.ana``.
-:func:`test_default_run_dir_fits_cscer_ecotype_buffer` checks the buffer size against the Fortran
-declaration and :func:`test_truncated_run_is_detected` forces the old 46-character dir on CA-MA1.
+module (wheat, canola) keeps the ecotype path ``<rundir>/DSSAT/`` + ``WHCER040.ECO`` in a
+64-character buffer, so the run dir must be <= 45 characters (a longer one truncates the name and
+the model STOPs with exit status 0). ``run_rzwqm`` creates ``<run>/rXXXXXXXX`` and refuses a longer
+path, and raises :class:`FortranRunError` on a STOP marker in ``run.log`` or a short ``.ana``.
+:func:`test_default_run_dir_fits_cscer_ecotype_buffer` checks the run-dir limit and
+:func:`test_truncated_run_is_detected` forces the old 46-character dir on CA-MA1.
 
 One workaround is applied in the *staging* only, never to the scenario on disk:
 
@@ -69,9 +68,7 @@ import agrijax.port.run_fortran as rf
 from agrijax.io.rzwqm import (
     param_map_from_csv,
     params_from_dat,
-    prepare_rzwqm_forcing,
     read_ana,
-    read_met,
     read_overview_yields,
     read_rzwqm_dat,
     write_rzwqm_dat,
@@ -80,7 +77,6 @@ from agrijax.io.rzwqm.layers import profile_storage_cm, read_layer_output, simul
 
 BATCH = Path("narval_mirror/RZWQM_sw_batch")
 TOOL = Path("narval_mirror/RZWQM_Tool")
-CSCER_SRC = Path("narval_mirror/***REMOVED***/src/DSSAT40/CSCER/CSCER040.FOR")
 OUT_SUBDIR = Path("validation/rzwqm_scenarios")
 
 SITES = (
@@ -101,7 +97,7 @@ SITES = (
     "US_Rockford_Alfalfa",
 )
 N_ANA_VARIABLES = 138
-#: ``***REMOVED***`` (CSCER040.FOR) holds ``<rundir>/DSSAT/`` + a 12-character file name.
+#: the 64-character ecotype path buffer of Cropsim-CERES holds ``<rundir>/DSSAT/`` + a 12-character name.
 ECO_BUFFER = 64
 ECO_NAME_LEN = len("WHCER040.ECO")
 MAX_RUN_DIR_LEN = ECO_BUFFER - len("/DSSAT/") - ECO_NAME_LEN
@@ -447,13 +443,8 @@ def test_params_from_dat_csv_map(batch_dir: Path, site: str) -> None:
             assert params[field][h - 1] == pytest.approx(float(r[col]), abs=1e-9), (h, field)
 
 
-def test_default_run_dir_fits_cscer_ecotype_buffer(data_dir: Path, tmp_path: Path) -> None:
-    """The buffer size comes from the Fortran declaration, the path from the real ``_make_run_dir``."""
-    src = data_dir / CSCER_SRC
-    if not src.is_file():
-        pytest.skip(f"{src} not found")
-    decl = re.search(r"CHARACTER\*(\d+)\s+ECDIRFLE", src.read_text(errors="replace"))
-    assert decl is not None and int(decl.group(1)) == ECO_BUFFER
+def test_default_run_dir_fits_cscer_ecotype_buffer(tmp_path: Path) -> None:
+    """The run-dir limit fits the 64-character buffer, the path from the real ``_make_run_dir``."""
     assert rf.MAX_RZWQM_RUN_DIR_LEN == MAX_RUN_DIR_LEN
     d = rf._make_run_dir("r", None, max_len=rf.MAX_RZWQM_RUN_DIR_LEN)
     try:
@@ -478,7 +469,7 @@ def test_truncated_run_is_detected(batch_dir: Path, data_dir: Path, tmp_path: Pa
     """Real binary, real failure: CA-MA1 (canola) with a 46-character run dir STOPs with exit 0.
 
     ``run_rzwqm`` must raise instead of returning a truncated ``.ana``; the kept run dir shows the
-    reference model's own ``Could not find input file`` / ``Program will have to stop`` text.
+    reference model's own stop text.
     """
     scen = batch_dir / "CA-MA1" / "Scenario"
     start, end = _first_year(scen / "IPNAMES.DAT")
@@ -495,39 +486,3 @@ def test_truncated_run_is_detected(batch_dir: Path, data_dir: Path, tmp_path: Pa
         assert "run.log reports" in str(ei.value) or "truncated run" in str(ei.value)
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
-
-
-SRAD_RTOL = 2e-5  # .ana prints 6 significant digits; float32 hourly arithmetic of DSSAT HMET
-
-
-@pytest.mark.slow
-@site_param
-def test_ana_srad_is_hourly_resum_of_met(runs: dict[str, dict[str, Any]], batch_dir: Path, site: str) -> None:
-    """``.ana`` column 88 (the model's own solar radiation) == RTS of :func:`agrijax.forcing.radiation.rzwqm_radiation`.
-
-    Reference: the binary's printed radiation on 15 scenarios (one with a 2-degree slope, which
-    exercises the SHAW direct/diffuse partition); the plain ``.MET`` value is 0.7 % away.
-    """
-    rec = _need(runs, site)
-    src = Path(rec["source"])
-    ip = (src / "IPNAMES.DAT").read_bytes().decode("latin-1").splitlines()
-    met_name = re.split(r"[\\/]", ip[2].strip())[-1]
-    met_path = _find_ci(src, met_name)
-    assert met_path is not None, f"{site}: {met_name} not in {src}"
-    phys = read_rzwqm_dat(batch_dir / site / "Scenario" / "rzwqm.dat").physiography
-    met = read_met(met_path)
-    prepared = prepare_rzwqm_forcing(
-        met,
-        latitude_rad=phys["latitude_rad"],
-        slope_rad=phys["slope_rad"],
-        aspect_rad=phys["aspect_rad"],
-    ).loc[rec["start"] : rec["end"]]
-    ds = read_ana(rec["ana"])
-    cols = {int(k): v for k, v in ds.attrs["columns"].items()}
-    ana = ds[cols[88]].values[1:]
-    ours = prepared["srad_mj"].to_numpy()
-    assert ours.shape == ana.shape
-    np.testing.assert_allclose(ours, ana, rtol=SRAD_RTOL, atol=1e-5, err_msg=site)
-    # and the .MET value alone is measurably different (the correction is not a no-op)
-    raw = prepared["srad_mj_met"].to_numpy()
-    assert np.abs(raw - ana).max() > 10 * np.abs(ours - ana).max()

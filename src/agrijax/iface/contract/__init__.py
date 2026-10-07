@@ -32,9 +32,8 @@ The day (:data:`DAY_TABLE`)
 ---------------------------
 The contract's day in the RZWQM2 4.6 order: every entry, its phase, the registry key of its
 default implementation, the ports it produces and whether that implementation exists. Every
-producer named in :data:`PORTS` is an entry of this table (``tests/unit/test_iface.py``), and the
-skeleton day :func:`agrijax.models.day_rzwqm46.day_rzwqm46` is built from it, so the whole order is
-exercised. Per-crop entries carry ``{slot}``. An entry's module (for the lag check) is its name
+producer named in :data:`PORTS` is an entry of this table (``tests/unit/test_iface.py``).
+Per-crop entries carry ``{slot}``. An entry's module (for the lag check) is its name
 without the last component: ROOTWU is ``water_supply.<slot>.rootwu`` and the P10 producer
 ``n_supply.<slot>.replay``, each a module of its own outside ``crops.<slot>``.
 
@@ -43,8 +42,8 @@ Stages: the planned ports and rows (``post_m3``)
 The first stage, ``m3``, is the day in the RZWQM2 4.6 order. The ports P12 and up, and the rows of
 :data:`POST_M3_DAY_TABLE`, belong to the modules planned after it (soil nitrogen, residue and
 organic matter, soil heat and ice, tile drainage, phosphorus). They carry ``stage="post_m3"``;
-everything that builds the M3 day (:func:`day_entries`, :func:`allowed_lags`, the skeleton
-:func:`agrijax.models.day_rzwqm46.day_rzwqm46`) takes the ``m3`` stage only by default, so the
+everything that builds the M3 day (:func:`day_entries`, :func:`allowed_lags`) takes the ``m3``
+stage only by default, so the
 planned contract changes no M3 behaviour. A planned port says what runs before its module exists
 (:attr:`PortSpec.off`, the "faithful off" behaviour). A planned row names the entry it follows
 (:attr:`DayEntry.after`) and the M3 rows it replaces when its module is on
@@ -59,8 +58,7 @@ also writes the field from another entry of the day, that write is declared in :
 with its execution phase (:data:`agrijax.core.day.WRITE_PHASES`) and a one-line meaning. A
 ``season_end`` or ``reset`` write runs after the producer and after every consumer of the field in
 the day's order, so on a harvest day the crop, the daily output and diagnostics and the ledger see
-the day's value and the next morning starts from the reset value (P1 ``trwup``: ROOTWU's uptake,
-then the crop and the day's readers, then ROOTWU's own season end). :func:`phased_writes` gives the
+the day's value and the next morning starts from the reset value. :func:`phased_writes` gives the
 declarations of a slot for :class:`~agrijax.core.day.Day`, whose check enforces the same rule on the
 compiled processes' reads.
 

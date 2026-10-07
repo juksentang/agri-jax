@@ -31,7 +31,6 @@ from .problem import (
     StepResult,
     _rate,
     _sink_provider,
-    post_step,
 )
 from .sinks import SINK_CHANNELS, SinkChannels
 
@@ -63,7 +62,6 @@ class _SegIn(NamedTuple):
     channels: SinkChannels
     h_min: Array
     pond_max: Array
-    pori: Array | None = None  # field-saturated porosity per node (RichardsConfig.drain_cap), else None
     config: RichardsConfig = RichardsConfig()  # the problem's settings (static: no leaves)
 
 
@@ -105,8 +103,6 @@ class StepTrace(NamedTuple):
     uptake_cut: Array
     sinks: Array
     sinks_cut: Array
-    drain_seepage: Array  # DRAIN cap seepage of the step [cm] (included in drainage)
-    drain_moved: Array  # water the DRAIN cap passed down in the step [cm]
 
 
 class _SegOut(NamedTuple):
@@ -134,10 +130,8 @@ def _record(
     r: StepResult,
     info: NewtonInfo,
     live: Array,
-    seep: tuple[Array, Array] | None = None,
 ) -> StepTrace:
-    """The trace entry of a step (zeros where ``live`` is 0); ``seep`` the DRAIN cap's
-    ``(seepage, moved)`` [cm]."""
+    """The trace entry of a step (zeros where ``live`` is 0)."""
 
     def m(x: Array) -> Array:
         return jnp.where(live > 0.0, x, 0.0)
@@ -166,21 +160,7 @@ def _record(
         uptake_cut=m(r.uptake_cut),
         sinks=m(r.sinks),
         sinks_cut=m(r.sinks_cut),
-        drain_seepage=m(jnp.zeros_like(dt) if seep is None else seep[0]),
-        drain_moved=m(jnp.zeros_like(dt) if seep is None else seep[1]),
     )
-
-
-def _drained(
-    inp: _SegIn, cfg: AdaptiveStepping, r: StepResult
-) -> tuple[StepResult, tuple[Array, Array] | None]:
-    """The step after RZWQM2's DRAIN cap (``RichardsConfig.drain_cap``; else unchanged, ``None``):
-    heads and water contents capped, the seepage added to the drainage.
-
-    Source: RZWQM2 ``DRAIN`` after every ``RICHRD`` step (``Rzrich.for:1092``), read for conventions;
-    :func:`~agrijax.processes.soil_water.problem.post_step` (the problem's convention hooks).
-    """
-    return post_step(r, inp.soil, inp.grid.tl, inp.pori, inp.config)
 
 
 def _step_at(
@@ -349,7 +329,6 @@ def _search(cfg: AdaptiveStepping, inp: _SegIn, ctl: _SegCtl) -> tuple[_SegOut, 
         r, info, sup, ok, bc, k_all = _try_step(
             inp, cfg, sink_of, c.h, c.th, c.pond, c.t, dt_try, alpha, c.bc, cfg.bc_switch
         )
-        r, seep = _drained(inp, cfg, r)
         alpha1 = alpha >= _ALPHA_FIRST
         accept = ok | _last_resort(cfg, dt_try, alpha)
         # the next step size (a constant of the replay)
@@ -364,7 +343,7 @@ def _search(cfg: AdaptiveStepping, inp: _SegIn, ctl: _SegCtl) -> tuple[_SegOut, 
         retry_cn = ~alpha1 & cfg.cn_fallback  # a failed CN step: same dt, alpha = 1
         dt_fail = jnp.where(retry_cn, dt, cfg.dt_shrink_fail * dt_try)
         dt_new = jnp.clip(jnp.where(accept, dt_ok, dt_fail), dt_lo, dt_hi)
-        rec = _record(c.t, dt_try, alpha, bc, sup, r, info, one, seep)
+        rec = _record(c.t, dt_try, alpha, bc, sup, r, info, one)
         t_new = jnp.where(finish, bp, c.t + dt_try)
         return _SearchCarry(
             t=jnp.where(accept, t_new, c.t),
@@ -408,8 +387,7 @@ def _search(cfg: AdaptiveStepping, inp: _SegIn, ctl: _SegCtl) -> tuple[_SegOut, 
         dt = jnp.where(exhausted, t_end - c.t, one)
         alpha = jnp.asarray(_ALPHA_FIRST, dtype)
         r, info, sup, _ = _step_at(inp, cfg, sink_of, c.h, c.th, c.pond, c.t, dt, alpha)
-        r, seep = _drained(inp, cfg, r)
-        rec = _record(c.t, dt, alpha, jnp.asarray(BC_CLIP, dtype), sup, r, info, one, seep)
+        rec = _record(c.t, dt, alpha, jnp.asarray(BC_CLIP, dtype), sup, r, info, one)
         return r.h, r.theta, r.pond, _put(c.trace, c.n_acc, rec, exhausted), info.k
 
     def not_forced(c: _SearchCarry) -> tuple[Array, Array, Array, StepTrace, Array]:
@@ -442,8 +420,7 @@ def _replay(cfg: AdaptiveStepping, inp: _SegIn, table: Table) -> _SegOut:
     def live_step(h: Array, th: Array, pd: Array, x: Table) -> tuple[Array, Array, Array, StepTrace]:
         t0, dt, al, bc = x
         r, info, sup, _ = _step_at(inp, cfg, sink_of, h, th, pd, t0, dt, al, bc)
-        r, seep = _drained(inp, cfg, r)
-        return r.h, r.theta, r.pond, _record(t0, dt, al, bc, sup, r, info, one, seep)
+        return r.h, r.theta, r.pond, _record(t0, dt, al, bc, sup, r, info, one)
 
     def body(carry: tuple[Array, Array, Array], x: Table) -> tuple[Any, StepTrace]:
         h, th, pd = carry

@@ -13,9 +13,7 @@ from __future__ import annotations
 #: the case modules of this repository, in the order of the day (plant phase last)
 MODULES: tuple[str, ...] = (
     "agrijax.testing.conformance._builtin.pet",
-    "agrijax.testing.conformance._builtin.snow",
     "agrijax.testing.conformance._builtin.soil_water",
-    "agrijax.testing.conformance._builtin.soil_water_conventions",
     "agrijax.testing.conformance._builtin.soil_water_bucket",
     "agrijax.testing.conformance._builtin.water_supply",
     "agrijax.testing.conformance._builtin.n_supply",

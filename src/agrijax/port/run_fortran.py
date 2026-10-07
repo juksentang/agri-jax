@@ -6,8 +6,8 @@ It implements the verified local recipes without any shell script:
 RZWQM2 (:func:`run_rzwqm`)
     1. Stage the scenario directory plus ``RZWQM_Tool/DSSAT/*`` into a run directory
        ``<run_root>/rXXXXXXXX`` whose absolute path is at most :data:`MAX_RZWQM_RUN_DIR_LEN`
-       (45) characters: the Cropsim-CERES ecotype path ``<rundir>/DSSAT/WHCER040.ECO`` must fit
-       ``CHARACTER*64``. Staged path records are also kept below 80 characters (a conservative
+       (45) characters: the Cropsim-CERES ecotype path ``<rundir>/DSSAT/WHCER040.ECO`` must fit a
+       64-character buffer. Staged path records are also kept below 80 characters (a conservative
        limit: RZWQM2 reads ``IPNAMES.DAT`` and the ``*.RZX`` database paths as ``A255``).
     2. Rewrite lines 1-8 of ``IPNAMES.DAT`` to absolute paths inside the run directory and,
        optionally, the simulation date line (line 9, ``DD MM YYYY DD MM YYYY``).
@@ -62,6 +62,7 @@ __all__ = [
     "MAX_RZWQM_RUN_DIR_LEN",
     "RUN_ROOT",
     "RZWQM_STOP_MARKERS",
+    "RZWQM_STOP_MARKERS_ENV",
     "RZWQM_TOOL",
     "DscsmResult",
     "FortranRunError",
@@ -107,31 +108,34 @@ def dscsm_paths(engine: str | os.PathLike[str] | None = None) -> tuple[Path, Pat
     return eng / "bin" / "dscsm048", eng / "bin"
 
 
-#: Fortran path records in IPNAMES.DAT / *.RZX are read into CHARACTER*80.
+#: path records in IPNAMES.DAT / *.RZX are kept below 80 characters.
 MAX_PATH_LEN = 79
-#: Cropsim-CERES (wheat, canola; ``DSSAT40/CSCER/CSCER040.FOR``) builds the ecotype path in
-#: ``***REMOVED***`` = ``<rundir>/DSSAT/`` + a 12-character name (``WHCER040.ECO``). A
-#: longer run dir truncates the name and the model STOPs with exit status 0, so the RZWQM2 run
-#: dir must be at most this long.
+#: the Cropsim-CERES module of the RZWQM2 binary (wheat, canola) keeps the ecotype path
+#: ``<rundir>/DSSAT/`` + a 12-character name (``WHCER040.ECO``) in a 64-character buffer (observed
+#: on the binary). A longer run dir truncates the name and the model STOPs with exit status 0, so
+#: the RZWQM2 run dir must be at most this long.
 MAX_RZWQM_RUN_DIR_LEN = 64 - len("/DSSAT/") - len("WHCER040.ECO")
-#: ``run.log`` text (lower case) that RZWQM2 / DSSAT40 prints only right before a Fortran ``STOP``
-#: (or, for ``***REMOVED***``, before continuing with unread inputs); the binary still exits
-#: with status 0. RZWQM2 4.6 sources: ``program will have to stop`` / ``***REMOVED***``
-#: (Cropsim-CERES, ``DSSAT40/CSCER/CSUTS040.FOR`` FVCHECK and others); ``end of file reached in
-#: daymet.dat`` (``Rzmain.for`` weather reader); ``***REMOVED***``
-#: (``Rzday.for``); ``***REMOVED***`` (``Rzmain.for`` IPNAMES opener, ``readrzx.for``);
-#: ``***REMOVED***`` (``Rzmain.for`` period check). Most RZWQM2 STOPs are bare or print
-#: free text, and a normal run itself ends in ``STOP '***REMOVED*** ...'``, so the
-#: ``.ana`` row count in :func:`check_rzwqm_outputs` is the complete guard; these markers only
-#: give a clearer error.
-RZWQM_STOP_MARKERS = (
-    "program will have to stop",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-    "***REMOVED***",
-)
+#: environment variable naming a text file of further ``run.log`` stop markers of the RZWQM2
+#: binary (one lower-case marker per line; kept outside this repository)
+RZWQM_STOP_MARKERS_ENV = "AGRI_JAX_RZWQM_STOP_MARKERS"
+
+
+def _rzwqm_stop_markers() -> tuple[str, ...]:
+    """``run.log`` text (lower case) that means the RZWQM2 binary stopped early although it exits
+    with status 0: ``program will have to stop`` (the stop message of the DSSAT-CSM utilities,
+    ``Utilities/CSUTS.for``, BSD-3, which the embedded crop prints too) plus the markers of the file
+    named by :data:`RZWQM_STOP_MARKERS_ENV`, if set. The ``.ana`` row count of
+    :func:`check_rzwqm_outputs` is the complete guard; the markers only give a clearer error."""
+    out = ["program will have to stop"]
+    path = os.environ.get(RZWQM_STOP_MARKERS_ENV, "")
+    if path and Path(path).is_file():
+        lines = Path(path).read_text(errors="replace").splitlines()
+        out += [ln.strip().lower() for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
+    return tuple(dict.fromkeys(out))
+
+
+#: the ``run.log`` stop markers of the RZWQM2 binary (:func:`_rzwqm_stop_markers`, read at import)
+RZWQM_STOP_MARKERS: tuple[str, ...] = _rzwqm_stop_markers()
 #: Text (lower case) in dscsm048's ``run.log`` or ``WARNING.OUT`` that means a run stopped or a
 #: season ended early; dscsm048 (gfortran) exits 0 after ``STOP ' '`` / bare ``STOP`` and after
 #: a season cut short by :code:`WeatherError` / :code:`ErrorCode`. DSSAT-CSM v4.8 sources:
@@ -255,7 +259,7 @@ def _make_run_dir(prefix: str, run_root: Path | None, max_len: int | None = None
         shutil.rmtree(d, ignore_errors=True)
         raise FortranRunError(
             f"run dir {d} is {len(str(d))} characters; RZWQM2 needs <= {max_len} (the Cropsim-CERES "
-            "ecotype path is CHARACTER*64). Use a shorter run_root or AGRI_JAX_RUN_ROOT."
+            "ecotype path buffer holds 64 characters). Use a shorter run_root or AGRI_JAX_RUN_ROOT."
         )
     return d
 
@@ -396,11 +400,10 @@ def _ana_day_tokens(path: Path) -> list[tuple[int, int]]:
 def check_rzwqm_outputs(log: Path, ana: Path, start: _dt.date, end: _dt.date) -> None:
     """Raise :class:`FortranRunError` unless an RZWQM2 run finished its whole period.
 
-    RZWQM2 exits with status 0 after a Fortran ``STOP`` (``Program will have to stop``,
-    ``Could not find input file!``), so the exit status alone does not tell a finished run from a
-    truncated one. Checked: no :data:`RZWQM_STOP_MARKERS` line in ``run.log``; the ``.ana`` holds
-    ``(end - start).days + 2`` rows (a ``YYYY.000`` initial state plus one row per day) and its
-    last row is ``end``.
+    RZWQM2 exits with status 0 after a Fortran ``STOP``, so the exit status alone does not tell a
+    finished run from a truncated one. Checked: no :data:`RZWQM_STOP_MARKERS` line in ``run.log``; the
+    ``.ana`` holds ``(end - start).days + 2`` rows (a ``YYYY.000`` initial state plus one row per day)
+    and its last row is ``end``.
     """
     text = log.read_text(errors="replace") if log.is_file() else ""
     low = text.lower()

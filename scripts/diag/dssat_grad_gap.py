@@ -86,7 +86,6 @@ STE_SITES = {
     "rlv": ("agrijax.processes.crop.ceres_maize.roots", "trunc_st", "RLV to 1e-3 (MZ_ROOTS)"),
     "turfac": ("agrijax.processes.crop.ceres_maize.stress", "trunc_st", "TURFAC to 1e-3 (MZ_GROSUB)"),
     "sw": ("agrijax.processes.soil_water.bucket.kernels", "round_st", "SW to 1e-6 (WATBAL)"),
-    "stalk": ("agrijax.processes.crop.ceres_maize.canopy", "round_st", "grain weight NINT (canopy)"),
 }
 
 

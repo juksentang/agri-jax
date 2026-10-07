@@ -2,7 +2,7 @@
 
 * A synthetic bucket (rain in; evaporation, per-slot transpiration and drainage out) closes to
   1e-10 cm per day and over the run (x64); the cumulative channels equal NumPy float64 sums.
-* The Richards process with the ledger as the last day entry (converged numerics, CA-TPA grid)
+* The Richards process with the ledger as the last day entry (converged numerics, 37-node grid, synthetic soil)
   closes to 1e-10 cm per day, and its ledger residual equals the process's own
   ``balance_error`` bookkeeping.
 * Under ``AGRI_JAX_CHECK=1`` a leaking process makes the ledger raise inside ``jit``/``scan``;
@@ -176,13 +176,13 @@ def test_richards_ledger_closes_and_matches_balance_error(monkeypatch: pytest.Mo
         richards_redistribution,
     )
 
-    from .test_richards import catpa_grid, catpa_soil, synthetic_forcing
+    from .test_richards import layered_grid, layered_soil, synthetic_forcing
 
     class RState(State):
         soil_water: SoilWater
         ledger: dict
 
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     supply, evap, uptake = synthetic_forcing(12)
     params = RichardsParams(soil=soil, grid=grid, stepping=FixedStepping(n_sub=48, n_iter=8))
     w0 = SoilWater.from_theta(jnp.full(37, 0.25), soil)

@@ -6,8 +6,8 @@ and ``vmap`` over days and samples, and a layer loop is normally a vectorisable 
 depth, where the value at depth ``k`` depends on a quantity accumulated above it that no
 associative operator carries:
 
-* the Green-Ampt wetting front of RZWQM2 ``INFIL``: the rain intensity at slice ``k`` is the
-  breakpoint intensity at the cumulative rain consumed by the slices above it;
+* a layered Green-Ampt wetting front (Mein and Larson 1973): the rain intensity at slice ``k``
+  depends on the cumulative rain consumed by the slices above it;
 * DSSAT nitrogen carry-over down the profile (``NNOM``, ``PMINERAL``), later.
 
 Those go through :func:`depth_scan`, a static-length :func:`jax.lax.scan` over the leading axis

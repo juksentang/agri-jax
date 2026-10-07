@@ -2,16 +2,14 @@
 
 A time integrator of the Richards problem (:mod:`agrijax.processes.soil_water.integrator`) plugs in
 without touching the soil-water day, so it is checked on its own, against the physics it is given.
-The **frozen problem** (:func:`frozen_inputs`, ``PROBLEM_VERSION`` 1) is three days on the CA-TPA
-node grid (37 nodes, 150 cm, the five horizons of ``_builtin/soil_water.py``): an evaporation and
+The **frozen problem** (:func:`frozen_inputs`, ``PROBLEM_VERSION`` 1) is three days on a 37-node
+grid (150 cm, five synthetic horizons, as ``_builtin/soil_water.py``): an evaporation and
 uptake day on a moderately wet profile, a 6 cm storm in one hour (the ponded infiltration capacity
 binds, runoff), a redistribution day. Its **reference** is a converged reference scheme
 (Crank-Nicolson with an ``alpha = 1`` fallback, 960 steps a day, Newton to 1e-10), run by the
 faithful integrator with the step pinned at 24/960 h (:data:`REFERENCE`); it must
 converge on every day. Being the faithful integrator's own code at a finer step, it is not independent
-of the ``faithful`` cases: that independence is the data tier's
-(``tests/integration/test_richards_integrators_catpa.py``: the kit's reference against the stored
-output of a converged run on CA-TPA) and the ``PROBLEM_VERSION`` fingerprint.
+of the ``faithful`` cases: that independence is the ``PROBLEM_VERSION`` fingerprint's.
 
 An :class:`IntegratorCase` names one integrator config and declares its tolerances, each measured
 (``basis`` names the measurement). The checks (:data:`CHECKS`):
@@ -91,7 +89,7 @@ __all__ = [
 ]
 
 N_DAYS, N_ROOT, HOURS = 3, 14, 24
-#: CA-TPA rzwqm.dat node records and horizons (as ``_builtin/soil_water.py``)
+#: a 37-node grid to 150 cm (layer bottoms TLT, distance to the next node DELZ) and five horizons
 TLT = np.array(
     [1, 2, 4, 7, 11, 15, 19, 23, 26, 30, 34, 38, 43, 48, 53, 58, 63, 67, 70, 73, 77, 82, 86, 90, 94, 98,
      103, 108, 113, 118, 123, 128, 133, 138, 143, 147, 150], dtype=float
@@ -103,16 +101,18 @@ DELZ = np.array(
 HORIZON_BOTTOM = np.array([15.0, 30.0, 70.0, 90.0, 150.0])
 #: cell thicknesses [cm] (RichardsGrid.from_rzwqm: diff([0, TLT]))
 TL = np.diff(np.concatenate([[0.0], TLT]))
+#: synthetic horizons (as ``_builtin/soil_water.py``; not the parameters of any site): rec1 rows
+#: (hb, lambda, eps, ksat, theta_r, theta_s) and rec2 rows (fc13, fc110, wp, hb_k, c2, n1, a1)
 REC1 = np.array(
     [
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
+        [15.0, 0.25, 3.0, 5.0, 0.05, 0.45],
+        [15.0, 0.30, 3.0, 3.0, 0.03, 0.45],
+        [15.0, 0.35, 3.0, 3.5, 0.04, 0.45],
+        [15.0, 0.20, 3.0, 3.0, 0.05, 0.45],
+        [15.0, 0.30, 3.0, 2.5, 0.04, 0.45],
     ]
 )
-***REMOVED***
+REC2 = np.tile([0.0, 0.0, 0.0, 15.0, 0.0, 0.0, 0.0], (5, 1))
 #: the storm of day 1 [cm] in the hour STORM_HOUR
 STORM_CM, STORM_HOUR = 2.5, 3
 #: daily evaporation demand [cm d-1] (daytime sine) and root uptake [cm d-1] of the three days

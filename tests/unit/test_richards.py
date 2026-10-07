@@ -9,7 +9,7 @@ Independent references used here, none derived from RZWQM output:
   ``jax.jacfwd`` of the residual;
 * **steady layered profile**: the steady downward-flux solution of Darcy's law,
   ``dh/dz = 1 - q / K(h)``, integrated with ``scipy.integrate.solve_ivp`` from the free-drainage
-  bottom (``K(h) = q``) through the five CA-TPA horizons; the error must fall with the grid size;
+  bottom (``K(h) = q``) through the five synthetic horizons; the error must fall with the grid size;
 * **Philip early-time infiltration**: cumulative ponded infiltration ``I = S t^1/2 + A t`` with the
   sorptivity ``S`` of Parlange (1975), ``S^2 = int_{h_i}^0 (theta_s + theta - 2 theta_i) K dh``,
   computed by quadrature;
@@ -57,35 +57,37 @@ X64 = bool(jax.config.read("jax_enable_x64"))
 #: relative tolerance of identities that hold to rounding (float64 / float32 unit-tier pass)
 REL = 1e-12 if X64 else 2e-5
 
-# CA-TPA grid (rzwqm.dat node records: layer bottom, distance to the next node) and horizons
-CATPA_TLT = np.array(
+# a 37-node grid to 150 cm (node records: layer bottom, distance to the next node) and five horizons
+NODE_TLT = np.array(
     [1, 2, 4, 7, 11, 15, 19, 23, 26, 30, 34, 38, 43, 48, 53, 58, 63, 67, 70, 73, 77, 82, 86, 90, 94, 98,
      103, 108, 113, 118, 123, 128, 133, 138, 143, 147, 150], dtype=float
 )  # fmt: skip
-CATPA_DELZ = np.array(
+NODE_DELZ = np.array(
     [1, 1, 3, 3, 5, 3, 5, 3, 3, 5, 3, 5, 5, 5, 5, 5, 5, 3, 3, 3, 5, 5, 3, 5, 3, 5, 5, 5, 5, 5, 5, 5, 5, 5,
      5, 3, 0], dtype=float
 )  # fmt: skip
-CATPA_HORIZON_BOTTOM = np.array([15.0, 30.0, 70.0, 90.0, 150.0])
-CATPA_REC1 = np.array(
+HORIZON_BOTTOM = np.array([15.0, 30.0, 70.0, 90.0, 150.0])
+#: synthetic horizons (not the parameters of any site): rec1 rows (hb, lambda, eps, ksat, theta_r,
+#: theta_s) and rec2 rows (fc13, fc110, wp, hb_k, c2, n1, a1)
+SOIL_REC1 = np.array(
     [
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
+        [15.0, 0.25, 3.0, 5.0, 0.05, 0.45],
+        [15.0, 0.30, 3.0, 3.0, 0.03, 0.45],
+        [15.0, 0.35, 3.0, 3.5, 0.04, 0.45],
+        [15.0, 0.20, 3.0, 3.0, 0.05, 0.45],
+        [15.0, 0.30, 3.0, 2.5, 0.04, 0.45],
     ]
 )
-***REMOVED***
+SOIL_REC2 = np.tile([0.0, 0.0, 0.0, 15.0, 0.0, 0.0, 0.0], (5, 1))
 
 
-def catpa_grid() -> RichardsGrid:
-    return RichardsGrid.from_rzwqm(CATPA_TLT, CATPA_DELZ)
+def layered_grid() -> RichardsGrid:
+    return RichardsGrid.from_rzwqm(NODE_TLT, NODE_DELZ)
 
 
-def catpa_soil() -> SoilHydraulicParams:
-    nh = np.searchsorted(CATPA_HORIZON_BOTTOM, CATPA_TLT, side="left")
-    return SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2, node_horizon=nh)
+def layered_soil() -> SoilHydraulicParams:
+    nh = np.searchsorted(HORIZON_BOTTOM, NODE_TLT, side="left")
+    return SoilHydraulicParams.from_rzwqm_records(SOIL_REC1, SOIL_REC2, node_horizon=nh)
 
 
 def synthetic_forcing(n_day: int, seed: int = 20260924) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -148,8 +150,8 @@ def nodes(soil: SoilHydraulicParams, n: int) -> SoilHydraulicParams:
 # ---------------------------------------------------------------------------
 
 
-def test_catpa_grid_is_vertex_centred() -> None:
-    g = catpa_grid()
+def test_node_grid_is_vertex_centred() -> None:
+    g = layered_grid()
     tl = np.asarray(g.tl)
     assert g.n_node == 37
     assert tl.sum() == pytest.approx(150.0, rel=REL)
@@ -164,10 +166,10 @@ def test_catpa_grid_is_vertex_centred() -> None:
 
 
 def test_grid_rejects_inconsistent_records() -> None:
-    bad = CATPA_DELZ.copy()
+    bad = NODE_DELZ.copy()
     bad[5] = 4.0
     with pytest.raises(ValueError, match="vertex-centred"):
-        RichardsGrid.from_rzwqm(CATPA_TLT, bad)
+        RichardsGrid.from_rzwqm(NODE_TLT, bad)
 
 
 def test_config_validation() -> None:
@@ -185,12 +187,12 @@ def test_config_validation() -> None:
 
 
 def test_transformed_variable_round_trip_and_c1() -> None:
-***REMOVED***
+    s = jnp.asarray(15.0)
     h = jnp.asarray(np.concatenate([-np.logspace(4.2, -3, 400), np.linspace(0.0, 10.0, 11)]))
     np.testing.assert_allclose(head_of_v(v_of_head(h, s), s), h, rtol=REL, atol=1e-10 if X64 else 1e-6)
     # value and slope continuous at v = 0 (h = -hb)
     d = jax.vmap(jax.grad(lambda v: head_of_v(v, s)))(jnp.asarray([-1e-9, 1e-9]))
-***REMOVED***
+    np.testing.assert_allclose(d, [15.0, 15.0], rtol=1e-6 if X64 else 1e-4)
 
 
 def test_substep_edges() -> None:
@@ -214,8 +216,8 @@ def test_substep_edges() -> None:
 @pytest.mark.parametrize("q_demand", [0.0, 0.5, 50.0, -0.3, -50.0])
 @pytest.mark.parametrize("alpha", [1.0, 0.5])
 def test_tridiagonal_jacobian_equals_dense_jacfwd(q_demand: float, alpha: float) -> None:
-    grid = catpa_grid()
-    soil = nodes(catpa_soil(), 37)
+    grid = layered_grid()
+    soil = nodes(layered_soil(), 37)
     rng = np.random.default_rng(3)
     h_old = -jnp.asarray(np.exp(rng.uniform(np.log(20.0), np.log(3000.0), 37)))
     h = h_old * jnp.asarray(rng.uniform(0.7, 1.3, 37))
@@ -230,8 +232,8 @@ def test_tridiagonal_jacobian_equals_dense_jacfwd(q_demand: float, alpha: float)
 
 
 def test_darcy_signs_uniform_and_hydrostatic_profiles() -> None:
-    grid = catpa_grid()
-    soil = nodes(catpa_soil(), 37)
+    grid = layered_grid()
+    soil = nodes(layered_soil(), 37)
     zn = grid.node_depth()
     # uniform head: unit gradient drainage q = +K (downward) on every interior face and at the bottom
     h = jnp.full(37, -100.0)
@@ -251,8 +253,8 @@ def test_darcy_signs_uniform_and_hydrostatic_profiles() -> None:
 
 def test_surface_limits() -> None:
     """Demand inside the limits is applied as given; outside, the Dirichlet limit is the flux."""
-    grid = catpa_grid()
-    soil = nodes(catpa_soil(), 37)
+    grid = layered_grid()
+    soil = nodes(layered_soil(), 37)
     h = jnp.full(37, -300.0)
     th = theta_of_h(h, soil)
     ks = float(soil.ksat[0])
@@ -284,7 +286,7 @@ def _h1(soil: SoilHydraulicParams) -> SoilHydraulicParams:
 def test_mass_balance_converged_float64() -> None:
     if not X64:
         pytest.skip("needs float64")
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     supply, evap, uptake = synthetic_forcing(30)
     params = RichardsParams(soil=soil, grid=grid, stepping=FixedStepping(n_sub=48, n_iter=8))
     w0 = SoilWater.from_theta(jnp.full(37, 0.25), soil)
@@ -310,7 +312,7 @@ def test_mass_balance_converged_float64() -> None:
 @pytest.mark.parametrize(("n_sub", "n_iter"), [(6, 1), (12, 2), (24, 3)])
 def test_unconverged_balance_is_reported_not_hidden(n_sub: int, n_iter: int) -> None:
     """With few iterations the imbalance is non-zero; ``balance_error`` must equal the true bookkeeping error."""
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     supply, evap, uptake = synthetic_forcing(20)
     params = RichardsParams(soil=soil, grid=grid, stepping=FixedStepping(n_sub=n_sub, n_iter=n_iter))
     w0 = SoilWater.from_theta(jnp.full(37, 0.25), soil)
@@ -331,7 +333,7 @@ def test_unconverged_balance_is_reported_not_hidden(n_sub: int, n_iter: int) -> 
 
 def test_supply_limited_evaporation() -> None:
     """A dry surface cannot meet a large demand: the deficit is reported and equals demand - actual."""
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     params = RichardsParams(soil=soil, grid=grid, stepping=FixedStepping(n_sub=48, n_iter=6))
     w = SoilWater.from_head(jnp.full(37, -8000.0), soil)
     demand = np.full(24, 1.0 / 24)  # 1 cm/d
@@ -353,7 +355,7 @@ def test_ponding_and_runoff() -> None:
     heads up to ~24 cm (above the old fixed clamp of +10 cm, which made the solve diverge on
     some machines), and after the storm the saturated surface drains across the air-entry kink.
     """
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     storm = np.zeros(24)
     storm[:1] = 40.0  # 40 cm in one hour on a nearly saturated profile
     w = SoilWater.from_head(jnp.full(37, -16.0), soil)
@@ -393,7 +395,7 @@ def test_ponding_and_runoff() -> None:
 
 @pytest.mark.allow_skip(reason="the 1e-8 cm comparison with the linear march needs float64")
 def test_saturated_layered_steady_state_has_positive_heads() -> None:
-    """Ponded, fully saturated CA-TPA profile at steady state against the linear march of Darcy's law.
+    """Ponded, fully saturated layered profile at steady state against the linear march of Darcy's law.
 
     Saturated (``h >= -hb_k``, ``n1 = 0``) every node has ``K = K_s`` of its horizon, so the steady
     flux is the bottom one, ``q = K_s,bottom`` (unit gradient), and the heads follow from the top:
@@ -402,8 +404,8 @@ def test_saturated_layered_steady_state_has_positive_heads() -> None:
     """
     if not X64:
         pytest.skip("needs float64")
-    grid = catpa_grid()
-    soil = nodes(catpa_soil(), 37)
+    grid = layered_grid()
+    soil = nodes(layered_soil(), 37)
     ks = np.asarray(soil.ksat)
     q = ks[-1]
     h_ref = np.empty(37)
@@ -421,7 +423,7 @@ def test_saturated_layered_steady_state_has_positive_heads() -> None:
 
 
 def test_uptake_is_capped_at_h_min() -> None:
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     params = RichardsParams(soil=soil, grid=grid, stepping=FixedStepping(n_sub=24, n_iter=6))
     w = SoilWater.from_head(jnp.full(37, -14000.0), soil)
     uptake = jnp.zeros(37).at[:6].set(0.5)  # far more than the water above theta(h_min) in the top cells
@@ -447,13 +449,13 @@ def _layered_uniform(dz: float) -> tuple[RichardsGrid, SoilHydraulicParams, np.n
     n = round(150.0 / dz)
     grid = RichardsGrid.uniform(n, dz)
     zc = (np.arange(n) + 0.5) * dz
-    nh = np.searchsorted(CATPA_HORIZON_BOTTOM, zc, side="left")
-    soil = SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2, node_horizon=nh)
+    nh = np.searchsorted(HORIZON_BOTTOM, zc, side="left")
+    soil = SoilHydraulicParams.from_rzwqm_records(SOIL_REC1, SOIL_REC2, node_horizon=nh)
     return grid, nodes(soil, n), zc
 
 
 def _steady_reference(zc: np.ndarray, q: float) -> tuple[float, np.ndarray]:
-    horizons = [SoilHydraulicParams.from_rzwqm_records(CATPA_REC1[i], CATPA_REC2[i]) for i in range(5)]
+    horizons = [SoilHydraulicParams.from_rzwqm_records(SOIL_REC1[i], SOIL_REC2[i]) for i in range(5)]
 
     def k(h: float, i: int) -> float:
         return float(k_of_h(jnp.asarray(h), horizons[i]))
@@ -461,7 +463,7 @@ def _steady_reference(zc: np.ndarray, q: float) -> tuple[float, np.ndarray]:
     h_bot = brentq(lambda h: k(h, 4) - q, -1e4, -1e-6, xtol=1e-13)
 
     def rhs(z: float, h: np.ndarray) -> list[float]:
-        i = min(int(np.searchsorted(CATPA_HORIZON_BOTTOM, z, side="left")), 4)
+        i = min(int(np.searchsorted(HORIZON_BOTTOM, z, side="left")), 4)
         return [1.0 - q / k(float(h[0]), i)]
 
     sol = solve_ivp(rhs, [zc[-1], zc[0]], [h_bot], t_eval=zc[::-1], rtol=1e-11, atol=1e-10, max_step=0.5)
@@ -507,7 +509,7 @@ def _parlange_sorptivity(soil1: SoilHydraulicParams, h_i: float) -> float:
 @pytest.mark.parametrize(
     "rec1",
     [
-***REMOVED***
+        [15.0, 0.25, 3.0, 5.0, 0.05, 0.45],  # a coarse-textured curve
         [37.3, 0.131, 2.393, 0.5, 0.09, 0.475],  # a fine-textured curve
     ],
 )
@@ -561,7 +563,7 @@ CONVERGENCE_BOUNDS = {(6, 1): 3.5, (12, 2): 0.04, (24, 3): 0.011, (48, 4): 0.004
 def test_convergence_sub_steps_times_iterations() -> None:
     if not X64:
         pytest.skip("needs float64")
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     supply, evap, uptake = synthetic_forcing(40)
     w0 = SoilWater.from_theta(jnp.full(37, 0.20), soil)
 
@@ -598,11 +600,11 @@ def test_float32_matches_float64_on_numpy_inputs(n_sub: int, n_iter: int, bal32_
     def go(x64: bool):
         with jax.enable_x64(x64):
             dt = np.float64 if x64 else np.float32
-            grid = RichardsGrid.from_rzwqm(CATPA_TLT, CATPA_DELZ)
+            grid = RichardsGrid.from_rzwqm(NODE_TLT, NODE_DELZ)
             grid = jax.tree_util.tree_map(lambda a: jnp.asarray(a, dt), grid)
-            nh = np.searchsorted(CATPA_HORIZON_BOTTOM, CATPA_TLT, side="left")
+            nh = np.searchsorted(HORIZON_BOTTOM, NODE_TLT, side="left")
             soil = SoilHydraulicParams.from_rzwqm_records(
-                CATPA_REC1.astype(dt), CATPA_REC2.astype(dt), node_horizon=nh
+                SOIL_REC1.astype(dt), SOIL_REC2.astype(dt), node_horizon=nh
             )
             soil = jax.tree_util.tree_map(lambda a: jnp.asarray(a, dt), soil)
             cfg = FixedStepping(n_sub=n_sub, n_iter=n_iter)
@@ -636,7 +638,7 @@ def test_float32_matches_float64_on_numpy_inputs(n_sub: int, n_iter: int, bal32_
 def test_process_wrapper_registered_and_equal_to_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
     assert registry["richards_redistribution"] is richards_redistribution
     assert richards_redistribution.fortran_name == "RICHRD"
-    grid, soil = catpa_grid(), catpa_soil()
+    grid, soil = layered_grid(), layered_soil()
     params = RichardsParams(soil=soil, grid=grid)
     supply, evap, uptake = synthetic_forcing(8, seed=11)
     w0 = SoilWater.from_theta(jnp.full(37, 0.24), soil)

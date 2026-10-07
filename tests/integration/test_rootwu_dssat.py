@@ -18,14 +18,12 @@ Checks:
    estimate reproduces SPAM's daily ``TRWUP`` including the days without canopy (not called);
 3. the same kernel reproduces RZWQM2's embedded ROOTWU (DSSAT 4.0 lineage) at CA-TPA;
 4. the grids of :mod:`agrijax.core.grids` are RZWQM2's: the node grid from the dumped ``TLT``, the
-   crop layers ``SOILPROP%DS``, the node -> layer map of the soil water (``SW`` at ROOTWU entry
-   from the end-of-physics node ``THETA``) and the layer -> node map of the uptake ``qsr``;
+   crop layers ``SOILPROP%DS`` and the node -> layer map of the soil water (``SW`` at ROOTWU entry
+   from the end-of-physics node ``THETA``);
 5. (with the local ``dscsm048``) the root record CERES publishes on day ``d - 1`` is the record
    ROOTWU reads on day ``d``, and our chain crop record -> ROOTWU gives DSSAT's ``TRWUP``;
 6. (with the local DSSAT-CSM v4.8.6.0 source tree) every declared coefficient of ROOTWU, LYRSET
-   and the crop's water-stress interface stands, with its quoted statement, on the line it cites,
-   and (with the local RZWQM2 source tree) RZWQM2's embedded-crop layers use the same LYRSET
-   numbers (values only: no RZWQM2 statement is quoted).
+   and the crop's water-stress interface stands, with its quoted statement, on the line it cites.
 """
 
 from __future__ import annotations
@@ -223,7 +221,6 @@ def test_estimate_equals_rzwqm_embedded_rootwu(rz_tables: Path) -> None:
 
 def test_grids_and_remap_are_rzwqm_realmatch(rz_tables: Path) -> None:
     ph = dumps.load_table(rz_tables / "physcl_exit.npz")[0]
-    dd_in = dumps.load_table(rz_tables / "dssatdrv_entry.npz")[0]
     dd = dumps.load_table(rz_tables / "dssatdrv_exit.npz")[0]
     ri = dumps.load_table(rz_tables / "rootwu_entry.npz")[0]
     nn, nl = int(ph.values["NN"][0]), int(ri.values["NLAYR"][0])
@@ -239,17 +236,6 @@ def test_grids_and_remap_are_rzwqm_realmatch(rz_tables: Path) -> None:
         remap_intensive(jnp.asarray(ph.values["THETA"][j, :nn].astype(np.float64)), nodes, layers)
     )
     np.testing.assert_allclose(ri.values["SW"][:, :nl], sw, rtol=0, atol=2e-7)  # REAL*4 of the mean
-    # layers -> nodes: node qsr is the thickness-weighted mean of the layer rates rwu / 24 / dlayr (SW > LL);
-    # a layer with SW == LL exactly keeps element L of the array as DSSATDRV found it (a reference quirk)
-    v = dd.values
-    swl, ll = v["SW"][:, :nl], v["SOILPROP%LL"][:, :nl]
-    ql = np.where(swl > ll, v["RWU"][:, :nl] / 24.0 / v["SOILPROP%DLAYR"][:, :nl], 0.0).astype(np.float32)
-    ql = np.where(swl == ll, dd_in.values["QSR"][:, :nl], ql).astype(np.float64)
-    qn = np.asarray(remap_intensive(jnp.asarray(ql), layers, nodes))
-    np.testing.assert_allclose(v["QSR"][:, :nn], qn, rtol=1e-6, atol=1e-12)
-    assert float(np.max(qn)) > 0.0
-    # the operator is the thickness-weighted overlap: the column totals of the map agree
-    np.testing.assert_allclose(qn @ nodes.thickness, ql @ layers.thickness, rtol=1e-12)
     assert isinstance(layers, SoilGrid)
 
 
@@ -320,12 +306,6 @@ def test_crop_root_record_is_what_rootwu_reads(
 
 # ------------------------------------------------------------------ 6. coefficients vs the source
 DSSAT_SOURCE = Path(os.environ.get("AGRI_JAX_DSSAT", str(DEFAULT_DSSAT_ENGINE))).expanduser() / "source"
-RZWQM_SOURCE = (
-    Path(
-        os.environ.get("AGRI_JAX_RZWQM_SRC", "~/agri_jax_data/narval_mirror/***REMOVED***/src")
-    ).expanduser()
-    / "RZWQM"
-)
 _NUM = re.compile(r"(?<![A-Za-z_0-9])(\d+\.\d*(?:[eE][+-]?\d+)?|\.\d+|\d+(?:[eE][+-]?\d+)?)")
 COEF_ROWS = [
     *(dict(r, group="rootwu") for r in coefficient_table(RootwuCoefficients)),
@@ -349,21 +329,3 @@ def test_coefficient_stands_on_its_cited_dssat_line(row: dict) -> None:
     code = line.split("!")[0]
     assert _norm(row["statement"].split("!")[0]) in _norm(code), (row["statement"], line)
     assert float(row["value"]) in [float(x) for x in _NUM.findall(code)], (row["value"], line)
-
-
-def test_rzwqm2_embedded_crop_layers_use_the_lyrset_numbers() -> None:
-    """RZWQM2 4.6 ``DSSATDRV`` sets the same fixed bottoms, the +30 cm step and 20 layers (values
-    compared on the lines, no statement quoted)."""
-    path = RZWQM_SOURCE / "DSSATDRV.for"
-    if not path.is_file():
-        pytest.skip(f"RZWQM2 source not found at {path}")
-    lines = path.read_text(errors="replace").splitlines()
-    c = LyrsetCoefficients()
-
-    def nums(lineno: int) -> list[float]:
-        return [float(x) for x in _NUM.findall(lines[lineno - 1].split("!")[0])]
-
-    for k, (lineno, want) in enumerate(zip(range(557, 562), c.fixed, strict=True)):
-        assert nums(lineno) == [k + 1, want], (lineno, lines[lineno - 1])
-    assert c.step in nums(563) and "DS(I - 1)" in lines[562].upper().replace("  ", " ")
-    assert 20 in nums(69) and c.n_max == 20

@@ -82,9 +82,10 @@ class Reference:
 
     ``display`` is a template with ``{version}`` (``"DSSAT-CSM v{version}"``). ``statement_allowed``
     says whether the original source statement may be quoted in the public repository: true for
-    an open-source reference such as the BSD-3 DSSAT-CSM; false for a reference whose source
-    carries no licence file (RZWQM2; statements are not quoted by project policy), whose
-    coefficients cite file, line, routine and the *published* equation instead.
+    an open-source reference such as the BSD-3 DSSAT-CSM; false for a closed-source reference
+    (RZWQM2: used only as an external reference whose outputs are compared; no source code, data or
+    code derived from its source is included), whose coefficients cite the *published* equation
+    instead.
     ``needs_paper`` requires the published equation (``paper``) on every coefficient that cites
     this reference's source.
     """
@@ -116,7 +117,11 @@ def register_reference(
 
 register_reference("dssat", "DSSAT-CSM v{version}", "BSD-3-Clause", statement_allowed=True)
 register_reference(
-    "rzwqm2", "RZWQM2 {version}", "***REMOVED***", statement_allowed=False, needs_paper=True
+    "rzwqm2",
+    "RZWQM2 {version}",
+    "closed source; outputs compared only, no code or data included",
+    statement_allowed=False,
+    needs_paper=True,
 )
 register_reference("asce-ewri", "ASCE-EWRI {version}", "published standard", statement_allowed=False)
 register_reference("fao56", "FAO-56 ({version})", "published report", statement_allowed=False)

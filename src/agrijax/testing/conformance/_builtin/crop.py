@@ -8,9 +8,9 @@ end of day ``d`` the day's order is replayed up to the process under test, which
 three days. Variants pick ``d``: ``vegetative`` (leaf expansion) and ``grain_fill``. The season is
 computed once per seed and dtype.
 
-The season boundaries (``season_init``, ``harvest``) start from the end of day ``d`` with a
-two-row per-season table and an event table whose flag is set on the first day (variants
-``boundary``) or on no day (``ordinary``).
+The season start (``season_init``) starts from the end of day ``d`` with a two-row per-season
+table and an event table whose flag is set on the first day (variant ``boundary``) or on no day
+(``ordinary``).
 """
 
 from __future__ import annotations
@@ -31,8 +31,6 @@ from agrijax.processes.crop.ceres_maize import (
     CROP_PROCESSES_SMOOTHED,
     DSSAT_COEFFICIENTS,
     REPLAY_PROCESSES,
-    CanopyCoefficients,
-    CeresCanopyParams,
     CeresCultivar,
     CeresMaizeParams,
     CeresMaizeState,
@@ -269,39 +267,6 @@ def season_maker(flag: str) -> Any:
     return make
 
 
-#: canopy-record cases: the end-of-day crop of day ``d`` (vegetative, grain fill) or that crop
-#: made mature before the first forcing day with a later planned harvest (post-maturity decline)
-CANOPY_VARIANTS = ("vegetative", "grain_fill", "post_maturity")
-#: post_maturity: maturity this many days before the first forcing day, harvest this many after it
-CANOPY_MATURE_BEFORE, CANOPY_HARVEST_AFTER = 4, 9
-
-
-def canopy_maker() -> Any:
-    """``make`` of the canopy-record case: the end-of-day crop of a synthetic season, the
-    canopy port filled with a previous height (below or above today's stalk-mass height), the
-    canopy parameters with array coefficients and a planned harvest date."""
-
-    def make(rng: np.random.Generator, dtype: Any, variant: str) -> tuple[Any, Any, Any]:
-        seed = int(rng.integers(0, 2**31 - 1))
-        traj, f, p = _season(seed, jnp.dtype(dtype).name)
-        d = DAY["vegetative" if variant == "vegetative" else "grain_fill"]
-        s = jax.tree_util.tree_map(lambda x: x[d], traj)
-        days = jax.tree_util.tree_map(lambda x: x[d + 1 : d + 1 + N_DAYS], f)
-        first = int(np.asarray(days.yrdoy)[0])
-        n_crop = s.growth.lai.shape[-1]
-        hdate = first + CANOPY_HARVEST_AFTER
-        if variant == "post_maturity":
-            mdate = jnp.full_like(s.phen.mdate, first - CANOPY_MATURE_BEFORE)
-            s = s.replace(phen=s.phen.replace(mdate=mdate))
-        u = lambda lo, hi: jnp.asarray(rng.uniform(lo, hi, n_crop), dtype)  # noqa: E731
-        s = s.replace(canopy_out=CanopyRecord(lai=u(0.1, 1.0), tlai=u(0.1, 1.0), height=u(0.0, 250.0)))
-        coef = CanopyCoefficients().as_arrays(dtype)
-        p = p.replace(canopy=CeresCanopyParams(hdate=jnp.asarray([hdate], jnp.int32), coefficients=coef))
-        return s, p, days
-
-    return make
-
-
 _NO_BALANCE = (
     "CERES-Maize conserves assimilate between organs, tested day by day against the model's own "
     "partitioning in tests/unit/test_ceres_growth.py; there is no stock with daily in- and outflows "
@@ -377,32 +342,6 @@ def cases() -> list[ConformanceCase]:
             grad=_SEASON_GRAD,
             forcing_fields=("sow",),
             coefficient_sets=(),  # the SEASINIT state uses none of the crop's hard-coded coefficients
-        )
-    )
-    out.append(
-        ConformanceCase(
-            key="crop/ceres_maize.harvest@rzwqm2-4.6:faithful",
-            make=season_maker("harvest"),
-            variants=SEASON_VARIANTS,
-            n_days=N_DAYS,
-            ports={"root_out": "iface.root.{slot}", "canopy_out": "iface.canopy.{slot}"},
-            no_balance="a harvest reset selects the SEASINIT state and zeroed records: no daily flows",
-            grad=_SEASON_GRAD,
-            forcing_fields=("harvest",),
-            coefficient_sets=(),  # uses none of the crop's hard-coded (DSSAT) coefficients
-        )
-    )
-    out.append(
-        ConformanceCase(
-            key="crop/ceres_maize.canopy@rzwqm2-4.6:faithful",
-            make=canopy_maker(),
-            variants=CANOPY_VARIANTS,
-            n_days=N_DAYS,
-            ports={"canopy_out": "iface.canopy.{slot}"},
-            no_balance="the canopy record is a diagnostic of the crop state (LAI, height): no flows",
-            grad=GradSpec(),
-            forcing_fields=("yrdoy",),
-            coefficient_sets=("canopy.coefficients",),
         )
     )
     out.append(

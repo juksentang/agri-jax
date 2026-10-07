@@ -5,7 +5,6 @@ Scripts here are outside the package (`src/agrijax`) and outside ruff/pyright (`
 
 | File | Purpose |
 |---|---|
-| `coarse_compare.py` | Coarse comparison of Agri-JAX components against an RZWQM2 reference run (CA-TPA 2015). See its docstring. |
 | `bench_skeleton.py` | Throughput / gradient-cost skeleton with the computational shape of the PoC model (S-W-type PET, CERES-type crop step, 37-node Brooks-Corey Richards, `sub` sub-steps × `newton` Newton iterations, tridiagonal solve, 3287 days). **Not a model**. |
 
 ## bench_skeleton.py
@@ -45,7 +44,7 @@ reported `nan=False`.
    -inf at sub-step 10, and the next Newton update computes `inf - inf` (the `sub`).
 4. Why the forward output still says `nan=False`: the Brooks-Corey branches are written as
    `jnp.where(h < -hb, x, 1.0)`; a NaN (or +1e32) head fails the comparison and is read as *saturated*, so
-   `theta = ts`, `k = ks`, and the daily outputs are finite (`sw` = 0.453 × 150 cm = 67.95 exactly). Across the
+   `theta = ts`, `k = ks`, and the daily outputs are finite (`sw` = 0.45 × 150 cm = 67.5 exactly). Across the
    1000 samples after 60 days, the median sample had every node at `h = +2.5e32 cm` — the whole batch was
    nonphysical, only 17 samples had already overflowed.
 

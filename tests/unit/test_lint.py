@@ -380,9 +380,9 @@ def test_lint_of_the_package_is_not_vacuous() -> None:
     visited = lint.checked_functions([processes])
     names = {c.name for c in visited}
     assert len(visited) >= 20
-    assert {"shuttleworth_wallace", "theta_of_h", "k_of_h", "h_of_theta", "asce_reference_et"} <= names
+    assert {"priestley_taylor", "theta_of_h", "k_of_h", "h_of_theta", "asce_reference_et"} <= names
     procs = {c.name for c in visited if c.is_process}
-    assert {"pet_shuttleworth_wallace", "pet_asce_reference", "pet_priestley_taylor"} <= procs
+    assert {"pet_asce_reference", "pet_priestley_taylor"} <= procs
     assert all(c.rules == lint.ALL_RULES for c in visited if c.is_process)
     # and the package is clean under the strict gate that CI and pre-commit run (AJ007 included;
     # the rules --strict does not enforce yet are counted in test_aj009_to_aj011_on_the_package)
@@ -620,7 +620,7 @@ from agrijax.processes.water_supply.rootwu import RootRecord
 from ..processes.pet import daily
 from .. import processes
 from agrijax import processes as p
-from agrijax.models import day_rzwqm46
+from agrijax.models import day_dssat486
 from . import crop
 from .. import core
 
@@ -855,7 +855,7 @@ def test_aj009_to_aj011_on_the_package() -> None:
     assert by_rule == {
         "AJ009": ["coefficients.py", "integrator.py"],
         "AJ010": [],
-        "AJ011": ["day.py", "richards.py"],
+        "AJ011": ["richards.py"],
     }
 
 
@@ -920,11 +920,11 @@ import numpy as np
 from .dssat.genotype import read_cul
 from ..rzwqm.dat import RzwqmDat
 from agrijax.core.events import EventTable
-from agrijax.forcing.radiation import horizontal_radiation
+from agrijax.forcing.dssat_weather import hourly_mean_temperature_weights
 
 
 def f():
-    from agrijax.processes.soil_water.infiltration import StormForcing
+    from agrijax.processes.soil_water.richards import RichardsForcing
     from agrijax.iface.surface import DailyWeather
     from agrijax.port.run_fortran import run_dscsm
     from agrijax.sites import catpa_m3
@@ -978,7 +978,7 @@ def test_aj012_io_imports_only_core_forcing_port_and_io(tmp_path: Path) -> None:
     # iface, sites and models are reported
     assert _aj012(f) == [10, 11, 13, 14, 15]
     msg = next(x.message for x in lint.lint_file(f) if x.rule == "AJ012")
-    assert "io imports agrijax.processes.soil_water.infiltration" in msg and "agrijax.sites" in msg
+    assert "io imports agrijax.processes.soil_water.richards" in msg and "agrijax.sites" in msg
 
 
 def test_aj012_core_imports_no_io(tmp_path: Path) -> None:

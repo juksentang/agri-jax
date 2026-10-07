@@ -22,8 +22,7 @@ The convergence table (sub-steps x iterations against 96 x 8) is written to
 
 Re-measured 2026-09-24 with the damped Newton iteration (Jacobian storage floor, air-entry
 chop, depth-relative upper clamp): 96 x 8 and 24 x 3 are unchanged to the printed digits (the
-damping never activates on this year), so M1 stands as recorded. The same year with our own
-Green-Ampt events instead of the replayed infiltration is ``test_infiltration_catpa.py``.
+damping never activates on this year), so M1 stands as recorded.
 """
 
 from __future__ import annotations

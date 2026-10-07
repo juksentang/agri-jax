@@ -1,11 +1,10 @@
-"""Conformance cases of the PET processes (Shuttleworth-Wallace, ASCE reference, Priestley-Taylor)
-and of the ``EOP`` adapter that turns the PET port into the crop's potential transpiration.
+"""Conformance cases of the PET processes (ASCE reference, Priestley-Taylor) and of the ``EOP``
+adapter that turns the PET port into the crop's potential transpiration.
 
-Three days of synthetic summer weather on one site: a cropped surface with flat residue (nominal),
-and, for gradients only, bare soil without residue (``LAI = 0``) and a cold, humid day. The PET
-module (own subtree ``surface.pet``) reads the canopy port P6 (``iface.canopy.<slot>``) and the
-node water content P7 (``soil_water.theta``) and writes P5 (``iface.pet``); each case binds exactly
-the ports its process uses.
+Three days of synthetic summer weather on one site: a cropped surface (nominal) and, for gradients
+only, bare soil (``LAI = 0``) and a cold, humid day. The PET module (own subtree ``surface.pet``)
+reads the canopy port P6 (``iface.canopy.<slot>``) and writes P5 (``iface.pet``); each case binds
+exactly the ports its process uses.
 """
 
 from __future__ import annotations
@@ -16,8 +15,8 @@ import numpy as np
 
 from agrijax.iface.crop import CanopyRecord, CropWaterIn
 from agrijax.iface.surface import DailyWeather, PETFluxes
-from agrijax.processes.pet import PET_COEFFICIENTS, PETParams
-from agrijax.processes.pet.daily import RESIDUE_KINDS, PETSiteParams, PETState, SurfaceResidue
+from agrijax.processes.pet import PET_COEFFICIENTS
+from agrijax.processes.pet.daily import PETSiteParams, PETState
 from agrijax.processes.pet.eop import EOPState
 
 from ..case import ConformanceCase, GradSpec
@@ -25,8 +24,8 @@ from ..case import ConformanceCase, GradSpec
 N_DAYS = 3
 N_CROP = 1
 N_NODE = 4
-#: CA-TPA surface layer and site (as tests/unit/test_pet_grad_finite.py)
-***REMOVED***
+#: a synthetic mid-latitude site: elevation [m], latitude [rad]
+ELEVATION, LATITUDE = 250.0, 0.75
 
 
 def make(rng: np.random.Generator, dtype: Any, variant: str) -> tuple[Any, Any, Any]:
@@ -59,33 +58,13 @@ def make(rng: np.random.Generator, dtype: Any, variant: str) -> tuple[Any, Any, 
     theta = a(rng.uniform(0.15, 0.3, N_NODE))
     z = a(0.0)
     state = PETState(canopy=canopy, theta=theta, pet=PETFluxes(z, z, z, z, z, z))
-    pet = PETParams(
-        albedo_dry=a(0.25),
-        albedo_wet=a(0.15),
-        albedo_maturity=a(0.23),
-        albedo_residue=a(0.31),
-        soil_resistance=a(rng.uniform(40.0, 70.0)),
-        stomatal_resistance=a(rng.uniform(150.0, 250.0)),
-    )
-    residue = SurfaceResidue(
-        mass=a(0.0 if bare else float(rng.uniform(1000.0, 4000.0))),
-        age=a(rng.uniform(10.0, 60.0)),
-        wet=a(0.0),
-        kind=a(RESIDUE_KINDS["none"] if bare else float(rng.choice([1.0, 2.0, 3.0]))),
-    )
     params = PETSiteParams(
-        pet=pet,
         elevation=a(ELEVATION),
         latitude=a(LATITUDE),
-        wc13=a(WC13),
-        wc15=a(WC15),
         wind_height=a(2.0),
         albedo_soil=a(0.13),
         trat=a(1.0),
-        rainfall_zone=3,
-        residue_cover_factor=2.5,
         coefficients=PET_COEFFICIENTS.as_arrays(dtype),
-        residue=residue,
     )
     return state, params, weather
 
@@ -114,19 +93,6 @@ _CANOPY = {"canopy": "iface.canopy.{slot}"}
 
 def cases() -> list[ConformanceCase]:
     return [
-        ConformanceCase(
-            key="pet/shuttleworth_wallace@rzwqm2-4.6:faithful",
-            make=make,
-            n_days=N_DAYS,
-            ports={**_CANOPY, "theta": "soil_water.theta", **_PET_PORT},
-            no_balance=_NO_BALANCE,
-            grad=GradSpec(edge_variants=("bare", "cold")),
-            coefficient_sets=("coefficients.sw",),
-            forcing_fields=(*_WEATHER, "srad_horizontal"),
-            # float32 (x64 off): vmap(jit) differs from jit by 3 ulp in soil_evaporation, measured
-            # on a cluster CPU node; float64 is bit for bit
-            transforms_exact=False,
-        ),
         ConformanceCase(
             key="pet/asce_reference@asce-ewri-2005:faithful",
             make=make,

@@ -1,7 +1,7 @@
 """The planned part of the coupling contract, ``agrijax.iface.contract`` (modules not written yet).
 
 * the planned ports and rows change nothing in the RZWQM2-order day: :func:`day_entries`,
-  :func:`allowed_lags` and :func:`day_table` give its contract by default, the skeleton day is unchanged;
+  :func:`allowed_lags` and :func:`day_table` give its contract by default;
 * every planned port's record matches its spec (unit strings, dims, grid), says what runs before
   its module exists (``off``), and its constructors give the declared shapes;
 * the merged day puts each planned row after its anchor, drops the rows it supersedes, and stays
@@ -64,9 +64,12 @@ def test_the_m3_day_is_the_default_and_unchanged() -> None:
         ("soil_water.uptake_limit", "iface.crop_water.maize.trwup"),
         ("water_supply.maize.rootwu", "iface.root.maize"),
     }
-    from agrijax.models.day_rzwqm46 import day_rzwqm46
-
-    day = day_rzwqm46()
+    day = Day(
+        ref="rzwqm2-4.6",
+        phases=tuple(Phase(p, e) for p, e in phases),
+        lags=allowed_lags("maize"),
+        contract_slot="maize",
+    )
     assert day.entries == tuple(e.name("maize") for e in DAY_TABLE)
 
 
@@ -371,13 +374,7 @@ def _registry_entries() -> list[tuple[str, str]]:
 KNOWN_SLOT_MISMATCHES: dict[str, str] = {
     "water_supply/forcing_replay@none:replay": "move from processes/crop/ceres_maize/model.py to processes/water_supply/",
     "crop_iface/eop_from_pet@rzwqm2-4.6:faithful": "move from processes/pet/eop.py to processes/crop_iface/",
-    "crop_iface/publish_uptake@rzwqm2-4.6:faithful": (
-        "move from processes/water_supply/publish.py to processes/crop_iface/"
-    ),
-    "soil_water/wuf@rzwqm2-4.6:faithful": "rename the key to water_supply/ (it lives in processes/water_supply/)",
     # the demo assemblies register their own entries in models/
-    "pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy": "defined in models/catpa_pet_demo.py",
-    "diagnostic/catpa_pet_totals@none:demo": "defined in models/catpa_pet_demo.py",
     "crop/tobacco_demo.calendar@none:demo": "defined in models/tobacco_demo.py",
     "crop/tobacco_demo.leaves@none:demo": "defined in models/tobacco_demo.py",
     "crop/tobacco_demo.management@none:demo": "defined in models/tobacco_demo.py",
@@ -386,13 +383,6 @@ KNOWN_SLOT_MISMATCHES: dict[str, str] = {
 KNOWN_VARIANT_LABELS: frozenset[str] = frozenset(
     {
         "crop/ceres_maize.growth@dssat-4.8.6.0:nstress_replay",
-        "soil_water/day@rzwqm2-4.6:replay_flux",
-        "pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy",
-        # the soil-water day's RZWQM2 convention variants (DRAIN cap, flux-mode evaporation limit)
-        "soil_water/day@rzwqm2-4.6:drain_cap",
-        "soil_water/day@rzwqm2-4.6:flux_evap",
-        "soil_water/day@rzwqm2-4.6:rzwqm2_conventions",
-        "soil_water/day@rzwqm2-4.6:replay_flux_conventions",
     }
 )
 
@@ -401,7 +391,7 @@ def test_aj018_registry_slot_is_the_directory() -> None:
     found = {p.split(" ", 2)[1].rstrip(":") for p in registry_slot_problems(_registry_entries())}
     assert found == set(KNOWN_SLOT_MISMATCHES)
     assert registry_slot_problems([("pet/x@none:replay", "my_pkg.processes.pet.x")]) == []
-    assert registry_slot_problems([("pet/x@none:replay", "agrijax.models.day_rzwqm46")])
+    assert registry_slot_problems([("pet/x@none:replay", "agrijax.models.day_dssat486")])
 
 
 def test_aj019_variant_vocabulary() -> None:

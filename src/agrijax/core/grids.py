@@ -1,8 +1,8 @@
 """Soil grids and conservative remapping between them.
 
 A :class:`SoilGrid` is a static, hashable description of a 1-D soil column: the depths of its cell
-bottoms from the surface (cm), cells stacked from depth 0. The grids of the RZWQM2 4.6 day
-(:mod:`agrijax.models.day_rzwqm46`) are:
+bottoms from the surface (cm), cells stacked from depth 0. The grids of the contract's RZWQM2 4.6
+day (:data:`agrijax.iface.contract.DAY_TABLE`) are:
 
 * :func:`rzwqm_nodes` - the RZWQM2 node grid: cell ``i`` spans ``[TLT(i-1), TLT(i)]`` with
   ``TLT`` the layer-bottom column of the ``rzwqm.dat`` node records (37 cells to 150 cm at

@@ -34,11 +34,6 @@ _DEMO = "a demonstration model (ref_version none, variant demo), not an assembly
 
 #: registry keys of this repository without a case yet: key -> reason
 EXEMPT: dict[str, str] = {
-    "pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy": (
-        "the CA-TPA PET demonstration's variant (agrijax.models.catpa_pet_demo): the canopy comes from "
-        "the forcing; the faithful process it wraps has a case"
-    ),
-    "diagnostic/catpa_pet_totals@none:demo": _DEMO,
     "crop/tobacco_demo.calendar@none:demo": _DEMO,
     "crop/tobacco_demo.leaves@none:demo": _DEMO,
     "crop/tobacco_demo.management@none:demo": _DEMO,

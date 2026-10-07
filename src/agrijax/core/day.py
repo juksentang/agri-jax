@@ -212,7 +212,7 @@ class PhasedWrite:
     """A declared extra write of an owner module: entry ``entry`` writes ``path`` (or below it) in
     the execution phase ``when`` (:data:`WRITE_PHASES`), besides the module's producer entry of
     that path. ``meaning`` says in one line what the write does and why at that point of the day
-    (``"TRWUP = 0 at the end of a harvest day; the next morning's WUF reads the 0"``). ``path``
+    (``"TRWUP = 0 at the end of a harvest day, after its readers"``). ``path``
     may carry ``{slot}`` in a contract table; a :class:`Day` takes it filled in.
     """
 

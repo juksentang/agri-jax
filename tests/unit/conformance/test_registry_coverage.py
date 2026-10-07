@@ -63,7 +63,6 @@ def test_first_cases_cover_crop_uptake_grids_and_pet() -> None:
         "water_supply/forcing_replay@none:replay",
         "n_supply/forcing_replay@none:replay",
         "crop_iface/remap_in@none:kit_fixture",
-        "pet/shuttleworth_wallace@rzwqm2-4.6:faithful",
         "pet/asce_reference@asce-ewri-2005:faithful",
         "pet/priestley_taylor@dssat-4.8.6.0:faithful",
     ):
@@ -85,8 +84,8 @@ def test_discover_records_the_origin_and_selects_by_glob() -> None:
     cases = discover(entry_points=False)
     assert cases and all(c.origin.startswith("agrijax") for c in cases)
     pet = select(cases, key="pet/*")
-    # S-W, ASCE, PT, SPAM's potential soil evaporation and transpiration, PT on the daily soil albedo
-    assert {c.slot for c in pet} == {"pet"} and len(pet) == 6
+    # ASCE, PT, SPAM's potential soil evaporation and transpiration, PT on the daily soil albedo
+    assert {c.slot for c in pet} == {"pet"} and len(pet) == 5
     assert select(cases, key="crop/ceres_maize.growth@*") and not select(cases, key="nothing/*")
     assert select(cases, package="agrijax") == cases
     assert select(cases, package="someone-else") == []
@@ -144,4 +143,4 @@ def test_a_provider_must_return_cases() -> None:
 def test_the_command_line_lists_cases(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["--list", "--key", "pet/*"]) == 0
     out = capsys.readouterr().out.strip().splitlines()
-    assert len(out) == 6 and all(line.startswith("pet/") and "(agrijax" in line for line in out)
+    assert len(out) == 5 and all(line.startswith("pet/") and "(agrijax" in line for line in out)

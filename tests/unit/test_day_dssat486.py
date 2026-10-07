@@ -62,7 +62,7 @@ from agrijax.models.day_dssat486 import (
     soil_evaporation_problems,
     trwup_replay_entry,
 )
-from agrijax.models.day_rzwqm46 import noop_entry
+from agrijax.models.entries import noop_entry
 from agrijax.processes.crop.ceres_maize import DSSAT_COEFFICIENTS, CeresMaizeState, ceres_maize_model
 from agrijax.processes.crop.ceres_maize.phenology import growing_point_thermal_time
 from agrijax.processes.pet.spam_dssat import SpamWeather

@@ -39,15 +39,14 @@ module's faithful process before its variants.
 Selection between variants is static (Python-level, by key), never a traced flag. Numerics
 settings (sub-step and iteration counts) are configuration, not variants.
 
-Each keyed process carries a :class:`ProcessInfo`: the key, the provenance class
-(:data:`PROVENANCE`: ``translated_bsd3`` for code translated from BSD-3 reference source,
-``equations_only`` for code written from published equations alone,
-``reference_only_conventions`` for code written from published equations where the reference
-source, which carries no licence, was read for conventions only), the sources per equation, the
-grid it runs on (:data:`GRIDS`), the list of known deviations from the reference and optionally
-the reference build. The registry raises :class:`DuplicateProcessError` when a second, different
-process claims a key or a name that is taken; redefining the same function (a module reload)
-replaces the entry.
+Each keyed process carries a :class:`ProcessInfo`: the key, the provenance class (:data:`PROVENANCE`:
+``translated_bsd3`` for code translated from BSD-3 reference source, ``equations_only`` for code written
+from published equations alone, ``reference_only_conventions`` for code written from published equations
+and compared with the outputs of a closed-source reference model, none of whose source is translated or
+included), the sources per equation, the grid it runs on (:data:`GRIDS`), the list of known deviations
+from the reference and optionally the reference build. The registry raises :class:`DuplicateProcessError`
+when a second, different process claims a key or a name that is taken; redefining the same function (a
+module reload) replaces the entry.
 
 The registry is also a name-keyed mapping (``registry["richards_redistribution"]``) so the
 lookups by function name keep working. :func:`lookup` resolves a key, :func:`list_processes`
@@ -101,8 +100,8 @@ PROVENANCE: dict[str, str] = {
     "translated_bsd3": "translated from reference source code under BSD-3 (notice required)",
     "equations_only": "written from published equations only; the reference model's outputs validate it",
     "reference_only_conventions": (
-        "written from published equations; the reference source (no licence file) was read for "
-        "conventions only, never translated"
+        "written from published equations and compared with the outputs of a closed-source reference "
+        "model; no reference source is translated or included"
     ),
 }
 

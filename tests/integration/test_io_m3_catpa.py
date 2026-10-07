@@ -24,8 +24,8 @@ Checked:
    ``MANAGE.OUT``'s planting and harvest dates and the per-season planting values;
 4. CERES-Maize parameters: equal (in the crop's REAL precision) to what the embedded crop read
    (``DSSATDRV`` ``PLANTVAR``, ``MZ_GROSUB`` entry, ``ROOTWU`` entry soil) in every season;
-5. weather: the prepared ``.MET`` with the rebuilt RTS / RTH against ``PHYSCL`` (all 3287 days)
-   and the crop's weather against ``DSSATDRV`` (crop days);
+5. weather: the prepared ``.MET`` against ``PHYSCL`` RTH (all 3287 days) and the crop's
+   temperatures and CO2 against ``DSSATDRV`` (crop days);
 6. the whole forcing pytree: shapes, finiteness and the contract's units.
 """
 
@@ -67,7 +67,7 @@ START, END = np.datetime64("2015-01-01"), np.datetime64("2023-12-31")
 DAYS = np.arange(START, END + np.timedelta64(1, "D"))
 N_SEASON = 7
 N_CROP_DAYS = 1088
-#: EVNTRO events of the run: rain storms, snowmelt events (tests/integration/test_infiltration_dumps.py)
+#: EVNTRO events of the run: rain storms, snowmelt events
 N_RAIN_EVENTS, N_SNOWMELT_EVENTS = 829, 195
 
 
@@ -267,7 +267,6 @@ def test_weather_matches_physcl_and_dssatdrv(data_dir: Path) -> None:
     for ours, ref in (
         ("tmin", "TMIN"),
         ("tmax", "TMAX"),
-        ("srad", "RTS"),
         ("rh", "RH"),
         ("wind_run", "U"),
     ):
@@ -279,7 +278,7 @@ def test_weather_matches_physcl_and_dssatdrv(data_dir: Path) -> None:
     dd_days = _yrdoy_to_day(np.asarray(dd.date))
     i = np.searchsorted(DAYS, dd_days)
     c = inp.forcing["crop"]
-    for ours, ref in (("tmax", "TMAXR"), ("tmin", "TMINR"), ("srad", "SRADR"), ("co2", "CO2R")):
+    for ours, ref in (("tmax", "TMAXR"), ("tmin", "TMINR"), ("co2", "CO2R")):
         diffs[ref] = float(
             np.max(np.abs(np.asarray(getattr(c, ours))[i] - np.asarray(dd.values[ref], float)))
         )
@@ -296,29 +295,25 @@ def test_forcing_pytree_shapes_units(data_dir: Path) -> None:
     from agrijax.core.events import EventTable
     from agrijax.iface.surface import DailyWeather
     from agrijax.processes.crop.ceres_maize.state import CeresForcing
-    from agrijax.processes.soil_water.infiltration import StormForcing
 
     p = _paths(data_dir)
     soil = ceres_soil_from_dssatdrv(_table(data_dir, "dssatdrv_exit").values)
     inp = catpa_m3_inputs(soil, paths=p)
     f = inp.forcing
-    assert isinstance(f["weather"], DailyWeather) and isinstance(f["soil"], StormForcing)
+    assert isinstance(f["weather"], DailyWeather) and "soil" not in f
     assert isinstance(f["events"], EventTable) and isinstance(f["crop"], CeresForcing)
     for leaf in jax.tree_util.tree_leaves(f):
         a = np.asarray(leaf)
         assert a.shape[0] == len(DAYS)
         if a.dtype.kind == "f":
             assert bool(np.all(np.isfinite(a)))
-    # the contract's units (port P8 of the coupling contract, and the StormForcing record)
+    # the contract's units (port P8 of the coupling contract)
     want = {
         (DailyWeather, "tmin"): "degC",
         (DailyWeather, "tmax"): "degC",
         (DailyWeather, "srad"): "MJ m-2 d-1",
         (DailyWeather, "rh"): "percent",
         (DailyWeather, "wind_run"): "km d-1",
-        (StormForcing, "ts0"): "h",
-        (StormForcing, "duration"): "h",
-        (StormForcing, "depth"): "cm",
         (EventTable, "irrig_cm"): "cm",
     }
     for (cls, name), unit in want.items():
@@ -340,8 +335,5 @@ TOL_DURATION_H = 0.0
 TOL_DEPTH_CM = 0.0
 #: breakpoint storms of 2015-2023 that RZWQM2 4.6 gave to its snow routine (measured 2026-09-26)
 N_STORMS_TO_SNOW = 239
-#: RTS / SRADR: the reference re-sums 24 hourly REAL (float32) values; 24 roundings of float32
-#: (eps 2**-23) at the largest daily value (45 MJ m-2 d-1, INPDAY bound) bound the difference
-#: between two float32 evaluation orders of the same sum
-_RTS_FLOAT32_BOUND = 24 * 2.0**-23 * 45.0
-TOL_WEATHER: dict[str, float] = {"RTS": _RTS_FLOAT32_BOUND, "SRADR": _RTS_FLOAT32_BOUND}
+#: every prepared weather value is the reference's to the bit
+TOL_WEATHER: dict[str, float] = {}

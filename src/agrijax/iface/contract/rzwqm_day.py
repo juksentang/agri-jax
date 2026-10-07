@@ -16,8 +16,8 @@ from agrijax.core.day import PhasedWrite
 from .spec import STAGES, Stage
 
 #: implementation status of a day entry: ``registered`` (a process under the entry's key),
-#: ``kernel`` (a kernel or operator, no process yet), ``adapter`` (an unregistered assembly adapter
-#: in :mod:`agrijax.models.day_rzwqm46`), ``none`` (no code)
+#: ``kernel`` (a kernel or operator, no process yet), ``adapter`` (an unregistered assembly adapter),
+#: ``none`` (no code in this package)
 ENTRY_STATUS: tuple[str, ...] = ("registered", "kernel", "adapter", "none")
 Status = Literal["registered", "kernel", "adapter", "none"]
 
@@ -94,9 +94,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "weather.radiation",
         "weather/rzwqm_radiation@rzwqm2-4.6:faithful",
         (),
-        "kernel",
-        "RTS and RTH are rebuilt in the forcing preprocessing (io, outside the differentiable day); "
-        "the entry writes no state",
+        "none",
+        "daily radiation preprocessing (outside the differentiable day); the entry writes no state",
     ),
     DayEntry(
         "2", "management", "events.apply", "", (), "none", "irrigation and tillage events; no process yet"
@@ -116,8 +115,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "pet.sw_daily",
         "pet/shuttleworth_wallace@rzwqm2-4.6:faithful",
         ("P5",),
-        "registered",
-        "reads P6 (lag 1), P7 (lag 1) and the weather with RTH; writes P5",
+        "none",
+        "reads P6 (lag 1), P7 (lag 1) and the weather; writes P5",
     ),
     DayEntry(
         "5",
@@ -125,8 +124,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "snow.prms",
         "snow/prms@rzwqm2-4.6:faithful",
         ("P9",),
-        "registered",
-        "PRMS snowpack, state at surface.snow",
+        "none",
+        "snowpack, state at surface.snow",
     ),
     DayEntry(
         "6",
@@ -134,8 +133,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "soil_water.uptake_limit",
         "soil_water/wuf@rzwqm2-4.6:faithful",
         ("P4",),
-        "registered",
-        "***REMOVED*** on yesterday's P3 and P1 trwup",
+        "none",
+        "the day's node uptake limit from yesterday's P3 and P1 trwup",
     ),
     DayEntry(
         "7",
@@ -143,9 +142,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "soil_water.day",
         "soil_water/day@rzwqm2-4.6:faithful",
         ("P7",),
-        "registered",
-        "the registered process reads its sink from the forcing, not from P4; models.day_rzwqm46 binds it "
-        "to P4",
+        "none",
+        "the soil-water day: redistribution and infiltration events; reads its sink from P4",
     ),
     DayEntry(
         "P10",
@@ -163,7 +161,7 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "crops.{slot}.remap_in",
         "crop_iface/remap_in@rzwqm2-4.6:faithful",
         ("P1",),
-        "adapter",
+        "kernel",
         "REALMATCH kernel agrijax.core.grids.remap_intensive",
     ),
     DayEntry(
@@ -226,11 +224,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "crops.{slot}.canopy",
         "crop/ceres_maize.canopy@rzwqm2-4.6:faithful",
         ("P6",),
-        "registered",
-        "the canopy record read by PET the next day is the MAPLNT exit: "
-        "the RZWQM2 driver's LAI (XHLAI, declining to 0 after maturity when HDATE > MDATE), TLAI = LAI, "
-        "and the stalk-mass height in cm (running maximum over the season); the harvest day's zeros are "
-        "the crop's harvest reset's (16a)",
+        "none",
+        "the canopy record read by PET the next day (LAI, TLAI, height)",
     ),
     DayEntry(
         "16",
@@ -238,9 +233,8 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "crops.{slot}.publish_uptake",
         "crop_iface/publish_uptake@rzwqm2-4.6:faithful",
         ("P3",),
-        "registered",
-        "registered in processes/water_supply/publish.py; it reproduces the reference's SW == LL quirk of "
-        "the layer publish",
+        "none",
+        "the day's layer uptake mapped onto the soil nodes",
     ),
     DayEntry(
         "16a",
@@ -248,12 +242,11 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "crops.{slot}.harvest",
         "crop/ceres_maize.harvest@rzwqm2-4.6:faithful",
         ("P2", "P6"),
-        "registered",
-        "at the end of a harvest day (event table's harvest flag) the crop becomes the SEASINIT state "
-        "of the next season, P2 the no-crop root record and P6 bare soil; masked resets after the day's "
-        "readers, so P2 and P6 keep their lags (the same module as their producers publish, canopy: one "
-        "writer module, AJ013; the writes are declared season_end in PHASED_WRITES). It writes nothing "
-        "outside the crop slot",
+        "none",
+        "at the end of a harvest day (event table's harvest flag) the crop's season ends: P2 becomes the "
+        "no-crop root record and P6 bare soil after the day's readers, so P2 and P6 keep their lags (the "
+        "same module as their producers; the writes are declared season_end in PHASED_WRITES). It "
+        "writes nothing outside the crop slot",
     ),
     DayEntry(
         "16b",
@@ -261,12 +254,10 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "water_supply.{slot}.season_end",
         "water_supply/rootwu_season_end@rzwqm2-4.6:faithful",
         ("P1",),
-        "registered",
-        "ROOTWU ends its own season on the event table's harvest flag, after the day's "
-        "readers of P1 trwup and of its rwu: TSS = RWU = 0 (ROOTWU SEASINIT; between harvest and sowing "
-        "XHLAI = 0 and ROOTWU is not called, so the reset at harvest gives the sowing-day state) and "
-        "P1 trwup = 0, which the next morning's uptake limit reads (DSSATDRV exit TRWUP = 0 on the 7 "
-        "CA-TPA harvest days); declared season_end in PHASED_WRITES, after every consumer of P1 and rwu",
+        "none",
+        "ROOTWU ends its own season on the event table's harvest flag, after the day's readers of P1 "
+        "trwup and of its rwu: TSS = RWU = 0 (ROOTWU SEASINIT) and P1 trwup = 0; declared season_end in "
+        "PHASED_WRITES, after every consumer of P1 and rwu",
     ),
     DayEntry(
         "17",
@@ -274,7 +265,7 @@ DAY_TABLE: tuple[DayEntry, ...] = (
         "ledger.close",
         "",
         ("P11",),
-        "adapter",
+        "none",
         "soil column and pond only (no snow storage, sublimation or irrigation yet)",
     ),
 )
@@ -428,7 +419,7 @@ PHASED_WRITES: tuple[PhasedWrite, ...] = (
         "iface.crop_water.{slot}.trwup",
         "season_end",
         "TRWUP = 0 " + _HARVEST_END + " (the crop read the day's non-zero TRWUP); the next morning's "
-        "uptake limit (WUF, lag 1) reads the 0 (RZWQM2 4.5 DSSATDRV.for:1922-1931, 2020-2027)",
+        "uptake limit (lag 1) reads the 0",
     ),
     PhasedWrite(
         "water_supply.{slot}.season_end",
@@ -453,8 +444,7 @@ PHASED_WRITES: tuple[PhasedWrite, ...] = (
         "crops.{slot}.harvest",
         "iface.canopy.{slot}",
         "season_end",
-        "bare soil (LAI = TLAI = HEIGHT = 0) " + _HARVEST_END + "; PET reads it the next morning (lag 1; "
-        "the MAPLNT exit canopy is 0 on the 7 CA-TPA harvest days in the reference run's dump tables)",
+        "bare soil (LAI = TLAI = HEIGHT = 0) " + _HARVEST_END + "; PET reads it the next morning (lag 1)",
     ),
 )
 

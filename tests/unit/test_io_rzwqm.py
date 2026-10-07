@@ -160,7 +160,7 @@ def test_prepare_rzwqm_forcing_wind_floor_and_bounds(tmp_path: Path) -> None:
     raw = read_met(p)
     assert list(raw["wind_run_km"]) == [52.7, 250.0, 5000.0]  # the reader returns the file values
     met = prepare_rzwqm_forcing(raw)
-    assert list(met["wind_run_km"]) == [WIND_FLOOR_KM_D, 250.0, 4700.0]  # UBREEZ floor, TUX cap
+    assert list(met["wind_run_km"]) == [WIND_FLOOR_KM_D, 250.0, 4700.0]  # wind floor, upper bound
     assert list(met["tmin"]) == [-5.0, -8.0, -50.0] and list(met["tmax"]) == [2.0, 1.0, 50.0]
     assert list(met["srad_mj"]) == [8.0, 9.5, 45.0] and list(met["rh"]) == [80.0, 99.0, 100.0]
     assert list(met["rain_mm"]) == list(raw["rain_mm"])

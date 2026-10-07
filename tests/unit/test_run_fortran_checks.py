@@ -43,7 +43,7 @@ def test_complete_run_passes(tmp_path: Path) -> None:
     check_rzwqm_outputs(log, _ana(tmp_path / "x.ana", s, e), s, e)
 
 
-@pytest.mark.parametrize("marker", ["Program will have to stop", " Could not find input file! WHCER040.EC"])
+@pytest.mark.parametrize("marker", ["Program will have to stop", " PROGRAM WILL HAVE TO STOP"])
 def test_stop_marker_raises(tmp_path: Path, marker: str) -> None:
     s, e = dt.date(2015, 1, 1), dt.date(2015, 12, 31)
     log = tmp_path / "run.log"
@@ -75,31 +75,31 @@ def test_run_dir_length_guard(tmp_path: Path) -> None:
     assert ok.is_dir()
 
 
-@pytest.mark.parametrize(
-    "marker",
-    [
-        ">>>> END OF FILE REACHED IN DAYMET.DAT <<<<",  # Rzmain.for weather reader, then STOP
-        " >>> FATAL ERROR READING BRKPNT.DAT <<<",  # Rzday.for, then STOP
-        " -- ERROR -- ERROR -- UNABLE TO OPEN FILE RZWQM.DAT --",  # Rzmain.for IPNAMES opener
-        " <<< ERROR IN DATES >>> DATES NOT SEQ",  # Rzmain.for period check, then STOP
-    ],
-)
-def test_rzwqm_fatal_markers_raise(tmp_path: Path, marker: str) -> None:
+def test_markers_of_the_private_marker_file_raise(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Further stop markers come from the file named by the environment variable (kept outside the
+    repository); comment and blank lines are skipped, the markers are compared in lower case."""
+    from agrijax.port import run_fortran as rf
+
+    markers = tmp_path / "markers.txt"
+    markers.write_text("# a comment\n\nSYNTHETIC STOP MARKER\n")
+    monkeypatch.setenv(rf.RZWQM_STOP_MARKERS_ENV, str(markers))
+    found = rf._rzwqm_stop_markers()
+    assert found == ("program will have to stop", "synthetic stop marker")
+    monkeypatch.setattr(rf, "RZWQM_STOP_MARKERS", found)
     s, e = dt.date(2015, 1, 1), dt.date(2015, 12, 31)
     log = tmp_path / "run.log"
-    log.write_text(f"reading ...\n{marker}\n     PROGRAM TERMINATED\n")
+    log.write_text("reading ...\n Synthetic Stop Marker\n")
     with pytest.raises(FortranRunError, match=r"run\.log reports"):
         check_rzwqm_outputs(log, _ana(tmp_path / "x.ana", s, e), s, e)
+    monkeypatch.delenv(rf.RZWQM_STOP_MARKERS_ENV)
+    assert rf._rzwqm_stop_markers() == ("program will have to stop",)
 
 
 def test_rzwqm_normal_end_stop_text_passes(tmp_path: Path) -> None:
-    """A finished RZWQM2 run ends in ``STOP '***REMOVED*** (daily data)'``."""
+    """A finished run whose log has free text (no stop marker) and a complete ``.ana`` passes."""
     s, e = dt.date(2015, 1, 1), dt.date(2015, 3, 31)
     log = tmp_path / "run.log"
-    log.write_text(
-        "  >>>> END OF BREAK-POINT DATA ENCOUNTERED\n ==> UPDATING NUTRIENT CHEMISTRY\n"
-        "***REMOVED*** (daily data)\n"
-    )
+    log.write_text("  end of the input data\n updating the day\n run finished\n")
     check_rzwqm_outputs(log, _ana(tmp_path / "x.ana", s, e), s, e)
 
 

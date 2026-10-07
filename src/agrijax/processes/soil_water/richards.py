@@ -102,11 +102,11 @@ cannot infiltrate goes to the pond up to ``pond_max`` [cm] and runs off above it
 demand the soil cannot meet is reported as ``evaporation_deficit``. The surface flux is
 always diagnosed from the final heads.
 
-Note: RZWQM2 does not use the rain as the upper boundary flux of the Richards step. Its
-``INFIL`` routine fills the profile with a Green-Ampt wetting front and Richards only
-redistributes; that event is :mod:`~agrijax.processes.soil_water.infiltration`, and the day
-of redistribution / event / redistribution is :mod:`~agrijax.processes.soil_water.day`. In
-this module's own day (:func:`richards_day`, the prescribed-supply configuration) ``supply`` is the
+Note: RZWQM2 does not use the rain as the upper boundary flux of the Richards step: an
+infiltration event fills the profile and Richards only redistributes (Ahuja et al. 2000, ch. 3).
+That event is not part of this package; an integrator takes one through its day plan
+(:class:`~agrijax.processes.soil_water.integrator.DayPlan`). In this module's own day
+(:func:`richards_day`, the prescribed-supply configuration) ``supply`` is the
 water that *infiltrates* (e.g. ``.ana`` column 5), spread over the rain event.
 
 Sink: an input, a typed record of sink channels (:mod:`~agrijax.processes.soil_water.sinks`:
@@ -188,16 +188,13 @@ from .problem import (
     _face_fluxes,
     _interval_means,
     _log_k,
-    _require,
     _step_args,
     _step_result,
     _StepArgs,
     _StepSinks,
     _tridiag_solve,
     _zero_fluxes,
-    drain_fluxes,
     head_of_v,
-    node_pori,
     other_sinks,
     richards_residual,
     sink_fluxes,
@@ -230,9 +227,7 @@ __all__ = [
     "day_alphas",
     "day_edges",
     "day_fluxes",
-    "drain_fluxes",
     "head_of_v",
-    "node_pori",
     "other_sinks",
     "richards_day",
     "richards_day_with",
@@ -320,9 +315,7 @@ class RichardsForcing(Forcing):
 # ---------------------------------------------------------------------------
 
 
-def day_fluxes(
-    tot: SubstepTotals, stats: Any, config: RichardsConfig, dtype: Any, **fields: Array
-) -> SoilWaterFluxes:
+def day_fluxes(tot: SubstepTotals, stats: Any, dtype: Any, **fields: Array) -> SoilWaterFluxes:
     """The day's :class:`SoilWaterFluxes` (``dtype``) from the integrator's totals and counters
     (``stats``, ``None`` or a NamedTuple of diagnostic fields) and the other fields given
     (``infiltration``, ``drainage``, ``runoff``, ``balance_error`` and the event terms).
@@ -338,7 +331,6 @@ def day_fluxes(
         n_clamp=tot.n_clamp,
         **fields,
         **sink_fluxes(tot),
-        **drain_fluxes(tot, config),
         **({} if stats is None else stats._asdict()),
     )
 
@@ -349,23 +341,20 @@ def richards_day(
     supply: Array,
     evaporation: Array,
     uptake: Array | SinkChannels,
-    *,
-    aef: Any = None,
 ) -> SoilWater:
     """One day of Richards redistribution by the integrator of ``params.stepping``: ``n_sub`` sub-steps
     placed by :func:`substep_edges` (``FixedStepping``), or adaptive sub-steps
     (``AdaptiveStepping``, :mod:`~agrijax.processes.soil_water.richards_adaptive`).
 
     ``supply``/``evaporation`` hourly rates ``[24]`` [cm h-1], ``uptake`` the sink channels or
-    the per-layer root water uptake [cm d-1] alone, ``aef`` the field-saturation fraction (needed
-    with ``RichardsConfig.drain_cap``).
+    the per-layer root water uptake [cm d-1] alone.
     Returns the new state with the day's totals in ``flux``. This is the prescribed-supply day (the
     surface supply is prescribed; no infiltration event).
 
     Source: Ahuja et al. (2000) ch. 3; Celia et al. (1990); RZWQM2 ``RICHRD`` (``Rzrich.for``).
     """
     integrator = integrator_for(params.stepping)
-    return richards_day_with(integrator, water, params, supply, evaporation, uptake, aef=aef)
+    return richards_day_with(integrator, water, params, supply, evaporation, uptake)
 
 
 def richards_day_with(
@@ -375,8 +364,6 @@ def richards_day_with(
     supply: Array,
     evaporation: Array,
     uptake: Array | SinkChannels,
-    *,
-    aef: Any = None,
 ) -> SoilWater:
     """:func:`richards_day` with an explicit integrator (one not in the registry, such as a conformance
     fixture); ``params.stepping`` is not read.
@@ -384,8 +371,7 @@ def richards_day_with(
     Source: Ahuja et al. (2000) ch. 3; Celia et al. (1990); RZWQM2 ``RICHRD`` (``Rzrich.for``).
     """
     dtype = water.theta.dtype
-    pori = node_pori(params, aef, dtype)
-    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, dtype, pori)
+    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, dtype)
     new, diag = integrator.step_day(problem, water, DayPlan())
     return new.replace(flux=_m1_fluxes(water, new, diag, params))
 
@@ -401,7 +387,6 @@ def _m1_fluxes(
     return day_fluxes(
         tot,
         diag.stats,
-        params.config,
         water.theta.dtype,
         infiltration=tot.infiltration,
         drainage=tot.drainage,
@@ -439,9 +424,9 @@ def _m1_fluxes(
     ),
     deviates=(
         (
-            "the surface supply is the water that infiltrates; the Green-Ampt INFIL step is not part of it",
-            "RZWQM2 fills the profile with INFIL and Richards only redistributes; the event is the separate "
-            "soil_water/infiltration_ga process, composed with this one in soil_water/day",
+            "the surface supply is the water that infiltrates; an infiltration event is not part of it",
+            "RZWQM2 fills the profile with an infiltration event and Richards only redistributes; the event "
+            "is outside this process (an integrator takes it through its day plan)",
             "richards.py module docstring; tests/integration/test_richards_catpa.py (.ana column 5)",
         ),
         (
@@ -455,7 +440,8 @@ def _m1_fluxes(
             "RZWQM2 uses alpha = 1/2 after the first sub-step and modified Picard",
             "stable with a fixed small iteration count; time_scheme='rzwqm', jacobian='picard' give the "
             "reference scheme",
-            "tests/unit/test_richards.py convergence study; tests/integration/test_richards_dump.py",
+            "tests/unit/test_richards.py convergence study; the RICHRD dump comparison (data tier outside "
+            "this repository)",
         ),
     ),
 )
@@ -472,11 +458,6 @@ def richards_redistribution(
 
     Source: Ahuja et al. (2000) ch. 3; Celia et al. (1990); RZWQM2 ``RICHRD`` (``Rzrich.for``).
     """
-    _require(
-        not params.config.conventions,
-        "soil_water/richards@rzwqm2-4.6:faithful runs without the RZWQM2 convention switches "
-        f"{params.config.conventions}; use the soil_water/day convention variants",
-    )
     new = richards_day(state.soil_water, params, forcing_t.supply, forcing_t.evaporation, forcing_t.uptake)
     h = new.h
     if check_enabled():

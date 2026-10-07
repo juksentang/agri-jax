@@ -2,9 +2,8 @@
 
 The module is not re-exported under another slot's package (an import alias across slots would
 bypass lint rule AJ008). The producer's state :class:`RootwuState` sits at ``water_supply.<slot>``
-and its day entry is ``water_supply.<slot>.rootwu``; the same state carries the two ports of the
-slot's second entry, :func:`agrijax.processes.water_supply.publish.rzwqm_publish_uptake` (P3
-written, P4 read), which maps this state's layer uptake ``rwu`` onto the soil nodes.
+and its day entry is ``water_supply.<slot>.rootwu``; the same state carries two more ports (P3
+written, P4 read) for an entry that maps this state's layer uptake ``rwu`` onto a soil-node grid.
 
 Interface records (ordinary ``State`` pytrees, bound to ``iface.*`` paths at assembly):
 
@@ -291,9 +290,9 @@ class RootwuState(State):
     """State of the ``ROOTWU`` producer: its ``SAVE``d counter and today's layer uptake, plus the
     records the water-supply module exchanges (ports): the crop's root record (read) and the crop
     water record (``sw`` read, ``trwup`` written) of ``ROOTWU``; the node uptake (P3, written) and
-    the soil-water day's sink record (P4, read) of the publish entry
-    (:func:`~agrijax.processes.water_supply.publish.rzwqm_publish_uptake`). ``ROOTWU`` uses
-    neither of the last two: leave them unbound (``None``) where only ``ROOTWU`` runs."""
+    the soil-water day's sink record (P4, read) of an entry that maps the layer uptake onto a
+    soil-node grid. ``ROOTWU`` uses neither of the last two: leave them unbound (``None``) where
+    only ``ROOTWU`` runs."""
 
     tss: Array = field(
         unit="d",

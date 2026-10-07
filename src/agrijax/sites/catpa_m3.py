@@ -1,5 +1,5 @@
-"""CA-TPA inputs of the RZWQM2 4.6 day: the 2015-2023 forcing pytree, the season table and the
-CERES-Maize parameters of the RZWQM2-embedded crop.
+"""CA-TPA inputs: the 2015-2023 forcing pytree, the season table and the CERES-Maize parameters of
+the crop of the RZWQM2 scenario.
 
 Everything is built from the scenario's own input files (``rzwqm.dat``, ``IPNAMES.DAT``,
 ``CA-TPA.MET``, ``CA-TPA.BRK``, the embedded crop's DSSAT 4.0 ``MZCER040.CUL`` of the project and
@@ -18,26 +18,22 @@ contract (port P8) and of the record classes):
 =====================  ===============================================  ======================
 key                    record                                           source
 =====================  ===============================================  ======================
-``weather``            :class:`~agrijax.iface.surface.DailyWeather`     ``.MET`` after RZWQM2
-                       (``srad`` is RTS, ``srad_horizontal`` RTH,       ``INPDAY`` + RTS rebuild
-                       MJ m-2 d-1)
-``soil``               :class:`~agrijax.processes.soil_water.           ``.BRK`` (STMINP)
-                       infiltration.StormForcing` (h, h, cm)
+``weather``            :class:`~agrijax.iface.surface.DailyWeather`     ``.MET`` after the daily
+                       (``srad`` and ``srad_horizontal``, MJ m-2 d-1)   preparation
 ``events``             :class:`~agrijax.core.events.EventTable`         ``rzwqm.dat`` management
                        (``sow`` / ``harvest`` flags, ``irrig_cm``)
 ``crop``               :class:`~agrijax.processes.crop.ceres_maize.     weather + ``DAYLEN`` /
                        state.CeresForcing` (replay fields zero)         ``TWILIGHT``; CO2
 =====================  ===============================================  ======================
 
-RTS and RTH stay in the forcing preprocessing, outside the differentiable processes: they are
-rebuilt with :func:`agrijax.forcing.radiation.rzwqm_radiation` (NumPy, not differentiable). Snow on
-the ground for the crop (``CeresForcing.snow``) is zero here: in the coupled day the crop reads the
-snow port P9.
+The weather stays in the forcing preprocessing, outside the differentiable processes (NumPy, not
+differentiable). Snow on the ground for the crop (``CeresForcing.snow``) is zero here: in a coupled
+day the crop reads the snow port P9. The breakpoint storms of the ``.BRK`` file are in
+:attr:`CatpaM3Inputs.storms` (:func:`~agrijax.io.rzwqm.storms.storm_arrays`).
 
 The season table (:func:`season_table`) holds the seven CA-TPA maize seasons 2015-2021 of the
 ``PLANT MANAGEMENT`` block: sowing and (fixed-date) harvest days, and the per-season planting
-values the crop reads (``PLTPOP``, ``SDEPTH``, ``ROWSPC``, ``YRPLT``; RZWQM2 4.5
-DSSATDRV.for:504-510 passes them to the crop). Validated against ``MANAGE.OUT`` of the
+values the crop reads (``PLTPOP``, ``SDEPTH``, ``ROWSPC``, ``YRPLT``). Validated against ``MANAGE.OUT`` of the
 2015-2023 base run and the ``DSSATDRV`` / ``MZ_GROSUB`` tables of the instrumented run
 (``tests/integration/test_io_m3_catpa.py``).
 """
@@ -82,7 +78,6 @@ __all__ = [
     "event_table",
     "latitude_deg",
     "season_table",
-    "storm_forcing",
 ]
 
 #: the CA-TPA cultivar (``MANAGE.OUT``: "CROP PLANTED: MAIZE IB0012 PIO 3382"; ``DSSATDRV``
@@ -92,8 +87,7 @@ CATPA_VARNO: str = "IB0012"
 M2_PER_HA: float = 1.0e4
 #: RZWQM2 harvest option 3 = fixed date (``rzwqm.dat`` PLANT MANAGEMENT record 2, item 1)
 _HARVEST_FIXED_DATE = 3
-#: 0-based ``METMOD`` row of the CO2 modifier [percent] (``CO2R = CO2A * METMOD(8, month) * 1e-2``,
-#: Rzmain.for:3559)
+#: 0-based ``METMOD`` row of the CO2 modifier [percent] of ``IPNAMES.DAT``
 _CO2_MODIFIER_ROW = 7
 _PERCENT_TO_FRACTION = 1.0e-2
 
@@ -306,16 +300,6 @@ def event_table(dat: RzwqmDat, days: Sequence[np.datetime64] | np.ndarray) -> An
     return event_table_from_frame(df, pd.DatetimeIndex(d))
 
 
-# ============================================================================ storms
-def storm_forcing(storms: StormArrays) -> Any:
-    """The :class:`~agrijax.processes.soil_water.infiltration.StormForcing` of ``storms``."""
-    from agrijax.processes.soil_water.infiltration import StormForcing
-
-    return StormForcing(
-        ts0=jnp.asarray(storms.ts0), duration=jnp.asarray(storms.duration), depth=jnp.asarray(storms.depth)
-    )
-
-
 # ============================================================================ weather
 def latitude_deg(dat: RzwqmDat) -> float:
     """Site latitude [deg] as RZWQM2 passes it to the crop (``XLATR = XLAT * R2D``, Rzman.for:5862)."""
@@ -329,22 +313,13 @@ def daily_weather(
     *,
     met_modifiers: np.ndarray | None = None,
 ) -> tuple[Any, np.ndarray]:
-    """``(DailyWeather, RTH)`` of ``days``: the ``.MET`` record after RZWQM2's ``INPDAY``
-    preparation (:func:`~agrijax.io.rzwqm.met.prepare_rzwqm_forcing`: wind floor, the
-    ``met_modifiers`` of ``IPNAMES.DAT``, bounds) with ``srad`` = RTS, the re-sum of the hourly
-    radiation on the site's slope (:func:`~agrijax.forcing.radiation.rzwqm_radiation`), and RTH
-    [MJ m-2 d-1] the daily ``.MET`` radiation after ``INPDAY`` (the value the hourly
-    disaggregation starts from; equal to ``PHYSCL`` ``RTH`` of the reference run)."""
+    """``(DailyWeather, RTH)`` of ``days``: the ``.MET`` record after the daily preparation
+    (:func:`~agrijax.io.rzwqm.met.prepare_rzwqm_forcing`: wind floor, the ``met_modifiers`` of
+    ``IPNAMES.DAT``, bounds); ``srad`` and RTH [MJ m-2 d-1] are both the prepared ``.MET``
+    radiation (no hourly disaggregation)."""
     from agrijax.iface.surface import DailyWeather
 
-    ph = dat.physiography
-    met = prepare_rzwqm_forcing(
-        read_met(met_path),
-        latitude_rad=ph["latitude_rad"],
-        slope_rad=ph["slope_rad"],
-        aspect_rad=ph["aspect_rad"],
-        met_modifiers=met_modifiers,
-    )
+    met = prepare_rzwqm_forcing(read_met(met_path), met_modifiers=met_modifiers)
     d = np.asarray(days, dtype="datetime64[D]")
     idx = pd.DatetimeIndex(d)
     missing = idx.difference(pd.DatetimeIndex(met.index))
@@ -353,7 +328,7 @@ def daily_weather(
         raise ValueError(f"{met_path}: no weather record for {len(missing)} days, first {first}")
     m = met.loc[idx]
     doy = np.array([t.dayofyear for t in idx], dtype=float)
-    rth = m["srad_mj_met"].to_numpy(float)
+    rth = m["srad_mj"].to_numpy(float)
     w = DailyWeather(
         tmin=jnp.asarray(m["tmin"].to_numpy(float)),
         tmax=jnp.asarray(m["tmax"].to_numpy(float)),
@@ -373,7 +348,7 @@ def ceres_forcing(
     co2_ppm: float | np.ndarray,
     n_layer: int,
 ) -> Any:
-    """The crop's :class:`CeresForcing` of ``days`` from ``weather`` (tmax, tmin, srad = RTS):
+    """The crop's :class:`CeresForcing` of ``days`` from ``weather`` (tmax, tmin, srad):
     ``DAYLEN`` / ``TWILIGHT`` daylengths at ``lat_deg``, ``co2_ppm`` (scalar or ``[T]``). The record is
     the weather only: the crop's snow and water come through the ports P9 and P1 in the coupled day
     (the replay fields live in ``CeresReplayForcing``). ``n_layer`` is accepted for the
@@ -513,7 +488,6 @@ def catpa_m3_inputs(
     co2 = float(dat.physiography["co2_ppm"]) * metmod[_CO2_MODIFIER_ROW, month] * _PERCENT_TO_FRACTION
     n_layer = len(np.asarray(soil["dlayr"]))
     forcing: dict[str, Any] = {
-        "soil": storm_forcing(storms),
         "events": event_table(dat, days),
         "crop": ceres_forcing(weather, days, lat_deg=lat, co2_ppm=co2, n_layer=n_layer),
     }

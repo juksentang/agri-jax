@@ -1,6 +1,6 @@
 """The adaptive Richards integrator (``RichardsParams.stepping = AdaptiveStepping()``).
 
-No data: the CA-TPA grid and soil of ``test_richards`` and synthetic forcing.
+No data: the 37-node grid and synthetic soil of ``test_richards`` and synthetic forcing.
 
 * every accepted sub-step converges (node residual and balance within the Newton tolerance) and
   closes its water balance to the tolerance; the day's balance closes;
@@ -11,7 +11,6 @@ No data: the CA-TPA grid and soil of ``test_richards`` and synthetic forcing.
 * ``jit`` re-runs are bit for bit, ``vmap`` equals the loop, float32 runs and stays close to float64;
 * step decisions carry no gradient; the implicit-function gradient equals central differences
   on the frozen step table;
-* the soil-water day with a Green-Ampt event runs both adaptive segments and closes its balance;
 * the day's largest per-step balance is reported (``step_balance_max``); output steps from
   step-table changes stay below 1e-3 cm on a storm day; central differences of the full adaptive
   run at two steps agree with AD where the step table does not move;
@@ -34,7 +33,6 @@ from jax import lax
 from agrijax.core import Model
 from agrijax.core.runtime import run
 from agrijax.processes.soil_water import richards_adaptive as A
-from agrijax.processes.soil_water.day import DayConfig, soil_water_day, soil_water_day_kernel
 from agrijax.processes.soil_water.richards import (
     DT_MAX_FAST,
     DT_START,
@@ -49,8 +47,7 @@ from agrijax.processes.soil_water.richards import (
     richards_redistribution,
 )
 
-from . import test_infiltration_day as TD
-from .test_richards import catpa_grid, catpa_soil, synthetic_forcing
+from .test_richards import layered_grid, layered_soil, synthetic_forcing
 
 X64 = bool(jax.config.read("jax_enable_x64"))
 FDT = jnp.float64 if X64 else jnp.float32
@@ -70,12 +67,12 @@ def _storm_day(amount: float = 2.5, hour: int = 3) -> tuple[jax.Array, jax.Array
 
 
 def _params(**kw) -> RichardsParams:
-    return RichardsParams(soil=catpa_soil(), grid=catpa_grid(), stepping=AdaptiveStepping(**kw))
+    return RichardsParams(soil=layered_soil(), grid=layered_grid(), stepping=AdaptiveStepping(**kw))
 
 
 def _dry(head: float = -3000.0) -> SoilWater:
     """A dry profile at a uniform head (above h_min in every horizon)."""
-    return SoilWater.from_head(jnp.full(37, head, FDT), catpa_soil())
+    return SoilWater.from_head(jnp.full(37, head, FDT), layered_soil())
 
 
 def _segment(params: RichardsParams, water: SoilWater, forcing=None, dt0=None):
@@ -107,7 +104,7 @@ def test_adaptive_config() -> None:
         1e-10,
         True,
     )
-    assert isinstance(RichardsParams(soil=catpa_soil(), grid=catpa_grid()).stepping, FixedStepping)
+    assert isinstance(RichardsParams(soil=layered_soil(), grid=layered_grid()).stepping, FixedStepping)
     assert DT_START == 1e-4
     # the adaptive integrator has no gradient or Jacobian mode (always Newton with implicit-function VJPs)
     for kw in ({"stepping": "adaptive"}, {"grad": "implicit"}, {"jacobian": "picard"}, {"n_sub": 24}):
@@ -123,7 +120,7 @@ def test_adaptive_config() -> None:
     with pytest.raises(ValueError):
         AdaptiveStepping.tier("slow")
     with pytest.raises(TypeError):
-        RichardsParams(soil=catpa_soil(), grid=catpa_grid(), stepping=RichardsConfig())
+        RichardsParams(soil=layered_soil(), grid=layered_grid(), stepping=RichardsConfig())
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +256,7 @@ def test_failed_solves_are_retried_halved_and_recovered() -> None:
     for _, _, st, _ in (ref, tight):
         assert float(st.n_unconverged) == 0.0 and float(st.budget_exhausted) == 0.0
     assert float(tight[2].n_rejects) > float(ref[2].n_rejects)
-    d = abs(float(tight[0].storage(catpa_grid())) - float(ref[0].storage(catpa_grid())))
+    d = abs(float(tight[0].storage(layered_grid())) - float(ref[0].storage(layered_grid())))
     print(f"storage difference, 3 vs 10 Newton evaluations: {d:.3e} cm; rejects {float(tight[2].n_rejects)}")
     assert d <= 1e-3
 
@@ -354,7 +351,7 @@ def test_float32_runs_and_stays_close_to_float64() -> None:
         s32 = float(w32.storage(p32.grid))
         flux32 = jax.tree_util.tree_map(float, w32.flux)
     assert np.all(np.isfinite(np.asarray(w32.theta)))
-    d = abs(s32 - float(w64.storage(catpa_grid())))
+    d = abs(s32 - float(w64.storage(layered_grid())))
     print(f"float32 - float64 storage {d:.3e} cm; f32 unconverged {flux32.n_unconverged}, "
           f"steps {flux32.n_steps} vs {float(w64.flux.n_steps)}")  # fmt: skip
     assert d <= 1e-3
@@ -470,45 +467,6 @@ def test_gradient_is_finite_in_the_switching_regimes() -> None:
 
 
 # ---------------------------------------------------------------------------
-# the soil-water day with the Green-Ampt event
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("n_pre", [0, 12])
-def test_soil_water_day_with_events_runs_both_segments_and_closes(n_pre: int) -> None:
-    params = TD._params(day=DayConfig(n_pre=n_pre, n_post=24 - n_pre), stepping=AdaptiveStepping())
-    forcing = TD._forcing(6, seed=3, supply_scale=0.3)
-    forcing = jax.tree_util.tree_map(lambda x: jnp.asarray(x, FDT), forcing)
-    w0 = SoilWater.from_theta(jnp.full(37, 0.25, FDT), params.richards.soil)
-
-    def body(w, f):
-        w2, _, shift = soil_water_day_kernel(w, params, f.supply, f.evaporation, f.uptake, f.storm)
-        return w2, (w2.flux, shift, w2.dt_next)
-
-    _, (flux, shift, dtn) = jax.jit(lambda w, f: lax.scan(body, w, f))(w0, forcing)
-    has_event = np.asarray(jnp.sum(forcing.storm.depth, axis=-1)) > 0
-    assert has_event.any() and (~has_event).any()
-    assert np.all(np.asarray(flux.n_unconverged) == 0) and np.all(np.asarray(flux.budget_exhausted) == 0)
-    bal = np.abs(np.asarray(flux.balance_error))
-    print(f"n_pre {n_pre}: day |balance| max {bal.max():.3e}; steps {np.asarray(flux.n_steps)}")
-    assert bal.max() <= (1e-8 if X64 else 5e-3)
-    assert np.all(np.asarray(flux.n_steps) >= 240)
-    ts0 = np.asarray(forcing.storm.ts0)
-    expect_shift = np.where(has_event, (np.clip(ts0, 0, 24) if n_pre else 0.0) - ts0, 0.0)
-    np.testing.assert_allclose(np.asarray(shift), expect_shift, atol=1e-6)
-    # an event restarts the step at dt_reset: the day's smallest step is dt_reset on event days
-    dmin = np.asarray(flux.dt_min_used)
-    assert np.all(dmin[has_event] <= 1e-4 * (1 + 1e-6))
-    assert np.all(np.asarray(dtn) > 0)
-    # the registered process gives the same state
-    st = RichardsState(soil_water=w0)
-    f0 = jax.tree_util.tree_map(lambda x: x[0], forcing)
-    out = soil_water_day(st, params, f0)
-    w1, _, _ = soil_water_day_kernel(w0, params, f0.supply, f0.evaporation, f0.uptake, f0.storm)
-    np.testing.assert_array_equal(np.asarray(out.soil_water.theta), np.asarray(w1.theta))
-
-
-# ---------------------------------------------------------------------------
 # per-step balance diagnostic, output steps, two-step differences
 # ---------------------------------------------------------------------------
 
@@ -524,7 +482,7 @@ def test_step_balance_max_is_the_largest_accepted_step_balance() -> None:
         float(st.step_balance_max), rel=0, abs=1e-13 if X64 else 3e-5
     )
     assert float(w.flux.step_balance_max) <= (1e-10 if X64 else 3e-5)
-    fixed = RichardsParams(soil=catpa_soil(), grid=catpa_grid(), stepping=FixedStepping())
+    fixed = RichardsParams(soil=layered_soil(), grid=layered_grid(), stepping=FixedStepping())
     assert float(richards_day(_dry(), fixed, supply, evap, uptake).flux.step_balance_max) == 0.0
     # two segments of a day: the larger of the two
     a = A.empty_stats(FDT)._replace(step_balance_max=jnp.asarray(2.0, FDT))
@@ -623,7 +581,7 @@ def test_profile_at_h_min_drains_below_it_and_every_step_closes() -> None:
     behaviour), the held rows leave that flux as balance error."""
     params = _params()
     hmin = float(params.h_min)
-    water = SoilWater.from_head(jnp.full(37, hmin, FDT), catpa_soil())
+    water = SoilWater.from_head(jnp.full(37, hmin, FDT), layered_soil())
     new, tot, st, tr = _segment(params, water, _NO_FORCING)
     live = np.asarray(tr.live) > 0
     bal = np.abs(np.asarray(tr.balance_error)[live])
@@ -649,7 +607,7 @@ def test_start_profile_below_h_min_is_not_wetted_by_the_bound() -> None:
     params = _params()
     hmin = float(params.h_min)
     h = jnp.full(37, -3000.0, FDT).at[20:23].set(1.2 * hmin)
-    water = SoilWater.from_head(h, catpa_soil())
+    water = SoilWater.from_head(h, layered_soil())
     new, tot, st, tr = _segment(params, water, _NO_FORCING)
     live = np.asarray(tr.live) > 0
     bal = np.abs(np.asarray(tr.balance_error)[live])
@@ -665,7 +623,7 @@ def test_saturated_block_under_heavy_supply_converges() -> None:
     and the budget holds."""
     params = _params()
     h = jnp.full(37, -5000.0, FDT).at[:8].set(2.0)
-    water = SoilWater.from_head(h, catpa_soil())
+    water = SoilWater.from_head(h, layered_soil())
     supply = jnp.zeros(24, FDT).at[:2].set(3.0)
     forcing = (supply, jnp.zeros(24, FDT), jnp.zeros(37, FDT))
     new, tot, st, tr = _segment(params, water, forcing)

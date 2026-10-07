@@ -19,8 +19,8 @@ file                   content and source
                        (:func:`brooks_corey_theta`) at the scenario's wilting-point and
                        field-capacity heads, SAT = theta_s, SKS = Ksat
 ``CTPAyy01.WTH``       one file per year (:func:`catpa_weather`): the ``.MET`` record after
-                       RZWQM2's ``INPDAY`` preparation with SRAD = RTS (what RZWQM2 passes the
-                       embedded crop), RAIN = the day's ``.BRK`` storms after ``STMINP``; CO2
+                       the daily preparation (SRAD the prepared ``.MET`` value), RAIN = the
+                       day's ``.BRK`` storms after the skip threshold; CO2
                        from the site line (``CCO2``, run with ``CO2 = W``)
 ``MZCER048.CUL/.ECO/   genotype set ``catpa`` only (:func:`write_catpa_genotype`): the 4.8.6
 .SPE``                 files with the CA-TPA cultivar row ``CT0012`` (the embedded crop's
@@ -142,7 +142,7 @@ DSSAT_LAYER_BOTTOMS_CM: np.ndarray = np.concatenate(
 _PERCENT = 100.0
 #: unit conversion cm -> mm (storm depths -> DSSAT RAIN)
 _MM_PER_CM = 10.0
-#: decimals written to the ``.WTH`` columns (DSSAT reads them as REAL; RTS and the temperatures
+#: decimals written to the ``.WTH`` columns (DSSAT reads them as REAL; SRAD and the temperatures
 #: change by at most 5e-4 in their unit)
 #: decimals of the ``.SOL`` layer values (the reference's REAL values to 5e-5)
 SOL_DECIMALS = 4
@@ -180,19 +180,19 @@ DSSAT_ONLY_SETTINGS: tuple[Setting, ...] = (
         "0.13, 8.5 mm, 0.53 d-1, 64",
         "DSSAT-CSM 4.8.6 example_data/Soil/SOIL.SOL:1111 (UFWH940004 Eustis loamy sand); RZWQM2 has "
         "no tipping-bucket drainage, runoff curve number or Ritchie stage-1 limit (Green-Ampt + "
-        "Richards); its 'albedo of the dry soil' (0.68, passed to the embedded crop as SALB) is not "
+        "Richards); its 'albedo of the dry soil' (passed to the embedded crop as SALB) is not "
         "a DSSAT soil albedo",
     ),
     Setting(
         "SOL SSAT, SBDM",
         "theta_s, bulk density of the untilled horizons",
-***REMOVED***
+        "on crop days the embedded crop sees the tilled top 15 cm (the tilled SAT and BD of SOILPROP); the "
         "static .SOL keeps the rzwqm.dat horizon values",
     ),
     Setting(
         "SOL SSKS",
         "thickness-weighted Ksat",
-***REMOVED***
+        "the 60-90 cm layer mixes two horizons; RZWQM2 passes no Ksat to the crop",
     ),
     Setting("SOL SLHB, SCEC, SADC, SLCF", "-99, -99, -99, 0", "not in rzwqm.dat (no coarse fraction)"),
     Setting(
@@ -375,19 +375,12 @@ def catpa_weather(
     paths: CatpaPaths, dat: RzwqmDat, start: str | np.datetime64, end: str | np.datetime64
 ) -> pd.DataFrame:
     """Daily DSSAT weather of ``[start, end]`` (``date srad tmax tmin rain rhum wind``): the
-    ``.MET`` record after RZWQM2's ``INPDAY`` preparation with the ``IPNAMES.DAT`` modifiers
-    (:func:`~agrijax.io.rzwqm.met.prepare_rzwqm_forcing`, ``srad`` = RTS [MJ m-2 d-1]), wind run
-    [km d-1], RH [%], and ``rain`` [mm] = the day's ``.BRK`` storm depth after ``STMINP`` and the
-    rainfall modifier (:func:`~agrijax.io.rzwqm.storms.storm_arrays`)."""
-    ph = dat.physiography
+    ``.MET`` record after the daily preparation with the ``IPNAMES.DAT`` modifiers
+    (:func:`~agrijax.io.rzwqm.met.prepare_rzwqm_forcing`, ``srad`` the prepared ``.MET`` value
+    [MJ m-2 d-1]), wind run [km d-1], RH [%], and ``rain`` [mm] = the day's ``.BRK`` storm depth
+    after the skip threshold and the rainfall modifier (:func:`~agrijax.io.rzwqm.storms.storm_arrays`)."""
     metmod = read_met_modifiers(paths["IPNAMES.DAT"])
-    met = prepare_rzwqm_forcing(
-        read_met(paths["CA-TPA.MET"]),
-        latitude_rad=ph["latitude_rad"],
-        slope_rad=ph["slope_rad"],
-        aspect_rad=ph["aspect_rad"],
-        met_modifiers=metmod,
-    )
+    met = prepare_rzwqm_forcing(read_met(paths["CA-TPA.MET"]), met_modifiers=metmod)
     days = np.arange(_day(start), _day(end) + np.timedelta64(1, "D"))
     idx = pd.DatetimeIndex(days)
     m = met.loc[idx]

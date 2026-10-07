@@ -152,7 +152,7 @@ def test_rzwqm_scenario_event_values(data_dir: Path, site: str) -> None:
         if e == "tillage":
             r = till[ln]
             assert r["date"] in (None, day), (site, day, ln)
-            assert not exp_till[t], (site, day)  # one tillage record per day (***REMOVED***)
+            assert not exp_till[t], (site, day)  # one tillage record per day
             exp_till[t] = True
             assert v == r["depth"] == a["till_depth_cm"][t], (site, day)
             assert a["till_implement"][t] == source_code("rzwqm2", r["implement"]), (site, day)

@@ -6,7 +6,7 @@
 
 Every process is a pure function, so a season can be run for 10⁵ parameter sets in one `vmap` and differentiated with `jax.grad`. The models read the DSSAT and RZWQM parameter files that agronomists already have.
 
-> **Status.** The DSSAT-CSM v4.8.6 daily model (multi-layer tipping-bucket soil water, SPAM evapotranspiration, root water uptake, CERES-Maize; nitrogen off) runs whole seasons free and is compared with `dscsm048` on 65 seasons. A Richards soil-water solver is a parallel module; its coupled assembly with RZWQM2-style processes is in progress. `agrijax.calib.calibrate` fits CERES-Maize cultivar coefficients in one call and writes them back as a DSSAT `.CUL` row. The PyPI package (`agrijax`) is a name-reserving placeholder.
+> **Status.** The DSSAT-CSM v4.8.6 daily model (multi-layer tipping-bucket soil water, SPAM evapotranspiration, root water uptake, CERES-Maize; nitrogen off) runs whole seasons free and is compared with `dscsm048` on 65 seasons. A Richards soil-water solver (implicit mixed form, modified Brooks–Corey curves) is a separate module, compared with RZWQM2 outputs. `agrijax.calib.calibrate` fits CERES-Maize cultivar coefficients in one call and writes them back as a DSSAT `.CUL` row. The PyPI package (`agrijax`) is a name-reserving placeholder.
 
 ## Quick start
 
@@ -54,7 +54,7 @@ All rows: nitrogen off, float64, compared with DSSAT-CSM v4.8.6.0 (`dscsm048`) o
 | CERES-Maize alone, driven by the reference's soil water and transpiration (58 treatments) | daily LAI within 0.50 %, biomass 0.63 %, yield 0.030 %, stages equal every day |
 | H100 float64 (layer loops unrolled, the GPU default; whole card and a 1g.10gb slice) against CPU float64, 65 seasons | yield differs by ≤ 1.4e-15 relative, stage dates equal in 65 of 65 |
 | Richards solver, 96×8 grid, CA-TPA 2015–2023 against RZWQM2, driven by RZWQM2's daily infiltration, evaporation and root uptake, each year started from RZWQM2's profile | storage RMSE 0.0152–0.0480 cm per year; the 24×3 grid is within 0.05 cm in five of nine years; daily mass-balance error ≤ 6.3e-6 cm |
-| Shuttleworth–Wallace and ASCE potential ET, CA-TPA 2015 (one site-year) | potential evaporation RMSE 4.0e-4 mm/d and potential transpiration RMSE 6.6e-5 mm/d against RZWQM2; ASCE against `pyet` < 1e-3 mm/d |
+| ASCE reference ET, CA-TPA 2015 (one site-year) | RMSE < 1e-3 mm/d against the values RZWQM2 prints; against `pyet` < 1e-3 mm/d |
 
 Bit-for-bit reproducibility holds for a fixed program shape. On the CPU the same shapes and batch composition reproduce the acceptance report byte for byte; a different batch size or composition can change the last bits. On a whole H100, unrolled and looped layer recurrences give identical stage dates, soil water, runoff, drainage and yield, but last-bit differences in other outputs (17 of 65 seasons are bit-identical in every output). The tests are `tests/integration/test_day_dssat486_free.py` and `test_day_dssat486_free_gpu.py`; they compare against tables written by an instrumented DSSAT build, which are not distributed (the native-input test `tests/integration/test_dssat_free_inputs.py` checks that inputs built from DSSAT's files equal them).
 
@@ -119,7 +119,7 @@ PCSE (WOFOST in Python) has run-time variable ownership and per-module forced-st
 
 - Maize only (CERES-Maize), nitrogen off. `calibrate` refuses treatments where nitrogen changes DSSAT's yield by more than 5 %.
 - Inputs are built from DSSAT's files for treatments whose options Agri-JAX implements (50 of the 65 validation runs); automatic irrigation, the CENTURY organic matter with surface residue, tillage, tile drainage and a water table are refused. `calibrate` needs a measured nitrogen effect, so it runs on the DSSAT v4.8.6 maize example treatments only.
-- Tile drainage exists as a framework only. The Richards solver is not yet coupled to the crop in an RZWQM2-style model; the 24×3 grid misses 0.05 cm in four of nine CA-TPA years, and on eight other RZWQM2 scenarios the 96×8 grid is within 0.05 cm in 18 of 82 site-years; Shuttleworth–Wallace is validated on one site-year.
+- Tile drainage exists as a framework only. The Richards solver is not coupled to the crop; the 24×3 grid misses 0.05 cm in four of nine CA-TPA years, and on eight other RZWQM2 scenarios the 96×8 grid is within 0.05 cm in 18 of 82 site-years.
 - Bit-for-bit reproducibility holds for a fixed program shape (see Validation). float32 on the GPU is not bit-identical to the CPU, and float32 is measured for forward runs only.
 - Gradients are labelled by scope: the forward model is validated; some parameters support gradients; gradients through phenology events are experimental (with `method="adam"`, P1, P2, P5 and PHINT stay derivative-free).
 - The speed numbers are for one task on one cluster, one measurement per cell.
@@ -148,7 +148,7 @@ Data-backed tests read from `--data-dir` or `AGRI_JAX_DATA`; the unit tier needs
 
 ## Licence, provenance, acknowledgements, citation
 
-Apache-2.0. CERES-Maize and the DSSAT soil-water balance are implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained in `THIRD_PARTY_NOTICES.md`. Soil water and PET follow the ***REMOVED*** (Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985). No RZWQM2 code is included or redistributed; RZWQM2 is a reference model whose outputs are compared and only the resulting numbers are reported.
+Apache-2.0. CERES-Maize and the DSSAT soil-water balance are implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained in `THIRD_PARTY_NOTICES.md`. The Richards solver follows published equations (Ahuja et al., 2000; Celia et al., 1990) and the reference ET the ASCE-EWRI (2005) standard. RZWQM2 (USDA-ARS) is used only as an external reference model: its outputs are compared and only the resulting numbers are reported. No RZWQM2 source code or data, and no code derived from its source, is included.
 
 The Newton early-stopping experiment for the Richards solver (`scripts/bench/collab/`) is by Jiaqi Zhang (pull request #1). This research was enabled in part by support provided by [Calcul Québec](https://www.calculquebec.ca) and the [Digital Research Alliance of Canada](https://alliancecan.ca). All GPU work runs on the rorqual cluster operated by Calcul Québec.
 

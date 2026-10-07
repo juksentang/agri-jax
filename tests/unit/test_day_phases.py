@@ -87,7 +87,7 @@ RZ_PROCS = {
     "crops.maize.publish_uptake": _p(_publish, ("crops.maize.lai",), ("iface.root_uptake.maize.q",)),
 }
 UPTAKE_LAG = Lag(
-    "soil_water.day", "iface.root_uptake.maize.q", evidence="RZWQM2 DSSATDRV: QSR is used the next day"
+    "soil_water.day", "iface.root_uptake.maize.q", evidence="fixture: the uptake is used the next day"
 )
 
 

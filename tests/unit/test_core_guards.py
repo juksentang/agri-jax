@@ -5,7 +5,6 @@ import jax.numpy as jnp
 from agrijax.core import grad as G
 from agrijax.core import ledger as L
 from agrijax.core.coefficients import GUARDS
-from agrijax.models import catpa_pet_demo as C
 from agrijax.models import tobacco_demo as T
 
 
@@ -48,5 +47,3 @@ def test_demo_defaults_are_declared() -> None:
     }
     for k, v in T._DEFAULT_VALUES.items():
         assert float(getattr(p, k)) == float(jnp.asarray(v))  # the default dtype (float32 or float64)
-    assert C._RESIDUE_TYPE_BY_CRES == {2.0: "corn", 2.5: "soybean", 4.0: "wheat"}
-    assert C._MSALB_PLACEHOLDER == 0.13

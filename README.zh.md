@@ -6,7 +6,7 @@
 
 每个过程都是纯函数，因此一次 `vmap` 即可模拟 10⁵ 组参数的完整生长季，并用 `jax.grad` 求导。模型可直接读取农学研究者已有的 DSSAT 和 RZWQM 参数文件。
 
-> **当前状态。** DSSAT-CSM v4.8.6 日步长模型（多层水桶模型土壤水分、SPAM 蒸散、根系吸水、CERES-Maize；关闭氮模块）已可自主运行完整生长季，并在 65 个生长季上与 `dscsm048` 对比。Richards 土壤水分求解器作为另一模块并行开发；它与 RZWQM2 风格过程的耦合组装仍在进行。`agrijax.calib.calibrate` 可一次调用拟合 CERES-Maize 品种系数，并将结果写回 DSSAT 的 `.CUL` 文件行。PyPI 包（`agrijax`）目前仅用于预留包名。
+> **当前状态。** DSSAT-CSM v4.8.6 日步长模型（多层水桶模型土壤水分、SPAM 蒸散、根系吸水、CERES-Maize；关闭氮模块）已可自主运行完整生长季，并在 65 个生长季上与 `dscsm048` 对比。Richards 土壤水分求解器作为另一模块，与 RZWQM2 的输出对比。`agrijax.calib.calibrate` 可一次调用拟合 CERES-Maize 品种系数，并将结果写回 DSSAT 的 `.CUL` 文件行。PyPI 包（`agrijax`）目前仅用于预留包名。
 
 ## 快速开始
 
@@ -54,7 +54,7 @@ Agri-JAX 从 DSSAT 自身的文件（FileX、`.SOL`、`.WTH`、`.CUL` / `.ECO` /
 | 单独运行 CERES-Maize，以参考模型的土壤水分和蒸腾驱动（58 个处理） | 逐日 LAI 误差在 0.50 % 以内，生物量 0.63 %，产量 0.030 %；生育阶段逐日一致 |
 | H100 float64（展开土层循环，GPU 默认设置；整卡及 1g.10gb 分区）与 CPU float64 对比，65 个生长季 | 产量相对差异 ≤ 1.4e-15，65/65 个生长季的阶段日期一致 |
 | Richards 求解器，96×8 网格，CA-TPA 2015–2023，与 RZWQM2 对比；由 RZWQM2 的逐日入渗、蒸发和根系吸水驱动，每年从 RZWQM2 的剖面状态开始 | 各年储水量 RMSE 为 0.0152–0.0480 cm；24×3 网格在九年中的五年达到 0.05 cm 以内；逐日质量平衡误差 ≤ 6.3e-6 cm |
-| Shuttleworth–Wallace 和 ASCE 潜在蒸散，CA-TPA 2015（一个站点年） | 与 RZWQM2 对比，潜在蒸发 RMSE 为 4.0e-4 mm/d，潜在蒸腾 RMSE 为 6.6e-5 mm/d；ASCE 与 `pyet` 的差异 < 1e-3 mm/d |
+| ASCE 参考蒸散，CA-TPA 2015（一个站点年） | 与 RZWQM2 输出的数值对比 RMSE < 1e-3 mm/d；与 `pyet` 的差异 < 1e-3 mm/d |
 
 固定程序形状时，结果可逐位复现。在 CPU 上，相同形状和批次组成可逐字节复现验收报告；改变批次大小或组成可能改变最低有效位。在整张 H100 上，展开与保留循环的土层递推给出相同的阶段日期、土壤水分、径流、排水和产量，但其他输出存在最低有效位差异（65 个生长季中，17 个的全部输出逐位一致）。测试为 `tests/integration/test_day_dssat486_free.py` 和 `test_day_dssat486_free_gpu.py`；它们与插桩版 DSSAT 程序生成的表格对比，这些表格不随项目分发（原生输入测试 `tests/integration/test_dssat_free_inputs.py` 检查从 DSSAT 文件构建的输入是否与这些表格一致）。
 
@@ -119,7 +119,7 @@ PCSE（Python 中的 WOFOST）具有运行时变量写入权管理和逐模块�
 
 - 仅支持玉米（CERES-Maize），关闭氮模块。如果氮使 DSSAT 产量变化超过 5 %，`calibrate` 会拒绝该处理。
 - 对 Agri-JAX 已实现选项的处理，从 DSSAT 文件构建输入（65 次验证运行中的 50 次）；自动灌溉、带地表残留物的 CENTURY 有机质过程、耕作、暗管排水和地下水位均不支持，并会拒绝运行。`calibrate` 需要实测的氮效应，因此仅适用于 DSSAT v4.8.6 玉米示例处理。
-- 暗管排水目前只有框架。Richards 求解器尚未在 RZWQM2 风格模型中与作物耦合；24×3 网格在 CA-TPA 九年中的四年未达到 0.05 cm 的标准，另八个 RZWQM2 情景中，96×8 网格仅在 82 个站点年中的 18 个达到 0.05 cm 以内；Shuttleworth–Wallace 仅在一个站点年上验证。
+- 暗管排水目前只有框架。Richards 求解器尚未与作物耦合；24×3 网格在 CA-TPA 九年中的四年未达到 0.05 cm 的标准，另八个 RZWQM2 情景中，96×8 网格仅在 82 个站点年中的 18 个达到 0.05 cm 以内。
 - 固定程序形状时可逐位复现（见“验证”）。GPU 上的 float32 与 CPU 并非逐位一致，且 float32 仅测量了前向运行。
 - 梯度按适用范围标注：前向模型已经验证；部分参数支持梯度；穿过物候事件的梯度仍属实验性功能（使用 `method="adam"` 时，P1、P2、P5 和 PHINT 仍采用无导数方法）。
 - 速度数据仅针对一个集群上的一项任务，每个单元格测量一次。
@@ -148,7 +148,7 @@ uv run python -m agrijax.core.lint src --strict
 
 ## 许可、来源、致谢与引用
 
-Apache-2.0。CERES-Maize 和 DSSAT 土壤水量平衡依据开源 DSSAT-CSM（BSD-3）独立实现，其署名声明保留于 `THIRD_PARTY_NOTICES.md`。土壤水分和 PET 遵循已发表的 RZWQM2 方程（Ahuja et al., 2000; Farahani & Ahuja, 1996; Shuttleworth & Wallace, 1985）。项目不包含或再分发任何 RZWQM2 代码；RZWQM2 仅作为参考模型对比输出，并仅报告所得数值。
+Apache-2.0。CERES-Maize 和 DSSAT 土壤水量平衡依据开源 DSSAT-CSM（BSD-3）独立实现，其署名声明保留于 `THIRD_PARTY_NOTICES.md`。Richards 求解器依据已发表方程（Ahuja et al., 2000; Celia et al., 1990）。RZWQM2（USDA-ARS）仅作为外部参考模型对比输出，并仅报告所得数值；项目不包含 RZWQM2 的源代码、数据或由其源代码衍生的代码。
 
 Richards 求解器的 Newton 提前停止实验（`scripts/bench/collab/`）由 Jiaqi Zhang 完成（pull request #1）。本研究的部分工作得到 [Calcul Québec](https://www.calculquebec.ca) 和 [Digital Research Alliance of Canada](https://alliancecan.ca) 的支持。全部 GPU 工作均在 Calcul Québec 运营的 rorqual 集群上运行。
 

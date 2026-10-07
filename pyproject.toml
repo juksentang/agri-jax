@@ -1,7 +1,7 @@
 [project]
 name = "agrijax"
 version = "0.0.1"
-description = "Differentiable, batch-parallel field-scale crop-soil process models in JAX (CERES-Maize + RZWQM-style soil water and PET)."
+description = "Differentiable, batch-parallel field-scale crop-soil process models in JAX (CERES-Maize, DSSAT-CSM soil water and evapotranspiration, a Richards soil-water solver)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"

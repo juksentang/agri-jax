@@ -16,8 +16,7 @@ share code with:
 
 Parameter ranges (:data:`RANGES`) are the union of the calibration bounds in ``all_parameters.csv``
 (``Pore Size`` = lambda, ``Ksat``, ``Residual WC``) and of the base values of every horizon of the 15
-``RZWQM_sw_batch`` scenarios; ``tests/integration/test_hydraulics_reference.py`` checks that these
-constants still cover both. The unit tier needs no data.
+``RZWQM_sw_batch`` scenarios. The unit tier needs no data.
 """
 
 from __future__ import annotations
@@ -33,12 +32,8 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from agrijax.processes.soil_water.hydraulics import (
-    H_FC13,
-    H_FC110,
-    H_WP,
     SoilHydraulicParams,
     c_of_h,
-    derive_rzwqm,
     h_of_theta,
     k_of_h,
     theta_of_h,
@@ -209,18 +204,24 @@ def test_curves_match_independent_reference(q: dict[str, float]) -> None:
         assert _close(_ref_theta(float(hh[i]), q), t, 0.0, rt_tol), (t, hh[i], ref)
 
 
+#: the standard heads [cm] of the wilting point (15 bar) and of field capacity (1/3 and 1/10 bar)
+_STANDARD_HEADS = (-15000.0, -333.0, -100.0)
+
+
 @settings(derandomize=True, database=None, deadline=None, max_examples=60)
 @given(q=param_sets())
 def test_physical_properties(q: dict[str, float]) -> None:
-    """Bounds, ordering theta_r < wp < fc13 < fc110 <= theta_s, monotone theta and K (n1 = 0), K <= ksat."""
+    """Bounds, ordering theta_r < theta(15 bar) < theta(1/3 bar) < theta(1/10 bar) <= theta_s, monotone
+    theta and K (n1 = 0), K <= ksat."""
     assume(_valid(q))
     q = _as_seen(q)
-    p = derive_rzwqm(_params(q))
+    p = _params(q)
     wr, ws, ks = q["theta_r"], q["theta_s"], q["ksat"]
-    assert wr < float(p.wp) < float(p.fc13) < float(p.fc110) <= ws
-    # the derived values are the reference curve at RZWQM's heads
-    for val, hh in ((p.fc13, H_FC13), (p.fc110, H_FC110), (p.wp, H_WP)):
-        assert _close(float(val), _ref_theta(hh, q), REF_REL)
+    wp, fc13, fc110 = (float(theta_of_h(jnp.asarray(hh), p)) for hh in _STANDARD_HEADS)
+    assert wr < wp < fc13 < fc110 <= ws
+    # the curve at the standard heads is the reference curve there
+    for val, hh in zip((wp, fc13, fc110), _STANDARD_HEADS, strict=True):
+        assert _close(val, _ref_theta(hh, q), REF_REL)
     h = jnp.asarray(_H_REL * q["hb"])
     th, c, k, _ = (np.asarray(x) for x in _curves(_params(q), h, jnp.asarray([ws])))
     slack = 1e-14 if X64 else 1e-6

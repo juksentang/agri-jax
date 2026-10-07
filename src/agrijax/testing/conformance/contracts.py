@@ -76,7 +76,7 @@ class SlotContract:
         return None
 
 
-#: the slot contracts of the RZWQM2 4.6 day (:mod:`agrijax.models.day_rzwqm46`)
+#: the slot contracts of the contract's day (:data:`agrijax.iface.contract.DAY_TABLE`)
 SLOT_CONTRACTS: dict[str, SlotContract] = {
     c.slot: c
     for c in (
@@ -92,8 +92,7 @@ SLOT_CONTRACTS: dict[str, SlotContract] = {
             ),
             note=(
                 "entries 11-15: phenology, stress, growth, roots read P1 (and P10), phenology reads P9 swe; "
-                "publish writes P2, canopy (15a) P6; entry 16a (harvest) writes the next season's no-crop "
-                "P2 and a bare-soil P6 on harvest days and nothing outside the crop slot"
+                "publish writes P2, canopy (15a) P6"
             ),
         ),
         SlotContract(
@@ -103,10 +102,8 @@ SLOT_CONTRACTS: dict[str, SlotContract] = {
             note=(
                 "entry 10 (ROOTWU) reads P1.sw and writes P1.trwup; the replay producer "
                 "water_supply/forcing_replay stands in for entries 8-10 and writes the whole P1 record; "
-                "entry 16 (crop_iface/publish_uptake, bound on the ROOTWU state water_supply.<slot>) "
-                "reads rwu, P1.sw, P1.eop and the day's sink P4.uptake (the SW == LL quirk) and writes P3; "
-                "entry 16b (ROOTWU season end) zeroes its own TSS, RWU and P1.trwup on harvest days "
-                "(the owning module resets itself; no other slot writes them)"
+                "entry 16 (publish_uptake, bound on the ROOTWU state water_supply.<slot>) reads rwu and "
+                "the day's sink P4 and writes P3"
             ),
         ),
         SlotContract("n_supply", "plant", (SlotPort("P10", "out"),), note="replay producer of P10"),
@@ -140,10 +137,7 @@ SLOT_CONTRACTS: dict[str, SlotContract] = {
                 SlotPort("P7", "in"),
             ),
             ledger_channels=("infiltration", "runoff", "soil_evaporation", "transpiration", "drainage"),
-            note=(
-                "entries 6-7: the uptake limit writes P4.uptake, the soil-water day reads P4; the uptake "
-                "limit (soil_water/wuf, a module without state of its own) reads the node water P7"
-            ),
+            note=("entries 6-7: the uptake limit writes P4.uptake, the soil-water day reads P4"),
         ),
     )
 }

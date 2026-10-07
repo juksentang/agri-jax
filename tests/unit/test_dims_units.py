@@ -313,10 +313,7 @@ PINNED: dict[tuple[str, str], Any] = {
         "mm": ("mm", "cm"),
     },
     ("agrijax.processes.soil_water.problem", "HOURS_PER_DAY"): ("d", "h", 0.0),
-    ("agrijax.processes.pet.shuttleworth_wallace", "KM_DAY_TO_M_S"): ("km d-1", "m s-1", 0.0),
-    ("agrijax.processes.pet.shuttleworth_wallace", "SECONDS_PER_DAY"): ("d", "s", 0.0),
-    # 12/pi hours per radian of the Earth's rotation: an astronomical constant, not a unit change
-    ("agrijax.processes.pet.shuttleworth_wallace", "_HOURS_PER_RADIAN"): 12.0 / math.pi,
+    ("agrijax.processes.pet.daily", "KM_DAY_TO_M_S"): ("km d-1", "m s-1", 0.0),
     # RDPD = RTDEP / 100 in MZ_OPGROW: the value is cm per m (the name reads the other way)
     ("agrijax.processes.crop.ceres_maize.model", "_CM_TO_M"): ("m", "cm", 0.0),
     # DSSAT PETPT SLANG = SRAD * 23.923 (the exact thermochemical value is 23.9006)

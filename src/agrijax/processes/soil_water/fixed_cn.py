@@ -97,7 +97,8 @@ M1_N_SUB: int = numerical_setting(
     "sub-steps per day of the 96 x 8 configuration FixedStepping.m1() (near-converged fixed steps)",
     origin="agrijax",
     basis="the year-by-year replays of CA-TPA 2015-2023 with the prescribed supply: 96 x 8 meets the "
-    "0.05 cm storage bound in all nine years, 24 x 3 does not (tests/integration/test_richards_years.py)",
+    "0.05 cm storage bound in all nine years, 24 x 3 does not (the RZWQM2 4.6 replays, data tier "
+    "outside this repository)",
 )
 M1_N_ITER: int = numerical_setting(
     "richards.m1_n_iter",
@@ -106,7 +107,8 @@ M1_N_ITER: int = numerical_setting(
     "Newton iterations per sub-step of the 96 x 8 configuration FixedStepping.m1()",
     origin="agrijax",
     basis="the year-by-year replays of CA-TPA 2015-2023 with the prescribed supply: 96 x 8 meets the "
-    "0.05 cm storage bound in all nine years, 24 x 3 does not (tests/integration/test_richards_years.py)",
+    "0.05 cm storage bound in all nine years, 24 x 3 does not (the RZWQM2 4.6 replays, data tier "
+    "outside this repository)",
 )
 
 
@@ -363,9 +365,7 @@ def richards_step(
     ``[n_channel, n]`` one row per channel in the order
     :data:`~agrijax.processes.soil_water.sinks.SINK_CHANNELS` (each row capped by the water left
     after the rows before it). ``soil`` must already be on the node axis
-    (``SoilHydraulicParams.at_nodes()``); a
-    :class:`~agrijax.processes.soil_water.hydraulics.TilledSoilHydraulicParams` selects RZWQM2's
-    post-tillage two-segment curves (current above ``-10 hb``, pre-tillage below).
+    (``SoilHydraulicParams.at_nodes()``).
 
     ``stepping`` the integrator's settings (default :class:`FixedStepping`), ``config`` the problem's
     (default :class:`~agrijax.processes.soil_water.problem.RichardsConfig`).
@@ -420,7 +420,6 @@ def richards_substeps(
     evaporation: Array,
     uptake: Array | SinkChannels,
     alphas: Array,
-    pori: Array | None = None,
 ) -> tuple[SoilWater, SubstepTotals]:
     """Advance ``water`` over the sub-steps ``[t[k], t[k+1]]`` [h] of a day; empty ones are the identity.
 
@@ -428,14 +427,12 @@ def richards_substeps(
     :class:`FixedStepping`, ``supply``/``evaporation`` hourly rates ``[24]`` [cm h-1] (averaged over
     each sub-step), ``uptake`` the sink channels
     (:class:`~agrijax.processes.soil_water.sinks.SinkChannels`) or the per-layer root water uptake
-    [cm d-1] alone (spread uniformly over the 24 h), ``alphas`` the time weight of each sub-step,
-    ``pori`` the field-saturated porosity per node (needed with ``RichardsConfig.drain_cap``: the
-    DRAIN cap after every sub-step). The returned state keeps ``water.flux``; the totals are
-    separate.
+    [cm d-1] alone (spread uniformly over the 24 h), ``alphas`` the time weight of each sub-step.
+    The returned state keeps ``water.flux``; the totals are separate.
 
     Source: Ahuja et al. (2000) ch. 3; Celia et al. (1990); RZWQM2 ``RICHRD`` (``Rzrich.for``).
     """
-    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, water.theta.dtype, pori)
+    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, water.theta.dtype)
     return _substeps(problem, _fixed(params.stepping), water, t, alphas)
 
 
@@ -456,7 +453,6 @@ def _substeps(
     problem = problem.for_segment()
     grid = problem.grid
     soil = problem.soil
-    dtype = water.theta.dtype
     dts = t[1:] - t[:-1]
     sup, eva = problem.interval_rates(t)
     sink_of = problem.sink_of()
@@ -473,8 +469,6 @@ def _substeps(
         dt_safe = jnp.where(live, dt, 1.0)
         sink = sink_of(t0, dt_safe, th, h)
         r = richards_step(h, th, pd, soil, grid, s_k, e_k, sink, dt_safe, a_k, h_min, pond_max, cfg, pcfg)
-        r, hook = problem.post_step(r)  # static: RZWQM2's DRAIN after the sub-step, or nothing
-        seep = () if hook is None else tuple(jnp.where(live, x, 0.0) for x in hook)
         out = tuple(
             jnp.where(live, x, 0.0)
             for x in (
@@ -492,13 +486,11 @@ def _substeps(
             )
         )
         new = (jnp.where(live, r.h, h), jnp.where(live, r.theta, th), jnp.where(live, r.pond, pd))
-        return new, (out, seep)
+        return new, out
 
     xs = (sup, eva, alphas, dts, t[:-1])
-    (h, th, pd), (outs, drain_outs) = lax.scan(body, (water.h, water.theta, water.pond), xs)
+    (h, th, pd), outs = lax.scan(body, (water.h, water.theta, water.pond), xs)
     infil, evap, drain, upt, runoff, deficit, cut, resid, nclamp, snk, snk_cut = outs
-    zero = jnp.zeros((), dtype)
-    drain_seep, drain_moved = tuple(jnp.sum(x) for x in drain_outs) or (zero, zero)
     totals = SubstepTotals(
         supply=jnp.sum(sup * dts),
         infiltration=jnp.sum(infil),
@@ -512,8 +504,6 @@ def _substeps(
         n_clamp=jnp.sum(nclamp),
         sinks=jnp.sum(snk, axis=0),
         sinks_cut=jnp.sum(snk_cut, axis=0),
-        drain_seepage=drain_seep,
-        drain_moved=drain_moved,
     )
     return water.replace(h=h, theta=th, pond=pd), totals
 
@@ -626,8 +616,8 @@ INFO = register_integrator(
                 "the step (ADJDT) and iterates to a tolerance",
                 "static shapes and a fixed cost; the error is reported in balance_error and "
                 "max_theta_residual",
-                "tests/unit/test_richards.py convergence study; tests/integration/test_richards_years.py "
-                "(the 24 x 3 and 96 x 8 replays)",
+                "tests/unit/test_richards.py convergence study; the 24 x 3 and 96 x 8 replays of RZWQM2 4.6 "
+                "(data tier outside this repository)",
             ),
         ),
     )

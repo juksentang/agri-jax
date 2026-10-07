@@ -1,6 +1,5 @@
 """The PET module on the ports of the coupling contract: EOP for the crop, the soil's evaporation demand,
-the bound PET entry with its one-day lags in a compiled day (no data; the reference comparison is
-``tests/integration/test_pet_process_dumps.py``)."""
+a bound PET entry with its one-day lag in a compiled day (no data)."""
 
 from __future__ import annotations
 
@@ -15,8 +14,8 @@ from agrijax.core.state import get_path
 from agrijax.iface.contract import PORTS, allowed_lags, day_entry
 from agrijax.iface.crop import CanopyRecord, CropWaterIn
 from agrijax.iface.surface import EVAPORATION_DEMAND_FIELDS, PETFluxes, evaporation_demand
-from agrijax.models.day_rzwqm46 import DEFAULT_EVAPORATION_DEMAND, replay_entry
-from agrijax.processes.pet import EOPState, PETState, eop_from_pet, pet_shuttleworth_wallace
+from agrijax.models.entries import replay_entry
+from agrijax.processes.pet import EOPState, PETState, eop_from_pet, pet_priestley_taylor
 
 from .test_pet_process import site, weather
 
@@ -75,7 +74,6 @@ def test_evaporation_demand_is_soil_plus_residue_evaporation() -> None:
     )
     assert float(evaporation_demand(p)) == float(_f(0.21) + _f(0.07))
     assert EVAPORATION_DEMAND_FIELDS == ("soil_evaporation", "residue_evaporation")
-    assert EVAPORATION_DEMAND_FIELDS == DEFAULT_EVAPORATION_DEMAND  # the smoke skeleton's adapter
     assert "soil_water.day" in PORTS["P5"].consumers
 
 
@@ -95,7 +93,7 @@ def _day() -> Day:
 def _procs() -> dict:
     return {
         "pet.sw_daily": bind(
-            pet_shuttleworth_wallace,
+            pet_priestley_taylor,
             own="surface.pet",
             ports={"canopy": CANOPY, "theta": THETA, "pet": PET},
             params="pet",
@@ -113,9 +111,9 @@ def _canopy(lai: float, height: float) -> CanopyRecord:
     return CanopyRecord(lai=_f([lai]), tlai=_f([lai + 0.1]), height=_f([height]))
 
 
-def test_bound_pet_reads_yesterdays_canopy_and_surface_water() -> None:
+def test_bound_pet_reads_yesterdays_canopy() -> None:
     model = _day().compile(_procs())
-    assert sorted(_day().lagged_reads(model)) == [("pet.sw_daily", CANOPY), ("pet.sw_daily", THETA)]
+    assert sorted(_day().lagged_reads(model)) == [("pet.sw_daily", f"{CANOPY}.lai")]
     step = jax.jit(model.compile())
     canopies = [_canopy(1.0, 60.0), _canopy(2.0, 120.0), _canopy(3.0, 180.0)]
     thetas = [_f([0.18, 0.2]), _f([0.25, 0.26]), _f([0.3, 0.3])]
@@ -129,32 +127,33 @@ def test_bound_pet_reads_yesterdays_canopy_and_surface_water() -> None:
             CROP_WATER: CropWaterIn.zeros(1, 2),
         }
     )
-    p, w = site(), weather(srad_horizontal=_f(21.9))
+    p, w = site(), weather()
     for d in range(2):
         # the producers write, at the end of day d, the record PET reads on day d + 1
         f = {"weather": w, "replay": {"canopy": canopies[d + 1], "theta": thetas[d + 1]}}
         s, _ = step(s, {"pet": p}, f)
-        alone = pet_shuttleworth_wallace(PETState.module(canopies[d], thetas[d]), p, w).pet
+        alone = pet_priestley_taylor(PETState.module(canopies[d], thetas[d]), p, w).pet
         got = get_path(s, PET)
         # the jitted day against the eager process: the same inputs, rounding apart
-        np.testing.assert_allclose(float(got.transpiration), float(alone.transpiration), rtol=RTOL)
-        np.testing.assert_allclose(float(got.soil_evaporation), float(alone.soil_evaporation), rtol=RTOL)
+        np.testing.assert_allclose(
+            float(got.eo_priestley_taylor), float(alone.eo_priestley_taylor), rtol=RTOL
+        )
         # a different day's inputs would differ by far more than rounding
-        other = pet_shuttleworth_wallace(PETState.module(canopies[d + 1], thetas[d + 1]), p, w).pet
-        assert abs(float(other.transpiration) - float(got.transpiration)) > 1e3 * RTOL * float(
-            got.transpiration
+        other = pet_priestley_taylor(PETState.module(canopies[d + 1], thetas[d + 1]), p, w).pet
+        assert abs(float(other.eo_priestley_taylor) - float(got.eo_priestley_taylor)) > 1e3 * RTOL * float(
+            got.eo_priestley_taylor
         )
         assert float(get_path(s, CROP_WATER).eop[0]) == float(got.transpiration * 10.0)
     assert float(get_path(s, CANOPY).lai[0]) == 3.0  # the last producer write stays for tomorrow
 
 
 def test_a_day_without_the_contract_lags_is_rejected() -> None:
-    """The PET entry reads P6 and P7 before their producers: without the allowed lags the day fails."""
+    """The PET entry reads P6 before its producer: without the allowed lag the day fails."""
     bad = Day(
         ref="rzwqm2-4.6",
         bare=True,  # a fixture of part of the day
         phases=_day().phases,
-        lags=(Lag("pet.sw_daily", CANOPY, evidence="test: only one of the two lags"),),
+        lags=(Lag("pet.sw_daily", THETA, evidence="test: a lag the entry does not need, not P6's"),),
     )
     with pytest.raises(DayLagError):
         bad.compile(_procs())

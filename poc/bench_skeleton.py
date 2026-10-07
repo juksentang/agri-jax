@@ -101,7 +101,7 @@ forcing = {"t": 10 + 15 * jnp.sin(2 * jnp.pi * (doy - 110) / 365) + 3 * jax.rand
 def sample_params(n, k):
     u = jax.random.uniform(k, (n, 10))
     return {"lam": 0.14 + 0.5 * u[:, 0], "hb": 10 + 20 * u[:, 1], "ks": 1.5 + 2 * u[:, 2], "tr": 0.02 + 0.08 * u[:, 3],
-            "ts": jnp.full(n, 0.453), "fc": 0.2 + 0.1 * u[:, 4], "wp": 0.09 + 0.06 * u[:, 5], "alb": 0.1 + 0.3 * u[:, 6],
+            "ts": jnp.full(n, 0.45), "fc": 0.2 + 0.1 * u[:, 4], "wp": 0.09 + 0.06 * u[:, 5], "alb": 0.1 + 0.3 * u[:, 6],
             "rs": 100 + 300 * u[:, 7], "rss": 37 + 460 * u[:, 8], "p1": 200 + 100 * u[:, 9]}
 
 run_batch = jax.jit(jax.vmap(run, in_axes=(0, None)))

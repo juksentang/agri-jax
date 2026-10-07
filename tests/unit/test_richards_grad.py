@@ -35,7 +35,7 @@ from agrijax.processes.soil_water.richards import (
     richards_redistribution,
 )
 
-from .test_richards import catpa_grid, catpa_soil
+from .test_richards import layered_grid, layered_soil
 
 X64 = bool(jax.config.read("jax_enable_x64"))
 FIELDS = ("lambda_", "hb", "ksat", "theta_r", "theta_s")
@@ -54,7 +54,7 @@ def _forcing(n_day: int = 2) -> RichardsForcing:
 
 
 def _loss_fn(cfg: FixedStepping, forcing: RichardsForcing, theta0: np.ndarray):
-    grid = catpa_grid()
+    grid = layered_grid()
 
     def loss(soil):
         params = RichardsParams(soil=soil, grid=grid, stepping=cfg)
@@ -83,7 +83,7 @@ def _fd(loss, soil, name: str, hz: int, rel_step: float = 1e-6) -> float:
 def test_unrolled_gradient_matches_central_differences(n_sub: int, n_iter: int) -> None:
     if not X64:
         pytest.skip("needs float64")
-    soil = catpa_soil()
+    soil = layered_soil()
     loss = _loss_fn(FixedStepping(n_sub=n_sub, n_iter=n_iter), _forcing(), np.linspace(0.24, 0.30, 37))
     g = jax.jit(jax.grad(loss))(soil)
     lj = jax.jit(loss)
@@ -104,7 +104,7 @@ def test_unrolled_gradient_matches_central_differences(n_sub: int, n_iter: int) 
 def test_implicit_function_theorem_gradient_at_convergence() -> None:
     if not X64:
         pytest.skip("needs float64")
-    soil = catpa_soil()
+    soil = layered_soil()
     forcing, theta0 = _forcing(), np.linspace(0.24, 0.30, 37)
     unrolled = _loss_fn(FixedStepping(n_sub=24, n_iter=12), forcing, theta0)
     implicit = _loss_fn(FixedStepping(n_sub=24, n_iter=12, grad="implicit"), forcing, theta0)
@@ -134,7 +134,7 @@ REGIMES = {
 
 
 def _regime_loss(cfg: FixedStepping):
-    grid = catpa_grid()
+    grid = layered_grid()
 
     def loss(soil, h0, rain, evap_day, upt):
         dtype = soil.hb.dtype
@@ -153,7 +153,7 @@ def _regime_loss(cfg: FixedStepping):
 @pytest.mark.parametrize("grad_mode", ["unrolled", "implicit"])
 def test_gradients_finite_in_switching_regimes(grad_mode: str) -> None:
     """Every regime is reached (checked on the fluxes) and every gradient leaf is finite."""
-    soil = catpa_soil()
+    soil = layered_soil()
     loss = _regime_loss(FixedStepping(n_sub=24, n_iter=4, grad=grad_mode))
     vg = jax.jit(jax.value_and_grad(loss, argnums=(0, 1, 2, 3, 4), has_aux=True))
     for regime, args in REGIMES.items():
@@ -171,8 +171,8 @@ def test_gradients_finite_in_switching_regimes(grad_mode: str) -> None:
 
 def test_gradient_through_runtime_with_checkpoint() -> None:
     """``core.runtime.run(checkpoint=True)`` over the process: finite and equal to central differences."""
-    soil = catpa_soil()
-    grid = catpa_grid()
+    soil = layered_soil()
+    grid = layered_grid()
     forcing = _forcing(3)
     model = Model(RichardsState, [richards_redistribution], outputs=("soil_water.flux.drainage",))
 

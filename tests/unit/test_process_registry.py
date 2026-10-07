@@ -31,11 +31,7 @@ from agrijax.core.process import (
 #: every module of the package that defines processes
 PROCESS_MODULES = (
     "agrijax.processes.soil_water.richards",
-    "agrijax.processes.soil_water.day",
     "agrijax.processes.water_supply.rootwu",
-    "agrijax.processes.water_supply.uptake_limit",
-    "agrijax.processes.water_supply.publish",
-    "agrijax.processes.water_supply.season",
     "agrijax.processes.pet.daily",
     "agrijax.processes.pet.eop",
     "agrijax.processes.pet.spam_dssat",
@@ -49,8 +45,6 @@ PROCESS_MODULES = (
     "agrijax.processes.crop.ceres_maize.season",
     "agrijax.processes.crop.ceres_maize.smoothed",
     "agrijax.processes.n_supply.replay",
-    "agrijax.processes.snow.prms",
-    "agrijax.models.catpa_pet_demo",
     "agrijax.models.tobacco_demo",
 )
 
@@ -60,43 +54,7 @@ EXPECTED = {
         "reference_only_conventions",
         "rzwqm2_nodes",
     ),
-    "soil_water/day@rzwqm2-4.6:faithful": ("soil_water_day", "reference_only_conventions", "rzwqm2_nodes"),
-    "soil_water/day@rzwqm2-4.6:replay_flux": (
-        "soil_water_day_replay",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
-    "soil_water/infiltration_ga@rzwqm2-4.6:faithful": (
-        "infiltration_ga",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
-    "soil_water/day@rzwqm2-4.6:drain_cap": (
-        "soil_water_day_drain_cap",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
-    "soil_water/day@rzwqm2-4.6:flux_evap": (
-        "soil_water_day_flux_evap",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
-    "soil_water/day@rzwqm2-4.6:rzwqm2_conventions": (
-        "soil_water_day_rzwqm2_conventions",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
-    "soil_water/day@rzwqm2-4.6:replay_flux_conventions": (
-        "soil_water_day_replay_conventions",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
     "water_supply/rootwu@dssat-4.8.6.0:faithful": ("rootwu_supply", "translated_bsd3", "dssat_layers"),
-    "water_supply/rootwu_season_end@rzwqm2-4.6:faithful": (
-        "rootwu_season_end",
-        "reference_only_conventions",
-        "dssat_layers",
-    ),
     "soil_water/tipping_bucket.rate@dssat-4.8.6.0:faithful": (
         "bucket_rate",
         "translated_bsd3",
@@ -107,27 +65,7 @@ EXPECTED = {
         "translated_bsd3",
         "dssat_layers",
     ),
-    "soil_water/wuf@rzwqm2-4.6:faithful": (
-        "rzwqm_uptake_limit",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
-    "crop_iface/publish_uptake@rzwqm2-4.6:faithful": (
-        "rzwqm_publish_uptake",
-        "reference_only_conventions",
-        "rzwqm2_nodes",
-    ),
     "water_supply/forcing_replay@none:replay": ("ceres_water_replay", "equations_only", "dssat_layers"),
-    "pet/shuttleworth_wallace@rzwqm2-4.6:faithful": (
-        "pet_shuttleworth_wallace",
-        "reference_only_conventions",
-        "point",
-    ),
-    "pet/shuttleworth_wallace@rzwqm2-4.6:prescribed_canopy": (
-        "sw_pet_from_forcing",
-        "reference_only_conventions",
-        "point",
-    ),
     "pet/asce_reference@asce-ewri-2005:faithful": ("pet_asce_reference", "equations_only", "point"),
     "crop_iface/eop_from_pet@rzwqm2-4.6:faithful": ("eop_from_pet", "reference_only_conventions", "point"),
     "pet/priestley_taylor@dssat-4.8.6.0:faithful": ("pet_priestley_taylor", "translated_bsd3", "point"),
@@ -153,7 +91,6 @@ EXPECTED = {
         "translated_bsd3",
         "point",
     ),
-    "snow/prms@rzwqm2-4.6:faithful": ("snow_prms", "reference_only_conventions", "point"),
     "crop/ceres_maize.phenology@dssat-4.8.6.0:faithful": (
         "ceres_phenology",
         "translated_bsd3",
@@ -185,17 +122,6 @@ EXPECTED = {
         "translated_bsd3",
         "dssat_layers",
     ),
-    "crop/ceres_maize.canopy@rzwqm2-4.6:faithful": (
-        "ceres_canopy",
-        "reference_only_conventions",
-        "point",
-    ),
-    "crop/ceres_maize.harvest@rzwqm2-4.6:faithful": (
-        "ceres_harvest",
-        "reference_only_conventions",
-        "dssat_layers",
-    ),
-    "diagnostic/catpa_pet_totals@none:demo": ("accumulate_totals", "equations_only", "point"),
     "crop/tobacco_demo.calendar@none:demo": ("crop_calendar", "equations_only", "point"),
     "crop/tobacco_demo.leaves@none:demo": ("leaf_appearance_growth", "equations_only", "point"),
     "crop/tobacco_demo.management@none:demo": ("management", "equations_only", "point"),
@@ -274,7 +200,7 @@ def test_reference_versions_and_builds() -> None:
     for p in list_processes(ref_version="dssat-4.8.6.0"):
         assert p.info is not None and p.info.provenance == "translated_bsd3" and p.info.ref_build
     for p in list_processes(ref_version="rzwqm2-4.6"):
-        # RZWQM2 source has no licence file: it is read for conventions only, never translated
+        # RZWQM2 is closed source: only its published equations and outputs are used, never translated
         assert p.info is not None and p.info.provenance == "reference_only_conventions" and p.info.ref_build
     for p in list_processes(ref_version="none"):
         assert p.info is not None and p.info.variant != FAITHFUL
@@ -293,11 +219,9 @@ def test_variants_list_their_deviations() -> None:
 def test_list_processes_filters() -> None:
     ceres = list_processes(slot="crop", impl="ceres_maize")
     assert [p.info.impl for p in ceres if p.info] == [
-        "ceres_maize.canopy",
         "ceres_maize.growth",
         "ceres_maize.growth",
         "ceres_maize.growth",
-        "ceres_maize.harvest",
         "ceres_maize.phenology",
         "ceres_maize.phenology",
         "ceres_maize.publish",
@@ -306,50 +230,19 @@ def test_list_processes_filters() -> None:
         "ceres_maize.stress",
     ]
     assert {p.name for p in list_processes(slot="pet", variant=FAITHFUL)} == {
-        "pet_shuttleworth_wallace",
         "pet_asce_reference",
         "pet_priestley_taylor",
         "spam_potential_soil_evaporation",
         "spam_potential_transpiration",
     }
-    assert {p.name for p in list_processes(grid="rzwqm2_nodes")} == {
-        "richards_redistribution",
-        "soil_water_day",
-        "soil_water_day_replay",
-        "soil_water_day_drain_cap",
-        "soil_water_day_flux_evap",
-        "soil_water_day_rzwqm2_conventions",
-        "soil_water_day_replay_conventions",
-        "infiltration_ga",
-        "rzwqm_uptake_limit",
-        "rzwqm_publish_uptake",
-    }
-    assert {p.name for p in list_processes(slot="soil_water", impl="day")} == {
-        "soil_water_day",
-        "soil_water_day_replay",
-        "soil_water_day_drain_cap",
-        "soil_water_day_flux_evap",
-        "soil_water_day_rzwqm2_conventions",
-        "soil_water_day_replay_conventions",
-    }
-    assert {p.name for p in list_processes(slot="water_supply")} == {
-        "rootwu_supply",
-        "rootwu_season_end",
-        "ceres_water_replay",
-    }
+    assert {p.name for p in list_processes(grid="rzwqm2_nodes")} == {"richards_redistribution"}
+    assert {p.name for p in list_processes(slot="water_supply")} == {"rootwu_supply", "ceres_water_replay"}
     keys = [str(p.key) for p in list_processes()]
     assert keys == sorted(keys) and set(EXPECTED) <= set(keys)
 
 
-def test_m3_variants_and_their_faithful_siblings() -> None:
-    """The M1 replay day is a variant of the faithful RZWQM2 day, and says how it deviates."""
-    replay = lookup("soil_water/day@rzwqm2-4.6:replay_flux")
-    faithful = lookup("soil_water/day@rzwqm2-4.6:faithful")
-    assert replay.info is not None and faithful.info is not None
-    assert replay.info.deviates and faithful.info.deviates
-    assert replay.writes == faithful.writes == ("soil_water",)
-    ga = lookup("soil_water/infiltration_ga@rzwqm2-4.6:faithful")
-    assert ga.info is not None and ga.fortran_name == "EVNTRO"
+def test_m3_producers_declare_their_metadata() -> None:
+    """The ROOTWU producer and the crop's publish declare their reference, build and deviations."""
     rootwu = lookup("water_supply/rootwu@dssat-4.8.6.0:faithful")
     assert rootwu.info is not None and rootwu.info.ref_build and rootwu.info.deviates
     for key in ("crop/ceres_maize.publish@dssat-4.8.6.0:faithful", "water_supply/forcing_replay@none:replay"):
@@ -358,8 +251,8 @@ def test_m3_variants_and_their_faithful_siblings() -> None:
 
 
 def test_lookup_unknown_key_hints_at_siblings() -> None:
-    with pytest.raises(KeyError, match=re.escape("shuttleworth_wallace@rzwqm2-4.6:faithful")):
-        lookup("pet/shuttleworth_wallace@rzwqm2-4.6:does_not_exist")
+    with pytest.raises(KeyError, match=re.escape("asce_reference@asce-ewri-2005:faithful")):
+        lookup("pet/asce_reference@asce-ewri-2005:does_not_exist")
     with pytest.raises(ValueError, match="invalid process key"):
         lookup("richards_redistribution")
 

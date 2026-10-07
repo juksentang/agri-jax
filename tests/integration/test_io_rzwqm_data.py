@@ -101,15 +101,11 @@ def test_dat_parsed_sections(scenario: Path) -> None:
     hyd = dat.hydraulics
     assert set(hyd) == set(HYDRAULIC_FIELDS)
     assert all(v.shape == (5,) for v in hyd.values())
-***REMOVED***
-***REMOVED***
-***REMOVED***
-    np.testing.assert_allclose(hyd["theta_s"], 0.453)
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-    np.testing.assert_allclose(hyd["ksat_lat"], 2.59)
+    # every value is the token at its address in the file (line number, 1-based, and token index)
+    for k, addrs in dat.hydraulic_addresses().items():
+        want = [dat.get_float(ln, col) for ln, col in addrs]
+        np.testing.assert_allclose(hyd[k], want, err_msg=k)
+    assert np.all(hyd["hb"] > 0.0) and np.all(hyd["ksat"] > 0.0) and np.all(hyd["c2"] > 0.0)
     assert np.all(hyd["theta_r"] < hyd["theta_wp"])
     assert np.all(hyd["theta_wp"] < hyd["theta_fc33"])
     assert np.all(hyd["theta_fc33"] < hyd["theta_s"])
@@ -153,7 +149,9 @@ def test_set_value_semantics(scenario: Path) -> None:
     orig = list(dat.lines)
     new = set_value(dat, 135, 2, 0.4)
     assert dat.lines == orig  # not in place by default
-***REMOVED***
+    old_tok, new_tok = orig[134].split(), new.lines[134].split()
+    assert new_tok[2] == "0.400" and new_tok[:2] + new_tok[3:] == old_tok[:2] + old_tok[3:]
+    assert new.lines[134].endswith("\r\n")
     assert new.hydraulics["lam"][0] == 0.4
     assert sum(a != b for a, b in zip(new.lines, orig, strict=True)) == 1
     same = set_value(dat, 291, 10, 300.0, inplace=True)
@@ -230,7 +228,7 @@ def test_params_from_dat_with_csv_map(scenario: Path, param_csv: Path) -> None:
     p = params_from_dat(dat, specs)
     for f in HYDRAULIC_FIELDS:
         assert p[f].shape == (5,)
-***REMOVED***
+    np.testing.assert_allclose(p["ksat"], dat.hydraulics["ksat"])
     assert float(p["albedo_dry"]) == 0.68 and float(p["soil_resistance"]) == 54.0
     assert float(p["rs_min_corn"]) == 224.0
 

@@ -66,7 +66,7 @@ from agrijax.models.day_dssat486 import (  # noqa: E402
     replay_processes,
     trwup_replay_entry,
 )
-from agrijax.models.day_rzwqm46 import noop_entry  # noqa: E402
+from agrijax.models.entries import noop_entry  # noqa: E402
 from agrijax.processes.crop.ceres_maize import CeresMaizeState, ceres_maize_model  # noqa: E402
 from agrijax.processes.soil_water.bucket import BucketForcing, BucketState  # noqa: E402
 from agrijax.processes.soil_water.bucket_evap import SoilEvapState  # noqa: E402

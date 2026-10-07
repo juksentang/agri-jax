@@ -9,7 +9,7 @@ It defines, once,
   modified Brooks-Corey curves of :mod:`~agrijax.processes.soil_water.hydraulics`), the surface pond
   (:class:`SoilWater`, :class:`SoilWaterFluxes`);
 * the grid (:class:`RichardsGrid`) and the settings of the problem (:class:`RichardsConfig`: the
-  sink cutoff at ``h_min`` and the two RZWQM2 conventions);
+  sink cutoff at ``h_min``);
 * the semi-discrete flux balance of a node, ``tl_i d theta_i / dt = q_{i-1/2} - q_{i+1/2} -
   tl_i S_i``, with the face fluxes (:func:`surface_fluxes`, :func:`face_fluxes`: Darcy-Buckingham
   with the geometric-mean face conductivity, free drainage at the bottom, the requested surface
@@ -22,19 +22,15 @@ It defines, once,
   (:func:`capacity`) and the transformed head of the Newton iterations (:func:`head_of_v`);
 * the switch predicates of the surface condition (:func:`surface_switches`: ponding, i.e. the
   infiltration-capacity limit binds, the dry-end evaporation limit, nodes at ``h_min``) and the
-  residual under a fixed surface condition (:func:`residual_bc`, RZWQM2 ``CHKBC``);
-* the post-step convention hooks (:func:`post_step`: RZWQM2's DRAIN cap with the head recomputed on
-  the changed nodes; the flux-mode evaporation limit is a dry limit of :func:`surface_fluxes`), both
-  switched by :class:`RichardsConfig` and selected by the registered convention variants of the
-  soil-water day;
+  residual under a fixed surface condition (:func:`residual_bc`);
 * the accumulators of the water balance: per step :class:`StepResult` (``int q_top dt``,
   ``int q_bot dt``, ``int sum tl S dt`` and the step balance ``sum tl dtheta - dt (q_top - q_bot -
   sum tl S)``), per run of steps :class:`SubstepTotals`.
 
 :class:`RichardsProblem` bundles the problem of one day (soil on the node axis, grid, limits, the
-hourly surface supply and evaporation demand, the sink channels, the field-saturated porosity of
-the DRAIN cap) with these functions as methods; an integrator
-(:mod:`~agrijax.processes.soil_water.integrator`) takes it and advances the state over the day.
+hourly surface supply and evaporation demand, the sink channels) with these functions as methods;
+an integrator (:mod:`~agrijax.processes.soil_water.integrator`) takes it and advances the state
+over the day.
 
 ``PROBLEM_VERSION`` is the version of this definition. It changes whenever the output of the physics
 can change (an equation, a limit, a convention, a sink rule), never for a change of an integrator;
@@ -50,15 +46,14 @@ Quality Model, ch. 3 (Richards equation, boundary switching, free drainage, fiel
 Celia, M.A., Bouloutas, E.T., Zarba, R.L., 1990. A general mass-conservative numerical solution for
 the unsaturated flow equation. Water Resour. Res. 26, 1483-1496 (mixed form); Curtis, A.R., Powell,
 M.J.D., Reid, J.K., 1974. On the estimation of sparse Jacobian matrices. IMA J. Appl. Math. 13,
-117-119 (column colouring). The corresponding RZWQM2 subroutines are ``RICHRD``, ``CHKBC``,
-``NODFLX``, ``POINTK`` (``Rzrich.for``) and ``DRAIN`` (``Rzday.for``), read for conventions only.
+117-119 (column colouring).
 """
 
 from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
-from typing import Any, ClassVar, NamedTuple, cast
+from typing import Any, ClassVar, NamedTuple
 
 import equinox as eqx
 import jax
@@ -72,7 +67,6 @@ from agrijax.core.coefficients import numerical_guard
 from agrijax.core.state import Params, State, field
 
 from .coefficients import numerical_setting, rzwqm2, setting_field
-from .conventions import drain_cap, dry_end_eps, field_saturation, flux_peak_head
 from .hydraulics import AnyHydraulicParams, h_of_theta, k_of_h, theta_of_h
 from .sinks import SINK_CHANNELS, SinkChannels, as_sink_channels
 
@@ -94,12 +88,9 @@ __all__ = [
     "SubstepTotals",
     "SurfaceSwitches",
     "capacity",
-    "drain_fluxes",
     "face_fluxes",
     "head_of_v",
-    "node_pori",
     "other_sinks",
-    "post_step",
     "residual_bc",
     "richards_residual",
     "sink_fluxes",
@@ -238,12 +229,10 @@ class RichardsGrid(Params):
 class RichardsConfig(eqx.Module):
     """Static settings of the Richards *problem* (hashable; part of the compiled program).
 
-    ``sink_cutoff`` [cm3 cm-3] water kept above ``theta(h_min)`` by the sink cap; ``drain_cap`` and
-    ``evaporation_limit`` switch the two RZWQM2 conventions of
-    :mod:`~agrijax.processes.soil_water.conventions` (off by default; the convention variants of the
-    soil-water day set them). These are the settings that change the equations; the numerics of
-    the time integration (sub-steps, Newton iterations, damping, tolerances, step control) are the
-    settings of the integrator (:class:`~agrijax.processes.soil_water.fixed_cn.FixedStepping`,
+    ``sink_cutoff`` [cm3 cm-3] water kept above ``theta(h_min)`` by the sink cap. These are the
+    settings that change the equations; the numerics of the time integration (sub-steps, Newton
+    iterations, damping, tolerances, step control) are the settings of the integrator
+    (:class:`~agrijax.processes.soil_water.fixed_cn.FixedStepping`,
     :class:`~agrijax.processes.soil_water.richards_adaptive.AdaptiveStepping`: the ``stepping``
     field of :class:`~agrijax.processes.soil_water.richards.RichardsParams`).
 
@@ -260,48 +249,6 @@ class RichardsConfig(eqx.Module):
         basis="a node at h_min must give no uptake (as in RZWQM2), otherwise the clamp would swallow the "
         "water; tests/unit/test_richards.py uptake-cap test",
     )
-    drain_cap: bool = setting_field(
-        "richards.drain_cap",
-        False,
-        "-",
-        "apply RZWQM2's DRAIN cap after every accepted sub-step: water above the field-saturated "
-        "porosity aef * theta_s cascades down at once and leaves the bottom node as seepage "
-        "(conventions.drain_cap); needs aef (the soil-water day passes GreenAmptParams.aef)",
-        origin="agrijax",
-        provenance=rzwqm2(
-            "RZWQM/Rzrich.for:1092", "REDIST", note="DRAIN (Rzday.for:3975) after every RICHRD step"
-        ),
-        basis="an RZWQM2 convention kept off in the faithful keys so that their pinned values stay; a "
-        "labelled convention variant, measured with and without "
-        "(tests/integration/test_richards_conventions_years.py)",
-    )
-    evaporation_limit: str = setting_field(
-        "richards.evaporation_limit",
-        "hmin",
-        "-",
-        "dry limit of the surface flux: 'hmin' (Darcy flux with the ghost head at h_min) or "
-        "'flux_peak' (RZWQM2's flux-mode limit: the peak of that flux over the ghost head, "
-        "conventions.flux_peak_head)",
-        origin="agrijax",
-        provenance=rzwqm2(
-            "RZWQM/Rzrich.for:59", "CHKBC", note="flux condition while the ghost head stays above Hmin"
-        ),
-        basis="an RZWQM2 convention kept off in the faithful keys so that their pinned values stay; a "
-        "labelled convention variant, measured with and without "
-        "(tests/integration/test_richards_conventions_years.py)",
-    )
-
-    @property
-    def conventions(self) -> tuple[str, ...]:
-        """The RZWQM2 conventions switched on: ``"drain_cap"``, ``"flux_peak"`` (empty by default)."""
-        on = ("drain_cap",) if self.drain_cap else ()
-        return on + (("flux_peak",) if self.evaporation_limit == "flux_peak" else ())
-
-    def __check_init__(self) -> None:
-        if self.evaporation_limit not in ("hmin", "flux_peak"):
-            raise ValueError(
-                f"evaporation_limit must be 'hmin' or 'flux_peak', got {self.evaporation_limit!r}"
-            )
 
 
 class SoilWaterFluxes(State):
@@ -384,19 +331,6 @@ class SoilWaterFluxes(State):
     )
     sink_cut: Array = field(
         dims=(), unit="cm d-1", description="sink of the channels other than uptake removed at h_min"
-    )
-    drain_seepage: Array = field(
-        dims=(),
-        unit="cm d-1",
-        description="water the DRAIN cap passed out of the bottom node (part of drainage; 0 unless "
-        "RichardsConfig.drain_cap)",
-        fortran_name="TSEEP",
-    )
-    drain_moved: Array = field(
-        dims=(),
-        unit="cm d-1",
-        description="water the DRAIN cap passed down from nodes above the field-saturated porosity, "
-        "summed over the nodes and sub-steps (drain_seepage included; 0 unless RichardsConfig.drain_cap)",
     )
     # ---- adaptive stepping diagnostics (0 in the fixed modes) ----
     n_steps: Array = field(dims=(), unit="-", description="accepted adaptive sub-steps of the day")
@@ -509,8 +443,6 @@ class _StepArgs(NamedTuple):
     alpha: Array
     h_min: Array
     h_hi: Array  # upper clamp of the iterate per node [cm] (h_upper + node depth)
-    # dry-end K exponent of node 0 for the flux-mode evaporation limit; None: the h_min limit (static)
-    eps_peak: Array | None = None
 
 
 def _log_k(k: Array) -> Array:
@@ -524,9 +456,6 @@ def surface_fluxes(h: Array, h_k: Array, a: _StepArgs) -> tuple[Array, Array, Ar
     ``q_wet`` (ghost head 0) and ``q_dry`` (ghost head ``h_min``) are the Dirichlet limits of
     the surface flux; ``q_top`` is the requested flux ``q_demand`` clipped to them. ``q_wet`` is
     floored at 0 and ``q_dry`` capped at 0 so that a limit never reverses the flux direction.
-    With ``a.eps_peak`` set (``RichardsConfig.evaporation_limit = "flux_peak"``) ``q_dry`` is
-    RZWQM2's flux-mode limit: the larger evaporation of the ghost head ``h_min`` and of the peak
-    head :func:`~agrijax.processes.soil_water.conventions.flux_peak_head`.
     """
     ht0 = a.alpha * h[0] + (1.0 - a.alpha) * a.h_old[0]
     hk0 = a.alpha * h_k[0] + (1.0 - a.alpha) * a.h_old[0]
@@ -536,18 +465,13 @@ def surface_fluxes(h: Array, h_k: Array, a: _StepArgs) -> tuple[Array, Array, Ar
     k_dry = _log_k(k_of_h(jnp.broadcast_to(a.h_min, hk0.shape)[None], soil0))[0]
     # ponded limit: upstream (ghost-node) conductivity K(0) = K_sat. The geometric mean of the
     # interior faces makes the capacity *increase* as a dry surface node wets (d q_wet / d h_0 > 0
-    # for 0.5 eps > 1), which sends Newton towards the dry end; RZWQM never meets this case
-    # because its rain goes through the Green-Ampt INFIL routine, not through Richards.
+    # for 0.5 eps > 1), which sends Newton towards the dry end; RZWQM2 never meets this case
+    # because its rain enters through an infiltration event, not through Richards.
     kw = jnp.exp(k_sat)
     # dry limit: geometric mean with K(h_min) as in RZWQM (monotone decreasing in h_0)
     kd = jnp.exp(_GEOMETRIC_MEAN * (k_node + k_dry))
     q_wet_raw = -kw * (ht0 / a.dz_top - 1.0)
     q_dry_raw = -kd * ((ht0 - a.h_min) / a.dz_top - 1.0)
-    if a.eps_peak is not None:  # static: RZWQM2's flux-mode limit, the peak over the ghost head
-        h_pk = flux_peak_head(ht0, a.eps_peak, a.h_min, a.dz_top, _GEOMETRIC_MEAN)
-        k_pk = _log_k(k_of_h(h_pk[None], soil0))[0]
-        q_pk = -jnp.exp(_GEOMETRIC_MEAN * (k_node + k_pk)) * ((ht0 - h_pk) / a.dz_top - 1.0)
-        q_dry_raw = jnp.where(q_pk < q_dry_raw, q_pk, q_dry_raw)
     q_wet = jnp.where(q_wet_raw > 0.0, q_wet_raw, 0.0)
     q_dry = jnp.where(q_dry_raw < 0.0, q_dry_raw, 0.0)
     q_top = jnp.where(a.q_demand > q_wet, q_wet, jnp.where(a.q_demand < q_dry, q_dry, a.q_demand))
@@ -723,7 +647,6 @@ def _step_args(
         alpha=alpha,
         h_min=h_min,
         h_hi=h_upper + grid.node_depth(),
-        eps_peak=dry_end_eps(soil)[0] if cfg.evaporation_limit == "flux_peak" else None,
     )
     return a, _StepSinks(s_cut, uptake, uptake_cut, sinks, sinks_cut)
 
@@ -796,8 +719,6 @@ class SubstepTotals(NamedTuple):
     n_clamp: Array
     sinks: Array  # [n_channel] daily depth of each sink channel (SINK_CHANNELS order)
     sinks_cut: Array  # [n_channel]
-    drain_seepage: Array  # DRAIN cap seepage out of the bottom node (included in drainage)
-    drain_moved: Array  # water the DRAIN cap passed down, summed over nodes and sub-steps
 
 
 def sink_fluxes(tot: SubstepTotals) -> dict[str, Array]:
@@ -812,27 +733,6 @@ def other_sinks(tot: SubstepTotals) -> Array:
     """Total of the sink channels other than ``uptake`` [cm] (exactly 0 when they are absent)."""
     k_upt = SINK_CHANNELS.index("uptake")
     return jnp.sum(jnp.where(jnp.arange(len(SINK_CHANNELS)) == k_upt, 0.0, tot.sinks))
-
-
-def node_pori(params: Any, aef: Any, dtype: Any) -> Array | None:
-    """Field-saturated porosity ``aef theta_s`` on the nodes for the DRAIN cap, ``None`` without it.
-
-    Source: Ahuja et al. (2000) ch. 3; RZWQM2 ``PORI`` (``Rzmain.for:538``), read for conventions.
-    """
-    if "drain_cap" not in params.config.conventions:  # static
-        return None
-    _require(aef is not None, "RichardsConfig.drain_cap needs the field-saturation fraction aef")
-    n = params.grid.n_node
-    soil = jax.tree_util.tree_map(lambda x: jnp.broadcast_to(x, (n,)), params.soil.at_nodes())
-    return field_saturation(soil, jnp.asarray(aef, dtype))
-
-
-def drain_fluxes(tot: SubstepTotals, cfg: RichardsConfig) -> dict[str, Array]:
-    """``{"drain_seepage": ..., "drain_moved": ...}`` with the DRAIN cap, else ``{}`` (the fields keep
-    their zeros)."""
-    if "drain_cap" not in cfg.conventions:  # static
-        return {}
-    return {"drain_seepage": tot.drain_seepage, "drain_moved": tot.drain_moved}
 
 
 #: surface condition of a solve: the clipped condition of the fixed modes, ponded, or flux
@@ -897,24 +797,8 @@ def _sink_provider(channels: SinkChannels, grid: RichardsGrid, dtype: Any) -> Si
 
 
 # ---------------------------------------------------------------------------
-# post-step convention hooks, switch predicates
+# switch predicates
 # ---------------------------------------------------------------------------
-
-
-def post_step(
-    r: StepResult, soil: AnyHydraulicParams, tl: Array, pori: Array | None, config: RichardsConfig
-) -> tuple[StepResult, tuple[Array, Array] | None]:
-    """The post-step convention hooks of an accepted sub-step: RZWQM2's DRAIN cap
-    (``RichardsConfig.drain_cap``; heads and water contents capped, the seepage added to the
-    drainage; returns ``(step, (seepage, moved))``), else the step unchanged and ``None``.
-
-    Source: RZWQM2 ``DRAIN`` after every ``RICHRD`` step (``Rzrich.for:1092``), read for conventions;
-    :func:`~agrijax.processes.soil_water.conventions.drain_cap`.
-    """
-    if "drain_cap" not in config.conventions:  # static
-        return r, None
-    dr = drain_cap(r.theta, r.h, soil, tl, cast(Array, pori))
-    return r._replace(h=dr.h, theta=dr.theta, drainage=r.drainage + dr.seepage), (dr.seepage, dr.moved)
 
 
 class SurfaceSwitches(NamedTuple):
@@ -951,7 +835,7 @@ class RichardsProblem(eqx.Module):
 
     ``soil`` on the node axis, ``h_min``/``pond_max`` [cm], ``supply``/``evaporation`` the hourly
     surface supply and evaporation demand ``[24]`` [cm h-1], ``channels`` the sink channels,
-    ``pori`` the field-saturated porosity per node (``None`` without the DRAIN cap), ``hydraulic``
+    ``hydraulic``
     the hydraulic parameters as given (``RichardsParams.soil``, from which ``soil`` is derived).
     Build it with :meth:`of_day`; the methods are the functions of this module on the problem's
     data. An integrator advances a segment of the day (the day, or the part before or after an
@@ -966,7 +850,6 @@ class RichardsProblem(eqx.Module):
     supply: Array
     evaporation: Array
     channels: SinkChannels
-    pori: Array | None
     config: RichardsConfig = eqx.field(static=True)
 
     version: ClassVar[int] = PROBLEM_VERSION
@@ -979,17 +862,10 @@ class RichardsProblem(eqx.Module):
         evaporation: Any,
         uptake: Any,
         dtype: Any,
-        pori: Array | None = None,
     ) -> RichardsProblem:
         """The problem of a day from :class:`~agrijax.processes.soil_water.richards.RichardsParams`:
         the hourly supply and evaporation ``[24]`` [cm h-1], the sink channels (or the per-layer
-        uptake [cm d-1] alone), the state's dtype and ``pori`` (:func:`node_pori`; needed with
-        ``RichardsConfig.drain_cap``)."""
-        config = params.config
-        _require(
-            "drain_cap" not in config.conventions or pori is not None,
-            "RichardsConfig.drain_cap needs pori (aef * theta_s on the nodes)",
-        )
+        uptake [cm d-1] alone) and the state's dtype."""
         return cls(
             soil=_node_soil(params.soil, params.grid.n_node),
             hydraulic=params.soil,
@@ -999,8 +875,7 @@ class RichardsProblem(eqx.Module):
             supply=jnp.asarray(supply, dtype),
             evaporation=jnp.asarray(evaporation, dtype),
             channels=as_sink_channels(uptake),
-            pori=None if "drain_cap" not in config.conventions else jnp.asarray(pori, dtype),
-            config=config,
+            config=params.config,
         )
 
     def for_segment(self) -> RichardsProblem:
@@ -1091,10 +966,6 @@ class RichardsProblem(eqx.Module):
     ) -> StepResult:
         """The accumulators of a solved sub-step (:func:`step_result`)."""
         return _step_result(h_new, n_clamp, a, sk, self.soil, self.grid, evaporation, dt, self.pond_max)
-
-    def post_step(self, r: StepResult) -> tuple[StepResult, tuple[Array, Array] | None]:
-        """The convention hooks after an accepted sub-step (:func:`post_step`)."""
-        return post_step(r, self.soil, self.grid.tl, self.pori, self.config)
 
 
 #: public names of the sub-step functions (the underscore names are kept for existing callers)

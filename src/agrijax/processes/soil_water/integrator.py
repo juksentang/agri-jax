@@ -31,17 +31,15 @@ How to add an integrator
    the origin of every value), and set ``KEY: ClassVar[str] = "soil_water/<impl>@<ref>:<variant>"``.
 2. Write the integrator: a class with ``config``, a ``capabilities`` property and ``step_day(problem,
    water, plan) -> (water, DayDiagnostics)``. It runs each segment of the day (the day, or the parts
-   before and after an event) on :meth:`~.problem.RichardsProblem.for_segment` of the problem and
-   reads the physics only through it (residual,
-   fluxes, Jacobian, sink cap, switch predicates, :meth:`~.problem.RichardsProblem.post_step` after
-   every accepted sub-step) and returns the new ``h``, ``theta``, ``pond`` (and ``dt_next`` if it
-   carries a step size) with ``water.flux`` untouched, plus the day's :class:`SubstepTotals` (the
-   ``int q dt`` accumulators of both segments of an event day combined, :func:`combine_totals`) and
-   its counters (a NamedTuple whose fields are ``SoilWaterFluxes`` diagnostics, or ``None``). With
-   ``plan.event`` it runs the redistribution up to the event time it chooses, calls
-   ``plan.event.apply`` once and continues to the end of the day. ``check(h, flux, where)`` raises
-   under ``AGRI_JAX_CHECK=1`` when the day did not converge (the identity for a scheme without a
-   convergence test).
+   before and after an event) on :meth:`~.problem.RichardsProblem.for_segment` of the problem and reads
+   the physics only through it (residual, fluxes, Jacobian, sink cap, switch predicates) and returns the
+   new ``h``, ``theta``, ``pond`` (and ``dt_next`` if it carries a step size) with ``water.flux``
+   untouched, plus the day's :class:`SubstepTotals` (the ``int q dt`` accumulators of both segments of an
+   event day combined, :func:`combine_totals`) and its counters (a NamedTuple whose fields are
+   ``SoilWaterFluxes`` diagnostics, or ``None``). With ``plan.event`` it runs the redistribution up to
+   the event time it chooses, calls ``plan.event.apply`` once and continues to the end of the day.
+   ``check(h, flux, where)`` raises under ``AGRI_JAX_CHECK=1`` when the day did not converge (the
+   identity for a scheme without a convergence test).
 3. Register it: ``register_integrator(IntegratorInfo(key=..., config_type=MySteps, factory=MyIntegrator,
    summary=..., sources=..., deviates=...))`` at import of its module (a plugin registers from its
    own package; nothing in the soil-water day changes).

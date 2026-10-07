@@ -25,7 +25,7 @@ DT_MAX_FAST: float = numerical_setting(
     basis="measured against the converged reference (Crank-Nicolson with the alpha = 1 fallback, 960 "
     "sub-steps a day): at dt_max 0.25 h the worst numerical error is 7.9e-3 cm over the "
     "58 site-years with a clean reference, within 1e-3 cm on 44 of the 50 outside CA-TPA "
-    "(tests/integration/test_richards_adaptive_years.py)",
+    "(the RZWQM2 4.6 replays, data tier outside this repository)",
 )
 
 
@@ -150,7 +150,7 @@ class AdaptiveStepping(SteppingConfig):
         origin="agrijax",
         provenance=Provenance("none", paper="Simunek et al., HYDRUS-1D manual (dMul2)"),
         basis="step-size rule after HYDRUS-1D, used in the adaptive runs compared with the converged "
-        "reference (tests/integration/test_richards_adaptive_years.py)",
+        "reference (the RZWQM2 4.6 replays, data tier outside this repository)",
     )
     iter_grow_max: int = setting_field(
         "richards.iter_grow_max",
@@ -160,7 +160,7 @@ class AdaptiveStepping(SteppingConfig):
         origin="agrijax",
         provenance=Provenance("none", paper="Simunek et al., HYDRUS-1D manual (ItMin)"),
         basis="step-size rule after HYDRUS-1D, used in the adaptive runs compared with the converged "
-        "reference (tests/integration/test_richards_adaptive_years.py)",
+        "reference (the RZWQM2 4.6 replays, data tier outside this repository)",
     )
     iter_shrink_min: int = setting_field(
         "richards.iter_shrink_min",
@@ -170,7 +170,7 @@ class AdaptiveStepping(SteppingConfig):
         origin="agrijax",
         provenance=Provenance("none", paper="Simunek et al., HYDRUS-1D manual (ItMax)"),
         basis="step-size rule after HYDRUS-1D, used in the adaptive runs compared with the converged "
-        "reference (tests/integration/test_richards_adaptive_years.py)",
+        "reference (the RZWQM2 4.6 replays, data tier outside this repository)",
     )
     cn_fallback: bool = setting_field(
         "richards.cn_fallback",
@@ -236,7 +236,7 @@ class AdaptiveStepping(SteppingConfig):
         "apply one more Newton update after the convergence test passes (balance to rounding)",
         origin="agrijax",
         basis="one more update costs one more evaluation a step and brings the sub-step balance to "
-        "rounding level (tests/integration/test_richards_adaptive_years.py)",
+        "rounding level (the RZWQM2 4.6 replays, data tier outside this repository)",
     )
     bc_switch: bool = setting_field(
         "richards.bc_switch",

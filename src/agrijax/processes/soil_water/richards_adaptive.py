@@ -193,15 +193,12 @@ def _seg_in(problem: RichardsProblem, water: SoilWater) -> _SegIn:
         channels=problem.channels,
         h_min=problem.h_min,
         pond_max=problem.pond_max,
-        pori=problem.pori,
         config=problem.config,
     )
 
 
-def _inputs(
-    water: SoilWater, params: Any, supply: Any, evaporation: Any, uptake: Any, pori: Any = None
-) -> _SegIn:
-    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, water.theta.dtype, pori)
+def _inputs(water: SoilWater, params: Any, supply: Any, evaporation: Any, uptake: Any) -> _SegIn:
+    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, water.theta.dtype)
     return _seg_in(problem, water)
 
 
@@ -212,13 +209,10 @@ def replay_segment(
     evaporation: Array,
     uptake: Array | SinkChannels,
     trace: StepTrace,
-    pori: Array | None = None,
 ) -> tuple[SoilWater, StepTrace]:
-    """The segment replayed along the step table of ``trace`` (the function the gradient is of);
-    ``pori`` as for :func:`adaptive_segment`.
-    """
+    """The segment replayed along the step table of ``trace`` (the function the gradient is of)."""
     table = (trace.t0, trace.dt, trace.alpha, trace.bc)
-    inp = _inputs(water, params, supply, evaporation, uptake, pori)
+    inp = _inputs(water, params, supply, evaporation, uptake)
     out = _replay(_adaptive(params.stepping), inp, table)
     return water.replace(h=out.h, theta=out.theta, pond=out.pond), out.trace
 
@@ -233,26 +227,22 @@ def adaptive_segment(
     uptake: Array | SinkChannels,
     dt0: Any,
     first: Any = True,
-    pori: Array | None = None,
 ) -> tuple[SoilWater, SubstepTotals, AdaptiveStats, StepTrace]:
     """Advance ``water`` over ``[t_start, t_end]`` [h] with adaptive sub-steps; returns
     ``(state, totals, counters, per-step trace)``.
 
     ``supply``/``evaporation`` hourly rates ``[24]`` [cm h-1], ``uptake`` the sink channels or the
-    per-layer root water uptake [cm d-1] alone, ``dt0`` the starting step [h], ``first`` whether
-    the first step takes ``alpha = 1``, ``pori`` the field-saturated porosity per node (needed with
-    ``RichardsConfig.drain_cap``: the DRAIN cap after every accepted step), ``params.stepping`` an
-    :class:`AdaptiveStepping`. The state carries the
-    last step size in ``dt_next`` (no
-    gradient) and keeps ``water.flux``. The value is the step search's; the reverse pass
-    differentiates the replay of its step table (:func:`replay_segment`), so a forward-only run
-    solves every step once. Sink callables (``SinkChannel.rate``) must not close over
+    per-layer root water uptake [cm d-1] alone, ``dt0`` the starting step [h], ``first`` whether the
+    first step takes ``alpha = 1``, ``params.stepping`` an :class:`AdaptiveStepping`. The state carries
+    the last step size in ``dt_next`` (no gradient) and keeps ``water.flux``. The value is the step
+    search's; the reverse pass differentiates the replay of its step table (:func:`replay_segment`), so a
+    forward-only run solves every step once. Sink callables (``SinkChannel.rate``) must not close over
     differentiated values.
 
     Source: Ahuja et al. (2000) ch. 3; RZWQM2
     ``RICHRD`` / ``ADJDT`` (conventions).
     """
-    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, water.theta.dtype, pori)
+    problem = RichardsProblem.of_day(params, supply, evaporation, uptake, water.theta.dtype)
     return segment(problem, _adaptive(params.stepping), water, t_start, t_end, dt0, first)
 
 
@@ -297,8 +287,6 @@ def segment(
         n_clamp=jnp.sum(tr.n_clamp),
         sinks=jnp.sum(tr.sinks, axis=0),
         sinks_cut=jnp.sum(tr.sinks_cut, axis=0),
-        drain_seepage=jnp.sum(tr.drain_seepage),
-        drain_moved=jnp.sum(tr.drain_moved),
     )
     live = lax.stop_gradient(tr.live)
     ok = lax.stop_gradient((tr.conv > 0.0) & (tr.clamp_last == 0.0))

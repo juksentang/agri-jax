@@ -4,7 +4,7 @@ Scope
 -----
 * every function decorated with ``@process`` gets every rule;
 * every other function defined in a file under a ``processes/`` directory (the numerical
-  kernels the processes call: ``shuttleworth_wallace``, ``theta_of_h``, private helpers, ...)
+  kernels the processes call: ``priestley_taylor``, ``theta_of_h``, private helpers, ...)
   gets the numerical rules AJ001-AJ003, AJ006, AJ007, AJ020 and AJ021; AJ004/AJ005 are about the
   process contract and do not apply to kernels that return NamedTuples or arrays;
 * every other function in a file under ``forcing/`` (host-side NumPy preprocessing, not traced)

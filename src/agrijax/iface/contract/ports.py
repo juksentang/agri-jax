@@ -81,9 +81,7 @@ PORTS: dict[str, PortSpec] = {
                 AllowedLag(
                     "soil_water.uptake_limit",
                     "trwup",
-                    "RZWQM2 4.6 PHYSCL: ***REMOVED*** with the previous day's TRWUP ("
-                    + _RZ_ORDER
-                    + ")",
+                    "RZWQM2 4.6 PHYSCL: the uptake limit reads the previous day's TRWUP (" + _RZ_ORDER + ")",
                 ),
             ),
             writers=(

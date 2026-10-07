@@ -1,7 +1,6 @@
 """Brooks-Corey hydraulics (RZWQM form): round trips, monotonicity, bounds, continuity, analytic
-derivatives against autodiff, finite-difference gradients w.r.t. every parameter, hypothesis
-property tests on realistic parameter ranges, and the CA-TPA rec2 derivation check (the scenario-file
-version is in tests/integration/test_hydraulics_catpa.py).
+derivatives against autodiff, finite-difference gradients w.r.t. every parameter and hypothesis
+property tests on realistic parameter ranges.
 """
 
 from __future__ import annotations
@@ -15,14 +14,10 @@ from hypothesis import strategies as st
 
 from agrijax.processes.soil_water.hydraulics import (
     H_CLAMP_RZWQM,
-    H_FC13,
-    H_FC110,
     H_MIN,
-    H_WP,
     SoilHydraulicParams,
     c2_of_params,
     c_of_h,
-    derive_rzwqm,
     h_of_theta,
     k_of_h,
     theta_of_h,
@@ -36,40 +31,33 @@ FD_EPS = 1e-6 if X64 else 1e-3
 JOINT_OFF = 1e-3 if X64 else 2e-2  # relative offset of the "around the joint" points; must exceed FD_EPS
 EXACT = 1e-12 if X64 else 1e-5  # tolerance for algebraically identical evaluations
 
-# CA-TPA rzwqm.dat "SOIL HORIZON HYDRAULIC PROPERTIES" block (5 horizons).
-CATPA_REC1 = np.array(
+# five synthetic horizons (not the parameters of any site): rec1 (hb, lambda, eps, ksat, theta_r,
+# theta_s) and rec2 (fc13, fc110, wp, hb_k, c2, n1, a1)
+SOIL_REC1 = np.array(
     [
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
+        [15.0, 0.25, 3.0, 5.0, 0.05, 0.45],
+        [15.0, 0.30, 3.0, 3.0, 0.03, 0.45],
+        [15.0, 0.35, 3.0, 3.5, 0.04, 0.45],
+        [15.0, 0.20, 3.0, 3.0, 0.05, 0.45],
+        [15.0, 0.30, 3.0, 2.5, 0.04, 0.45],
     ]
 )
-CATPA_REC2 = np.array(
-    [
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
-    ]
-)
-# CA-TPA 37 nodes -> 5 horizons (lower depths 15/30/70/90/150 cm), from the rzwqm.dat node list.
-CATPA_NODE_DEPTH = np.array(
+SOIL_REC2 = np.tile([0.0, 0.0, 0.0, 15.0, 0.0, 0.0, 0.0], (5, 1))
+# 37 nodes -> 5 horizons (lower depths 15/30/70/90/150 cm)
+NODE_DEPTH = np.array(
     [1, 2, 4, 7, 11, 15, 19, 23, 27, 30, 33, 37, 41, 45, 49, 53, 57, 61, 65, 69, 73, 77, 81, 85, 89, 93, 97, 101,
      105, 109, 113, 117, 121, 125, 129, 135, 150], dtype=float
 )  # fmt: skip
-CATPA_HORIZON_BOTTOM = np.array([15.0, 30.0, 70.0, 90.0, 150.0])
+HORIZON_BOTTOM = np.array([15.0, 30.0, 70.0, 90.0, 150.0])
 
 PRIMARY = ("hb", "lambda_", "eps", "ksat", "theta_r", "theta_s", "hb_k", "n1", "a1")
 DERIVED = ("fc13", "fc110", "wp", "c2")
 
 
 def make_params(
-***REMOVED***
+    hb=15.0, lam=0.25, eps=3.0, ksat=5.0, theta_r=0.05, theta_s=0.45, hb_k=None, n1=0.0, a1=0.0
 ) -> SoilHydraulicParams:
-    """Scalar (single horizon, no node map) parameter set; derived fields filled by RZWQM's rule."""
+    """Scalar (single horizon, no node map) parameter set; ``c2`` from the continuity of K."""
     f = jnp.asarray
     p = SoilHydraulicParams(
         hb=f(hb),
@@ -86,15 +74,15 @@ def make_params(
         n1=f(n1),
         a1=f(a1),
     )
-    return derive_rzwqm(p)
+    return p.replace(c2=c2_of_params(p))
 
 
-def catpa_params(node_map: bool = False) -> SoilHydraulicParams:
-    nh = np.searchsorted(CATPA_HORIZON_BOTTOM, CATPA_NODE_DEPTH, side="left") if node_map else None
-    return SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2, node_horizon=nh)
+def layered_params(node_map: bool = False) -> SoilHydraulicParams:
+    nh = np.searchsorted(HORIZON_BOTTOM, NODE_DEPTH, side="left") if node_map else None
+    return SoilHydraulicParams.from_rzwqm_records(SOIL_REC1, SOIL_REC2, node_horizon=nh)
 
 
-# a few contrasting parameter sets: CA-TPA horizon 1, a clay-like curve, a modified curve with a1>0 and n1>0
+# a few contrasting parameter sets: a coarse curve, a clay-like curve, a modified curve with a1>0 and n1>0
 CASES = [
     make_params(),
     make_params(hb=37.3, lam=0.131, eps=2.393, ksat=0.05, theta_r=0.09, theta_s=0.475),
@@ -215,8 +203,8 @@ def test_continuity_at_joints(p: SoilHydraulicParams) -> None:
 
 def test_k_continuity_does_not_depend_on_stored_c2() -> None:
     """The stored (possibly stale) c2 is never used: changing ksat keeps K continuous at -hb_k."""
-    p = catpa_params()
-    p2 = p.replace(ksat=p.ksat * 3.0)  # c2 field now stale, as in the CA-TPA file
+    p = layered_params()
+    p2 = p.replace(ksat=p.ksat * 3.0)  # c2 field now stale
     hbk = np.asarray(p.hb_k)
     lo = np.asarray(k_of_h(jnp.asarray(-hbk * (1 + 1e-9)), p2))
     hi = np.asarray(k_of_h(jnp.asarray(-hbk * (1 - 1e-9)), p2))
@@ -448,13 +436,13 @@ def test_property_realistic_parameters(hb, lam, eps, ksat, theta_r, theta_s, a1_
 
 
 def test_node_horizon_gather_matches_per_horizon() -> None:
-    p = catpa_params(node_map=True)
+    p = layered_params(node_map=True)
     assert p.node_horizon is not None and len(p.node_horizon) == 37
     assert p.node_horizon[:6] == (0, 0, 0, 0, 0, 0) and p.node_horizon[-1] == 4
     h = jnp.asarray(-np.logspace(0, 4, 37))
     theta = np.asarray(theta_of_h(h, p))
     k = np.asarray(k_of_h(h, p))
-    hp = catpa_params()
+    hp = layered_params()
     for i, j in enumerate(p.node_horizon):
         pj = jax.tree_util.tree_map(lambda a, j=j: a[j], hp.replace(node_horizon=None))
         assert theta[i] == pytest.approx(float(theta_of_h(h[i], pj)), rel=EXACT)
@@ -465,7 +453,7 @@ def test_node_horizon_gather_matches_per_horizon() -> None:
 
 
 def test_vmap_over_parameter_batch_and_jit() -> None:
-    p = catpa_params(node_map=True)
+    p = layered_params(node_map=True)
     batch = jax.tree_util.tree_map(lambda a: jnp.stack([a, a, a]), p)
     batch = batch.replace(ksat=jnp.stack([p.ksat, p.ksat * 1.1, p.ksat * 0.9]))
     assert batch.node_horizon == p.node_horizon  # static, shared across the batch
@@ -489,51 +477,12 @@ def test_field_metadata_units() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CA-TPA: what RZWQM does with rec2 (fc13 / fc110 / wp / c2)
+# the dry-end clamp
 # ---------------------------------------------------------------------------
 
 
-def test_catpa_rec2_is_the_curve_at_333_100_15000_cm() -> None:
-    """RZWQM's SOILPR (ITYPE=0) overwrites fc13/fc110/wp with theta(-333), theta(-100), theta(-15000)
-    (RZTEST.for 4597-4616, 4858); the file values are exactly those to the 6 decimals written."""
-    p = SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2, derive=False)
-    n = p.n_horizon
-    fc13 = np.asarray(theta_of_h(jnp.full(n, H_FC13), p))
-    fc110 = np.asarray(theta_of_h(jnp.full(n, H_FC110), p))
-    wp = np.asarray(theta_of_h(jnp.full(n, H_WP), p))
-    np.testing.assert_allclose(fc13, CATPA_REC2[:, 0], atol=1.5e-6, rtol=0)
-    np.testing.assert_allclose(fc110, CATPA_REC2[:, 1], atol=1.5e-6, rtol=0)
-    np.testing.assert_allclose(wp, CATPA_REC2[:, 2], atol=1.5e-6, rtol=0)
-    d = derive_rzwqm(p)
-    np.testing.assert_allclose(np.asarray(d.fc13), fc13, rtol=EXACT)
-    np.testing.assert_allclose(np.asarray(d.fc110), fc110, rtol=EXACT)
-    np.testing.assert_allclose(np.asarray(d.wp), wp, rtol=EXACT)
-    assert d.node_horizon is None
-    # from_rzwqm_records(derive=True) is the default and gives the same
-    d2 = SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2)
-    np.testing.assert_allclose(np.asarray(d2.wp), wp, rtol=EXACT)
-
-
-def test_catpa_file_c2_is_stale_and_overwritten() -> None:
-***REMOVED***
-    c2 = ksat * hb_k**(eps - n1) per horizon (RZTEST.for line 4611), so only horizon 5 agrees."""
-    p = SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2, derive=False)
-    c2 = np.asarray(c2_of_params(p))
-***REMOVED***
-    assert np.all(c2[:4] > 9000.0)
-    d = derive_rzwqm(p)
-    np.testing.assert_allclose(np.asarray(d.c2), c2, rtol=EXACT)
-    # and k_of_h uses the derived value, not the stale field
-    hbk = np.asarray(p.hb_k)
-    k_below = np.asarray(k_of_h(jnp.asarray(-2.0 * hbk), p))
-***REMOVED***
-
-
-def test_rzwqm_dry_clamp_is_the_wilting_point_head() -> None:
-    """RZWQM's active dry-end clamp is Hmin = -15000 cm (Rzmain.for line 4587, = HWP), not the
-    commented-out -35000 PARAMETER; h_of_theta at the derived wilting point returns it."""
-    assert H_CLAMP_RZWQM == H_WP == -15000.0
-    d = derive_rzwqm(SoilHydraulicParams.from_rzwqm_records(CATPA_REC1, CATPA_REC2, derive=False))
-    h = np.asarray(h_of_theta(d.wp, d))
-    np.testing.assert_allclose(h, H_CLAMP_RZWQM, rtol=1e-9 if X64 else 1e-4)
-    assert H_MIN < H_CLAMP_RZWQM  # the curve's own floor is only an overflow guard
+def test_dry_clamp_is_15_bar_and_above_the_overflow_guard() -> None:
+    """The dry-end clamp of the state is Hmin = -15000 cm; the curve's own floor is only an
+    overflow guard."""
+    assert H_CLAMP_RZWQM == -15000.0
+    assert H_MIN < H_CLAMP_RZWQM

@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 
 from agrijax.processes.soil_water import integrator as I
-from agrijax.processes.soil_water.day import DayConfig, soil_water_day_kernel
 from agrijax.processes.soil_water.fixed_cn import FixedCN, FixedStepping
 from agrijax.processes.soil_water.problem import PROBLEM_VERSION, RichardsConfig, RichardsProblem
 from agrijax.processes.soil_water.richards import RichardsParams, SoilWater, richards_day
@@ -30,7 +29,7 @@ from agrijax.processes.soil_water.richards_adaptive import AdaptiveStepping
 from agrijax.testing.conformance import integrators as K
 from agrijax.testing.conformance.case import ConformanceError
 
-from . import test_infiltration_day as TD
+from .test_richards import layered_grid, layered_soil, synthetic_forcing
 
 X64 = bool(jax.config.read("jax_enable_x64"))
 
@@ -41,11 +40,7 @@ X64 = bool(jax.config.read("jax_enable_x64"))
 
 
 def test_the_problem_config_holds_only_physics() -> None:
-    assert {f.name for f in dataclasses.fields(RichardsConfig)} == {
-        "sink_cutoff",
-        "drain_cap",
-        "evaporation_limit",
-    }
+    assert {f.name for f in dataclasses.fields(RichardsConfig)} == {"sink_cutoff"}
     assert PROBLEM_VERSION == 1 and RichardsProblem.version == PROBLEM_VERSION
 
 
@@ -142,25 +137,20 @@ def wrapped() -> Any:
 
 def test_a_registered_integrator_runs_the_days_without_changing_them(wrapped: Any) -> None:
     assert isinstance(I.integrator_for(_WrappedSteps(n_sub=12, n_iter=3)), _Wrapped)
-    base = TD._params(DayConfig(n_pre=4, n_post=8), n_sub=12, n_iter=3)
-    plug = dataclasses.replace(
-        base, richards=dataclasses.replace(base.richards, stepping=_WrappedSteps(n_sub=12, n_iter=3))
-    )
-    forcing = TD._forcing(3, seed=5, supply_scale=0.3)
-    w0 = SoilWater.from_theta(jnp.full(37, 0.25), base.richards.soil)
+    soil, grid = layered_soil(), layered_grid()
+    base = RichardsParams(soil=soil, grid=grid, stepping=FixedStepping(n_sub=12, n_iter=3))
+    plug = dataclasses.replace(base, stepping=_WrappedSteps(n_sub=12, n_iter=3))
+    supply, evap, uptake = (jnp.asarray(x) for x in synthetic_forcing(3, seed=5))
+    w0 = SoilWater.from_theta(jnp.full(37, 0.25), soil)
     for day in range(3):
-        f = jax.tree_util.tree_map(lambda x, d=day: x[d], forcing)
-        a = soil_water_day_kernel(w0, base, f.supply, f.evaporation, f.uptake, f.storm)[0]
-        b = soil_water_day_kernel(w0, plug, f.supply, f.evaporation, f.uptake, f.storm)[0]
-        c = richards_day(w0, base.richards, f.supply, f.evaporation, f.uptake)
-        d = richards_day(w0, plug.richards, f.supply, f.evaporation, f.uptake)
-        for x, y in ((a, b), (c, d)):
-            for u, v in zip(jax.tree_util.tree_leaves(x), jax.tree_util.tree_leaves(y), strict=True):
-                np.testing.assert_array_equal(np.asarray(u), np.asarray(v))
+        c = richards_day(w0, base, supply[day], evap[day], uptake[day])
+        d = richards_day(w0, plug, supply[day], evap[day], uptake[day])
+        for u, v in zip(jax.tree_util.tree_leaves(c), jax.tree_util.tree_leaves(d), strict=True):
+            np.testing.assert_array_equal(np.asarray(u), np.asarray(v))
 
 
 def test_richards_params_take_only_registered_integrator_configs() -> None:
-    soil, grid = TD.catpa_soil(), TD.catpa_grid()
+    soil, grid = layered_soil(), layered_grid()
     with pytest.raises(KeyError):
         RichardsParams(soil=soil, grid=grid, stepping=_config_type("soil_water/unknown@none:alt_u")())
     with pytest.raises(TypeError):
@@ -209,7 +199,7 @@ def test_the_out_of_budget_fixture_fails_the_convergence_check() -> None:
 
 #: PROBLEM_VERSION -> the fingerprint of one sub-step on the frozen input (float64; tests/unit tier)
 PHYSICS_PINS: dict[int, tuple[float, float, float, float]] = {
-    1: (-2.6412463251045546, 0.35443740272337854, 0.0001516044412799034, 2.2802909061198275),
+    1: (-2.6852811265964958, 0.29925169664658263, 7.65300853873022e-05, 2.1820324018920365),
 }
 
 

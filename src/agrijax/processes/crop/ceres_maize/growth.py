@@ -19,10 +19,9 @@ PSTRES2 = KSTRES = 1``, no pest damage):
   ``MZ_GROSUB`` uses them for the crop's mass: ``NSTRES`` in ``CARBO = PCARB min(PRFT, SWFAC,
   NSTRES) SLPF``, ``AGEFAC`` in the stage 2-4 expansion factor and (``SLFN``) in the leaf
   senescence, ``NDEF3`` and ``NPOOL`` in the grain-number cap of the first day of effective grain
-  filling. The RZWQM2-4.6 day (:func:`agrijax.models.day_rzwqm46.day_rzwqm46`) fills the port with a
-  replay of the reference run's nitrogen factors because the nitrogen cycle is not built yet
-  (:mod:`agrijax.processes.n_supply`); with the record's no-stress defaults it is the faithful
-  process bit for bit.
+  filling. An assembly can fill the port with a replay of a reference run's nitrogen factors
+  because the nitrogen cycle is not built yet (:mod:`agrijax.processes.n_supply`); with the
+  record's no-stress defaults it is the faithful process bit for bit.
 
 ``ceres_growth`` is a thin process over kernels with one responsibility each, in the order of
 the Fortran: :func:`stage_date_init`, :func:`emergence_init`, :func:`assimilation`,
@@ -323,9 +322,9 @@ def ceres_growth(
             "yet; replaying NSTRES alone leaves out what the other three factors do to the crop's mass",
             "tests/unit/test_ceres_nstress_replay.py and tests/unit/test_ceres_n_factors.py (the "
             "no-stress record is the faithful process bit for bit; each factor acts where MZ_GROSUB "
-            "uses it); tests/integration/test_ceres_catpa_n_replay.py (CA-TPA 2015-2021 against "
-            "RZWQM2 4.6: the full replay and the NSTRES-only replay each reproduce a separate "
-            "diagnostic run of the same growth day with switches)",
+            "uses it); CA-TPA 2015-2021 against RZWQM2 4.6 outputs (data tier outside this "
+            "repository): the full replay and the NSTRES-only replay each reproduce a separate "
+            "diagnostic run of the same growth day with switches",
         ),
         (
             "DSSAT single precision (REAL*4) is not reproduced",

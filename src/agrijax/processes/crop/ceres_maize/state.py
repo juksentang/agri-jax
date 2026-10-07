@@ -38,7 +38,6 @@ from agrijax.core.state import Forcing, Params, State, field
 from agrijax.iface.crop import CanopyRecord, CropNIn, CropWaterIn, RootRecord
 from agrijax.iface.surface import SnowOut
 
-from .canopy_params import CeresCanopyParams
 from .coefficients import DSSAT_COEFFICIENTS, CeresCoefficients
 from .constants import ISTAGE_SOWING, MDATE_NONE, XSTAGE_SEASINIT
 from .smoothed_params import SMOOTHING_DEFAULT, SmoothingCoefficients, SoftPhenologyState
@@ -301,13 +300,6 @@ class CeresMaizeParams(Params):
     seasons: CeresSeasons | None = field(
         description="per-season management table (None: the single season of the scalar fields)", default=None
     )
-    canopy: CeresCanopyParams | None = field(
-        description=(
-            "parameters of the canopy record for the PET module (planned harvest dates, the RZWQM2 "
-            "driver's height and LAI numbers; None: no canopy entry)"
-        ),
-        default=None,
-    )
     smoothing: SmoothingCoefficients | None = field(
         description=(
             "logistic stage-gate scale of the smoothed phenology variant (None: its default; the "
@@ -552,9 +544,8 @@ class CeresMaizeState(State):
 
     Season boundaries: ``season`` is the number of harvests so far (int32, shared by the crops of the
     slot; ``None`` for a single-season run without a :class:`CeresSeasons` table) and picks the row
-    of the per-season parameters. ``canopy_out`` (P6) is written by the canopy producer and the harvest reset
-    (:func:`~agrijax.processes.crop.ceres_maize.season.ceres_harvest`); :meth:`initial` leaves it
-    ``None``.
+    of the per-season parameters. ``canopy_out`` (P6) is written by a canopy producer of an
+    assembly; :meth:`initial` leaves it ``None``.
     """
 
     phen: CeresPhenologyState
@@ -582,9 +573,7 @@ class CeresMaizeState(State):
         description="nitrogen factors NSTRES, AGEFAC, NDEF3, NPOOL (read by the nstress_replay growth)"
     )
     snow_in: SnowOut = port(description="snow of the day (P9); the crop reads the water equivalent swe")
-    canopy_out: CanopyRecord = port(
-        description="canopy record for the PET module (P6; reset on harvest days)"
-    )
+    canopy_out: CanopyRecord = port(description="canopy record for the PET module (P6)")
     soft: SoftPhenologyState | None = field(
         description=(
             "soft development clocks of the smoothed phenology variant (None: the faithful processes, "

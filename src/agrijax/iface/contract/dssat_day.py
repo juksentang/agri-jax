@@ -298,9 +298,8 @@ DSSAT_DAY_TABLE: tuple[RefDayEntry, ...] = (
         "adapter",
         "day_adapters",
         "Plant/CERES-Maize/MZ_GROSUB.for:1818-1831 (XLAI, XHLAI, CANHT)",
-        "the canopy SPAM reads the next day: lai = tlai = XHLAI = XLAI = LAI, height = 100 CANHT; the "
-        "canopy producer of the RZWQM2 day follows RZWQM2's DSSATDRV "
-        "(crop/ceres_maize.canopy@rzwqm2-4.6), not PLANT's outputs, so the DSSAT day keeps this adapter",
+        "the canopy SPAM reads the next day: lai = tlai = XHLAI = XLAI = LAI, height = 100 CANHT "
+        "(PLANT's outputs)",
     ),
     RefDayEntry(
         "D17",

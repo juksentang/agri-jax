@@ -24,10 +24,10 @@ import jax, jax.numpy as jnp
 from experiment_adaptive_richards import install_adaptive, R
 from agrijax.processes.soil_water import fixed_cn
 from agrijax.processes.soil_water.hydraulics import k_of_h, theta_of_h
-from tests.unit.test_richards import CATPA_REC1, CATPA_REC2, SoilHydraulicParams, nodes
+from tests.unit.test_richards import SOIL_REC1, SOIL_REC2, SoilHydraulicParams, nodes
 
 stepping = R.FixedStepping(n_sub=24, n_iter=12, grad="implicit")
-soil = nodes(SoilHydraulicParams.from_rzwqm_records(CATPA_REC1[:1], CATPA_REC2[:1]), 3)
+soil = nodes(SoilHydraulicParams.from_rzwqm_records(SOIL_REC1[:1], SOIL_REC2[:1]), 3)
 grid = R.RichardsGrid(tl=jnp.ones(3), delz=jnp.ones(2), dz_top=jnp.asarray(1.0))
 R.RichardsParams(soil=soil, grid=grid, stepping=stepping)
 audit = {"forward": [], "backward": []}

@@ -4,14 +4,14 @@ from pathlib import Path
 
 from experiment_adaptive_richards import install_adaptive, R, jax, jnp, np
 from agrijax.processes.soil_water.hydraulics import k_of_h, theta_of_h
-from tests.unit.test_richards import CATPA_REC1, CATPA_REC2, SoilHydraulicParams, nodes, step_args
+from tests.unit.test_richards import SOIL_REC1, SOIL_REC2, SoilHydraulicParams, nodes, step_args
 
 
 def main():
     tol = 1e-14
-    rec1 = CATPA_REC1[:1].copy()
+    rec1 = SOIL_REC1[:1].copy()
     rec1[:, 3] = 1.0
-    soil = nodes(SoilHydraulicParams.from_rzwqm_records(rec1, CATPA_REC2[:1]), 3)
+    soil = nodes(SoilHydraulicParams.from_rzwqm_records(rec1, SOIL_REC2[:1]), 3)
     grid = R.RichardsGrid(tl=jnp.ones(3), delz=jnp.ones(2), dz_top=jnp.asarray(1.0))
     cfg = R._SolveCfg(n_iter=1, jacobian="newton", dv_max=1.0, c_floor=1e-7, chop=True)
     rows = []

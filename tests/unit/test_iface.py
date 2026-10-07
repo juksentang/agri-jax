@@ -292,9 +292,9 @@ def test_day_table_order_and_registered_keys() -> None:
     assert {e.row for e in DAY_TABLE if not e.row.isdigit()} == {"15a", "16a", "16b", "P10"}
     # every registered producer
     for mod in (
-        "agrijax.models.day_rzwqm46",
+        "agrijax.processes.crop.ceres_maize",
+        "agrijax.processes.n_supply",
         "agrijax.processes.pet",
-        "agrijax.processes.snow",
         "agrijax.processes.water_supply",
     ):
         importlib.import_module(mod)
@@ -303,9 +303,8 @@ def test_day_table_order_and_registered_keys() -> None:
         if e.status == "registered":
             assert lookup(e.key) is not None, e.key
     registered = {e.row: e.key for e in DAY_TABLE if e.status == "registered"}
-    assert registered["5"] == "snow/prms@rzwqm2-4.6:faithful"
-    assert registered["6"] == "soil_water/wuf@rzwqm2-4.6:faithful"
     assert registered["9"] == "crop_iface/eop_from_pet@rzwqm2-4.6:faithful"
+    assert registered["10"] == "water_supply/rootwu@dssat-4.8.6.0:faithful"
     with pytest.raises(ValueError, match="unknown phase"):
         DayEntry("x", "night", "a.b", "", (), "none")
 
@@ -322,16 +321,17 @@ def test_day_table_status_agrees_with_the_registry_both_ways(monkeypatch: pytest
     that registers a row's process must update the row, or this fails)."""
     import agrijax.iface.contract as c
 
-    for mod in ("agrijax.models.day_rzwqm46", "agrijax.processes.pet"):
+    for mod in ("agrijax.processes.crop.ceres_maize", "agrijax.processes.n_supply", "agrijax.processes.pet"):
         importlib.import_module(mod)
+    importlib.import_module("agrijax.processes.water_supply")
     assert c.day_status_problems(_registered) == []
-    k = next(i for i, e in enumerate(DAY_TABLE) if e.entry == "pet.sw_daily")  # registered
+    k = next(i for i, e in enumerate(DAY_TABLE) if e.entry == "crops.{slot}.eop")  # registered
     stale = (*DAY_TABLE[:k], dataclasses.replace(DAY_TABLE[k], status="none"), *DAY_TABLE[k + 1 :])
     monkeypatch.setattr(c, "DAY_TABLE", stale)
-    assert any("AJ017" in p and "pet.sw_daily" in p for p in c.day_status_problems(_registered))
+    assert any("AJ017" in p and "eop" in p for p in c.day_status_problems(_registered))
     ghost = (
         *DAY_TABLE[:k],
-        dataclasses.replace(DAY_TABLE[k], key="pet/nothing@rzwqm2-4.6:faithful"),
+        dataclasses.replace(DAY_TABLE[k], key="crop_iface/nothing@rzwqm2-4.6:faithful"),
         *DAY_TABLE[k + 1 :],
     )
     monkeypatch.setattr(c, "DAY_TABLE", ghost)
@@ -442,6 +442,6 @@ def test_iface_import_closure_has_no_process_module() -> None:
         m: [] for m in core
     }
     # the check is not vacuous: a process module's closure does reach processes
-    assert "agrijax.processes.soil_water.richards" in import_closure(
-        ["agrijax.processes.soil_water.day"], src
+    assert "agrijax.processes.soil_water.problem" in import_closure(
+        ["agrijax.processes.soil_water.richards"], src
     )

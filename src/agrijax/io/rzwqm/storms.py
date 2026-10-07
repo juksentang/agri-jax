@@ -1,28 +1,21 @@
 """Per-day water-event arrays of an RZWQM2 scenario: breakpoint storms and irrigation.
 
-The soil-water day (``soil_water/day@rzwqm2-4.6:faithful``) takes one storm segment per day
-(:class:`~agrijax.processes.soil_water.infiltration.StormForcing`: start clock time ``ts0`` [h],
-breakpoint interval lengths ``duration`` [h] and depths ``depth`` [cm], padded to a common
-``n_bp``). :func:`storm_arrays` builds those arrays from a ``.BRK`` file (:func:`read_brk`) the way
-RZWQM2 4.6 reads it (``STMINP``, Rzday.for:3758-3962, RZWQM2 4.5 source, read only):
+:func:`storm_arrays` turns a ``.BRK`` file (:func:`read_brk`) into one storm segment per day: start
+clock time ``ts0`` [h], breakpoint interval lengths ``duration`` [h] and depths ``depth`` [cm],
+padded to a common ``n_bp``:
 
-* a storm whose total in the event record is below :data:`STMINP_MIN_DEPTH_IN` is skipped
-  (Rzday.for:3842, 3847);
+* a storm whose total in the event record is below ``min_storm_in`` (a user parameter, default
+  :data:`STMINP_MIN_DEPTH_IN`) is skipped;
 * the cumulative breakpoints (clock time [min], depth [in]) become increments, converted to
-  hours and centimetres (Rzday.for:3915-3916) and multiplied by the rainfall modifier of
-  ``IPNAMES.DAT`` (``METMOD`` row 7, percent; Rzday.for:3919, read at Rzmain.for:9185-9188);
-* the start clock time is the first breakpoint's time (Rzday.for:3868);
+  hours and centimetres and multiplied by the rainfall modifier of ``IPNAMES.DAT`` (``METMOD``
+  row 7, percent);
+* the start clock time is the first breakpoint's time;
 * a storm that crosses midnight continues on the next day at ``ts0 = 0`` with each interval
-  split in proportion to time (``CHSPAN``, Rzday.for:126). CA-TPA has no such storm, so this
-  split is checked only by the synthetic unit test, not against the reference.
+  split in proportion to time.
 
-RZWQM2 applies the modifier of the month of the day on which it reads the storm, which is the
-day the previous storm ended (``CDATE(JDAY, ...)`` at Rzday.for:3913); :func:`storm_arrays`
-therefore accepts only a modifier that is the same in every month (CA-TPA: 100 %) and raises
-otherwise. A day's precipitation that falls while RZWQM2's snow routine is active is not an
-infiltration event there (the snow branch accumulates it, Rzday.for:1528-1597); that partition
-belongs to the snow module, so these arrays carry every breakpoint storm and the consumer
-decides.
+:func:`storm_arrays` accepts only a rainfall modifier that is the same in every month and raises
+otherwise. These arrays carry every breakpoint storm; how a day's precipitation is split between
+snow and an infiltration event is the consumer's decision.
 
 Irrigation (:func:`irrigation_cm`): the ``IRRIGATION MANAGEMENT`` block of ``rzwqm.dat`` gives
 the number of irrigation operations in its first record; with none, the per-day irrigation is
@@ -60,16 +53,15 @@ __all__ = [
     "storm_depths",
 ]
 
-#: RZWQM2 ``STMINP`` skips a breakpoint storm whose event-record total is below this depth [in]
-#: (RZWQM2 4.5 Rzday.for:3842 and 3847; the 4.6 binary behaves the same: CA-TPA 2015-2023 has
-#: no ``EVNTRO`` event for a storm below it, tests/integration/test_io_m3_catpa.py).
+#: default skip threshold [in]: a breakpoint storm whose event-record total is below it is
+#: skipped (a user parameter of :func:`storm_arrays` and :func:`storm_depths`; the reference model
+#: behaves this way on the compared scenarios)
 STMINP_MIN_DEPTH_IN: float = 0.01
-#: unit conversion inch -> cm (exact; Rzday.for:3916 uses the same factor)
+#: unit conversion inch -> cm (exact)
 CM_PER_INCH: float = 2.54
-#: unit conversion hour -> minutes (Rzday.for:3915)
+#: unit conversion hour -> minutes
 MINUTES_PER_HOUR: float = 60.0
-#: percent -> fraction of the ``METMOD`` modifiers, as the reference writes it (``***REMOVED***``,
-#: Rzday.for:3919)
+#: percent -> fraction of the ``METMOD`` modifiers
 _PERCENT_TO_FRACTION: float = 1.0e-2
 #: the identity modifier, 100 % (every month of the 15 reference scenarios)
 _IDENTITY_PERCENT: float = 100.0
@@ -108,7 +100,7 @@ def read_met_modifiers(ipnames: str | Path) -> np.ndarray:
 
 @dataclass(frozen=True)
 class StormArrays:
-    """One storm segment per day (numpy; :class:`StormForcing` fields plus bookkeeping).
+    """One storm segment per day (numpy; ``ts0``, ``duration``, ``depth`` plus bookkeeping).
 
     ``ts0`` [h] is the clock time of the segment start (24 on days without a storm), ``duration``
     [h] and ``depth`` [cm] the breakpoint intervals ``[T, n_bp]`` (zero padded), ``event`` the
@@ -150,15 +142,14 @@ def storm_depths(
     met_modifiers: np.ndarray | None = None,
     min_storm_in: float = STMINP_MIN_DEPTH_IN,
 ) -> pd.DataFrame:
-    """The storms ``STMINP`` reads and their depth ``RFDNEW`` [cm], one row per storm kept.
+    """The storms kept and their depth [cm], one row per storm.
 
-    A storm whose event-record total is below ``min_storm_in`` is skipped (Rzday.for:3842), as is
-    one without breakpoints; the depth is the last cumulative breakpoint [in] converted to cm and
-    multiplied by the rainfall modifier (percent, then the fraction; Rzday.for:3916-3924). The
-    modifier is the one of :func:`storm_arrays` (a month-dependent modifier raises; ``None``:
-    100 %). Index: the event (row of :attr:`BrkData.events`); columns ``date`` (the day the
-    storm starts, ``datetime64[D]``) and ``depth_cm``. This is the parsed storm list that
-    :func:`agrijax.forcing.precipitation.daily_storm_precipitation` sums per day.
+    A storm whose event-record total is below ``min_storm_in`` is skipped, as is one without
+    breakpoints; the depth is the last cumulative breakpoint [in] converted to cm and multiplied by
+    the rainfall modifier (percent, then the fraction). The modifier is the one of
+    :func:`storm_arrays` (a month-dependent modifier raises; ``None``: 100 %). Index: the event (row
+    of :attr:`BrkData.events`); columns ``date`` (the day the storm starts, ``datetime64[D]``) and
+    ``depth_cm``.
     """
     pct = _rain_percent(met_modifiers)
     if pct is None:
@@ -207,9 +198,9 @@ def storm_arrays(
         eid = int(ev_id)
         for k in range(len(t) - 1):
             t0, t1 = float(t[k]), float(t[k + 1])
-            dd = float(c[k + 1] - c[k]) * CM_PER_INCH  # Rzday.for:3916: the increment, then inches -> cm
+            dd = float(c[k + 1] - c[k]) * CM_PER_INCH  # the increment, then inches -> cm
             if pct is not None:
-                dd = dd * pct * _PERCENT_TO_FRACTION  # Rzday.for:3919
+                dd = dd * pct * _PERCENT_TO_FRACTION
             while t1 > t0:
                 off = int(np.floor(t0 / _HOURS_PER_DAY))
                 cut = min(t1, _HOURS_PER_DAY * (off + 1))

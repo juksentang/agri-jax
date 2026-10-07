@@ -68,31 +68,27 @@ MET_UNITS: dict[str, str] = {
     "rain_mm": "mm/day",
 }
 _INCH_MM = 25.4
-#: ``R2D`` of ``Rzmain.for`` (PARAMETER, line 244).
+#: radians to degrees, as the reference model sets it (a PARAMETER with pi to ten digits)
 _R2D = 180.0 / 3.141592654
 
-#: RZWQM2 floors the daily wind run at ``UBREEZ = 100`` km d-1 when it reads a ``.MET`` record
-#: (``INPDAY``, ``Rzmain.for`` lines 3521-3522 PARAMETER and line 3543 ``***REMOVED***``).
+#: floor of the daily wind run [km d-1] the reference model applies when it reads a ``.MET``
+#: record (a user parameter here)
 WIND_FLOOR_KM_D: float = 100.0
-#: bounds ``INPDAY`` then applies (``Rzmain.for`` lines 3521-3522 and 3575-3582): column -> (low, high).
-#: The radiation bounds (``TRN``, ``TRX``) belong to :func:`agrijax.forcing.radiation.horizontal_radiation`.
+#: bounds applied after the wind floor (user parameters here): column -> (low, high)
 INPDAY_BOUNDS: dict[str, tuple[float, float]] = {
     "tmin": (-50.0, np.inf),  # TTN
     "tmax": (-np.inf, 50.0),  # TTX
     "wind_run_km": (45.0, 4700.0),  # TUN, TUX
+    "srad_mj": (0.0, 45.0),  # TRN, TRX
     "rh": (0.0, 100.0),  # TRHN, TRHX
 }
 
 
-#: ``METMOD`` rows (0-based) added to / multiplied (percent) into the ``.MET`` columns by ``INPDAY``
-#: (``Rzmain.for`` lines 3553-3558). The radiation row (3) is applied by
-#: :func:`agrijax.forcing.radiation.horizontal_radiation` only, the rainfall row (6) by
-#: :func:`agrijax.io.rzwqm.storms.storm_arrays` only.
+#: ``METMOD`` rows (0-based) of ``IPNAMES.DAT`` added to / multiplied (percent) into the ``.MET``
+#: columns; the rainfall row (6) is applied by :func:`agrijax.io.rzwqm.storms.storm_arrays` only
 _MET_MODIFIER_ADD: dict[str, int] = {"tmin": 0, "tmax": 1}
-_MET_MODIFIER_PCT: dict[str, int] = {"wind_run_km": 2, "epan": 4, "rh": 5}
-#: ``METMOD`` row of the solar radiation (percent), handed to :mod:`agrijax.forcing.radiation`
-_MET_MODIFIER_SRAD_ROW = 3
-#: percent -> fraction as the reference writes it (``***REMOVED***``, ``Rzmain.for`` lines 3555-3558)
+_MET_MODIFIER_PCT: dict[str, int] = {"wind_run_km": 2, "srad_mj": 3, "epan": 4, "rh": 5}
+#: percent -> fraction
 _PERCENT_TO_FRACTION = 1.0e-2
 
 
@@ -142,44 +138,20 @@ def prepare_rzwqm_forcing(
     met: pd.DataFrame,
     *,
     wind_floor_km_d: float = WIND_FLOOR_KM_D,
-    latitude_rad: float | None = None,
-    slope_rad: float = 0.0,
-    aspect_rad: float = 0.0,
     met_modifiers: np.ndarray | None = None,
 ) -> pd.DataFrame:
-    """Apply RZWQM2's daily forcing preparation (``INPDAY``) to a :func:`read_met` frame.
+    """Apply a daily forcing preparation to a :func:`read_met` frame: the wind run floored at
+    ``wind_floor_km_d``, the optional monthly modifiers ``met_modifiers`` (the ``[8, 12]``
+    ``METMOD`` block of ``IPNAMES.DAT``, :func:`agrijax.io.rzwqm.storms.read_met_modifiers`:
+    temperatures added, wind, radiation, pan evaporation and RH multiplied by a percentage), then the
+    bounds of :data:`INPDAY_BOUNDS`. The solar radiation is the ``.MET`` value (after its modifier);
+    no hourly disaggregation is applied.
 
-    1. wind run floored at ``wind_floor_km_d`` (``UBREEZ = 100`` km d-1, ``Rzmain.for`` line 3543);
-    2. the bounds of :data:`INPDAY_BOUNDS` (``Rzmain.for`` lines 3575-3582);
-    3. the solar radiation is RTH, the ``.MET`` value times its monthly modifier and bounded,
-       computed by :func:`agrijax.forcing.radiation.horizontal_radiation` (the one owner of the
-       radiation preparation);
-    4. only when ``latitude_rad`` is given (the ``rzwqm.dat`` physiography, radians): the daily
-       solar radiation the model actually uses, RTS, the re-sum of its hourly disaggregation on
-       the site's slope (:func:`agrijax.forcing.radiation.rzwqm_radiation`); RTH is kept in
-       ``srad_mj_met``. This is what ``.ana`` column 88 prints (-0.7 % .. +0.5 % from the
-       ``.MET`` value day to day).
-
-    With the wind floor the CA-TPA ``.MET`` wind equals the ``.ana`` wind column (90) on every
-    day; without it the floor is the whole MET-vs-ana difference in reference ET (max 0.535
-    mm d-1 on 2015-07-28). Not reproduced: the ``RH = 0`` replacement by a dew-point estimate (no
-    CA-TPA record has RH = 0).
-    With ``met_modifiers`` (the ``[8, 12]`` ``METMOD`` of ``IPNAMES.DAT``,
-    :func:`agrijax.io.rzwqm.storms.read_met_modifiers`) the monthly modifiers are applied after
-    the wind floor and before the bounds, in the reference's order and arithmetic (``TMIN +
-    METMOD(1, month)``, ``U * METMOD(3, month) * 1e-2`` and so on, ``Rzmain.for`` lines 3552-3558;
-    the identity modifiers of CA-TPA still round ``x * 100 * 1e-2``, which is what makes RH and
-    wind equal the reference's to the last bit). Each modifier is applied once: the radiation
-    row inside :mod:`agrijax.forcing.radiation`, the rainfall row by the storm reader.
     Returns a copy; ``attrs`` gain ``prepared = "INPDAY"``.
     """
-    from agrijax.forcing.radiation import horizontal_radiation, rzwqm_radiation
-
     out = met.copy()
     if "wind_run_km" in out:
         out["wind_run_km"] = np.maximum(out["wind_run_km"].to_numpy(dtype=float), wind_floor_km_d)
-    dates = pd.Series(pd.DatetimeIndex(out.index)).dt
-    srad_pct: np.ndarray | None = None
     if met_modifiers is not None:
         mod = np.asarray(met_modifiers, dtype=float)
         month = np.asarray(out.index.to_numpy(), dtype="datetime64[M]").astype(np.int64) % 12
@@ -189,31 +161,11 @@ def prepare_rzwqm_forcing(
         for col, row in _MET_MODIFIER_PCT.items():
             if col in out:
                 out[col] = out[col].to_numpy(dtype=float) * mod[row, month] * _PERCENT_TO_FRACTION
-        srad_pct = mod[_MET_MODIFIER_SRAD_ROW]
         out.attrs.update(met_modifiers="METMOD")
     for col, (lo, hi) in INPDAY_BOUNDS.items():
         if col in out:
             out[col] = np.clip(out[col].to_numpy(dtype=float), lo, hi)
     out.attrs.update(prepared="INPDAY", wind_floor_km_d=wind_floor_km_d)
-    if "srad_mj" in out:
-        raw = out["srad_mj"].to_numpy(dtype=float)
-        months = dates.month.to_numpy()
-        if latitude_rad is None:
-            out["srad_mj"] = horizontal_radiation(raw, months, srad_pct)
-        else:
-            rad = rzwqm_radiation(
-                raw,
-                dates.dayofyear.to_numpy(),
-                latitude_rad,
-                slope_rad,
-                aspect_rad,
-                month=months,
-                metmod_srad_pct=srad_pct,
-                allow_zero=True,
-            )
-            out["srad_mj_met"] = rad.srad_horizontal
-            out["srad_mj"] = rad.srad
-            out.attrs.update(srad="hourly re-sum (agrijax.forcing.radiation.rzwqm_radiation)")
     return out
 
 

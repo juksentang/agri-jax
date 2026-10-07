@@ -11,10 +11,10 @@ import (the table is imported by the function that builds it).
   harvest option 3 = fixed date (the only option supported).
 * FERTILIZER / PESTICIDE: records bound to a plant reference. Timing 1 = ``offset`` days before
   planting, 2 = ``offset`` days after planting, 5 = a fixed date. ``MAQUE`` checks a record only
-  while its plant reference is the crop being managed (``***REMOVED***``: the crop in the
-  field, else this year's next planting), for fixed dates too; relative records count from that
-  crop's planting day of the current year (:func:`_scheduler`). On any day only the first
-  matching fertilizer record fires (``***REMOVED***``); every matching pesticide record fires.
+  while its plant reference is the crop being managed (the crop in the field, else this year's
+  next planting), for fixed dates too; relative records count from that crop's planting day of the
+  current year (:func:`_scheduler`). On any day only the first matching fertilizer record fires;
+  every matching pesticide record fires.
   Timings 3/4 (emergence / harvest based) and 6/7 (split applications) depend on the
   simulation and raise ``NotImplementedError``.
 * A fertilizer record gives NO3-N, NH4-N and urea-N (records 2.5-2.7, kg N/ha); each non-zero
@@ -28,7 +28,7 @@ import (the table is imported by the function that builds it).
   The ``detail`` of a row holds ``method=<name>`` and, for methods 3 / 4, ``depth_cm=<depth>``.
 * TILLAGE: record ``ref when offset[dd mm yyyy] implement depth intensity operation [pmix]``; the
   timings and the plant-reference gate are those of fertilizer (3/4 raise), and on any day only
-  the first matching record fires (``***REMOVED***``). ``value`` is the implement depth in cm.
+  the first matching record fires. ``value`` is the implement depth in cm.
 * MANURE: a non-zero count raises ``NotImplementedError`` (organic N would be lost silently).
   IRRIGATION: raises likewise unless ``"irrigation"`` is in ``skip`` (the irrigation schedule is
   not parsed yet).
@@ -162,7 +162,7 @@ def _scheduler(dat: RzwqmDat, plantings: list[Any], simulation_start: np.datetim
     A record is checked only when its plant reference equals ``IRPL``; timing 1 fires on
     ``JPLNT - offset``, timing 2 on ``JPLNT + offset`` (or that day minus the previous year's
     length), timing 5 on its date. Tillage and fertilizer fire only their first matching record
-    of a day (``***REMOVED***`` / ``***REMOVED***``); every matching pesticide record fires.
+    of a day; every matching pesticide record fires.
     """
     pl = [
         (

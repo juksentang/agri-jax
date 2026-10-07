@@ -17,15 +17,9 @@ from agrijax.core.state import get_path
 from agrijax.processes.soil_water import (
     SINK_CHANNELS,
     SINK_LEDGER_OUTFLOWS,
-    DayConfig,
-    GreenAmptConfig,
-    GreenAmptParams,
     SinkChannel,
     SinkChannels,
-    SoilWaterDayParams,
-    StormForcing,
     as_sink_channels,
-    soil_water_day_kernel,
 )
 from agrijax.processes.soil_water.richards import (
     FixedStepping,
@@ -35,14 +29,14 @@ from agrijax.processes.soil_water.richards import (
     richards_day,
 )
 
-from .test_richards import CATPA_TLT, catpa_grid, catpa_soil
+from .test_richards import NODE_TLT, layered_grid, layered_soil
 
 X64 = bool(jax.config.read("jax_enable_x64"))
 REL = 1e-12 if X64 else 2e-5
 BAL = 1e-9 if X64 else 2e-3
 
-N = len(CATPA_TLT)
-TL = np.diff(np.concatenate([[0.0], CATPA_TLT]))
+N = len(NODE_TLT)
+TL = np.diff(np.concatenate([[0.0], NODE_TLT]))
 UPTAKE = np.zeros(N)
 UPTAKE[:12] = 0.02  # [cm d-1] per layer, root zone
 EVAP = np.where((np.arange(24) >= 6) & (np.arange(24) < 18), 0.02, 0.0)  # [cm h-1]
@@ -51,11 +45,13 @@ SUPPLY[3:5] = 0.4  # [cm h-1], 0.8 cm of prescribed surface supply
 
 
 def _params() -> RichardsParams:
-    return RichardsParams(soil=catpa_soil(), grid=catpa_grid(), stepping=FixedStepping(n_sub=24, n_iter=6))
+    return RichardsParams(
+        soil=layered_soil(), grid=layered_grid(), stepping=FixedStepping(n_sub=24, n_iter=6)
+    )
 
 
 def _water(theta: float = 0.25) -> SoilWater:
-    return SoilWater.from_theta(jnp.full(N, theta), catpa_soil())
+    return SoilWater.from_theta(jnp.full(N, theta), layered_soil())
 
 
 def _day(sinks: object, theta: float = 0.25) -> SoilWater:
@@ -181,7 +177,7 @@ def test_per_substep_callable_equals_its_daily_form() -> None:
 def test_h_min_cut_order_uptake_before_drains() -> None:
     """At the dry end the uptake takes what is available first; the tile then gets the rest (none)."""
     params = _params()
-    w = SoilWater.from_head(jnp.full(N, -14000.0), catpa_soil())
+    w = SoilWater.from_head(jnp.full(N, -14000.0), layered_soil())
     upt = jnp.zeros(N).at[:6].set(0.5)
     tile = jnp.zeros(N).at[:6].set(0.5)
     s = SinkChannels(uptake=SinkChannel(daily=upt, carries_solute=False), tile=SinkChannel(daily=tile))
@@ -192,33 +188,6 @@ def test_h_min_cut_order_uptake_before_drains() -> None:
     assert float(f.tile) < 1e-6 * float(f.uptake)
     assert float(f.sink_cut) == pytest.approx(float(jnp.sum(tile)) - float(f.tile), rel=1e-6)
     assert float(f.uptake) + float(f.uptake_cut) == pytest.approx(float(jnp.sum(upt)), rel=1e-6)
-
-
-def test_event_day_accepts_the_record_and_reports_channels() -> None:
-    """``soil_water_day_kernel``: the record passes through both segments; ledger closes with a tile channel."""
-    rp = _params()
-    params = SoilWaterDayParams(
-        richards=rp,
-        infiltration=GreenAmptParams(aef=jnp.asarray(0.9), config=GreenAmptConfig.for_grid(TL)),
-        config=DayConfig(n_pre=6, n_post=18),
-    )
-    storm = StormForcing(
-        ts0=jnp.asarray(4.0), duration=jnp.asarray([1.0, 1.0]), depth=jnp.asarray([0.6, 0.3])
-    )
-    tile = jnp.zeros(N).at[25:30].set(0.01)
-    w0 = _water()
-    a, _, _ = soil_water_day_kernel(w0, params, jnp.zeros(24), jnp.asarray(EVAP), jnp.asarray(UPTAKE), storm)
-    b, _, _ = soil_water_day_kernel(
-        w0, params, jnp.zeros(24), jnp.asarray(EVAP), SinkChannels.from_uptake(jnp.asarray(UPTAKE)), storm
-    )
-    np.testing.assert_array_equal(np.asarray(a.theta), np.asarray(b.theta))
-    s = SinkChannels(
-        uptake=SinkChannel(daily=jnp.asarray(UPTAKE), carries_solute=False), tile=SinkChannel(daily=tile)
-    )
-    c, _, _ = soil_water_day_kernel(w0, params, jnp.zeros(24), jnp.asarray(EVAP), s, storm)
-    assert float(c.flux.tile) == pytest.approx(float(jnp.sum(tile)), rel=1e-9 if X64 else 1e-5)
-    assert abs(float(c.flux.balance_error)) < BAL
-    assert float(a.flux.tile) == 0.0
 
 
 def test_gradient_through_a_channel_is_finite() -> None:

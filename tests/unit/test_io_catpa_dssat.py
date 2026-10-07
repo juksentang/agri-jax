@@ -40,7 +40,7 @@ from agrijax.sites.catpa_m3 import SeasonTable
 
 # ---------------------------------------------------------------------------- Brooks-Corey
 def test_brooks_corey_theta_closed_forms() -> None:
-***REMOVED***
+    hb, lam, tr, ts = 15.0, 0.25, 0.05, 0.45
     assert brooks_corey_theta(hb, hb, lam, tr, ts) == pytest.approx(ts, abs=1e-15)
     # Se = 1/2 at h = hb 2^(1/lam)
     h_half = hb * 2.0 ** (1.0 / lam)
@@ -118,11 +118,11 @@ def _fake_dat() -> Any:
     return SimpleNamespace(
         horizon_depths_cm=np.array([15.0, 30.0, 70.0, 90.0, 150.0]),
         hydraulics={
-***REMOVED***
-***REMOVED***
-***REMOVED***
-            "theta_s": np.full(nh, 0.453),
-***REMOVED***
+            "hb": np.full(nh, 15.0),
+            "lam": np.array([0.25, 0.30, 0.35, 0.20, 0.30]),
+            "theta_r": np.array([0.05, 0.03, 0.04, 0.05, 0.04]),
+            "theta_s": np.full(nh, 0.45),
+            "ksat": np.array([5.0, 3.0, 3.5, 3.0, 2.5]),
         },
         water_suction_heads_cm={"hmin": -15000.0, "hfc": -333.0, "hwp": -15000.0},
         soil_physical={
@@ -161,7 +161,7 @@ def test_soil_profile_values_and_sol_round_trip(tmp_path: Path) -> None:
     # layers 1-2 lie in horizon 1; layer 6 (60-90 cm) mixes horizons 3 and 4
     assert lay["SLLL"].iloc[0] == pytest.approx(round(float(ll_h[0]), 4), abs=0)
     assert lay["SDUL"].iloc[5] == pytest.approx(round((10 * dul_h[2] + 20 * dul_h[3]) / 30, 4), abs=0)
-    assert np.all(lay["SSAT"] == 0.453) and np.all(lay["SLCL"] == 10.0) and np.all(lay["SLSI"] == 25.0)
+    assert np.all(lay["SSAT"] == 0.45) and np.all(lay["SLCL"] == 10.0) and np.all(lay["SLSI"] == 25.0)
     assert np.all(lay["SDUL"] > lay["SLLL"])
     p = write_sol([prof], tmp_path / "CT.SOL")
     back = read_sol(p, dssat_spans=True)[prof.id]
@@ -361,8 +361,8 @@ _OVERVIEW = """*SIMULATION OVERVIEW FILE
 
    SOIL LOWER UPPER   SAT  EXTR  INIT   ROOT   BULK     pH    NO3    NH4    ORG
 -------------------------------------------------------------------------------
-  0-  5 0.142 0.255 0.453 0.114 0.277   1.00   1.45   6.91   0.18   0.00   1.77
-  5- 15 0.142 0.255 0.453 0.114 0.278   1.00   1.45   6.91   0.18   0.00   1.77
+  0-  5 0.150 0.260 0.450 0.110 0.277   1.00   1.45   6.91   0.18   0.00   1.77
+  5- 15 0.150 0.260 0.450 0.110 0.278   1.00   1.45   6.91   0.18   0.00   1.77
 
 TOT-150   1.0   2.0   3.0   4.0   5.0  <--cm   -  kg/ha-->    0.0    0.0      0
 
@@ -396,7 +396,7 @@ def test_overview_parsers(tmp_path: Path) -> None:
     assert one["DATE"].iloc[-1] == pd.Timestamp("2015-09-20").date()
     assert list(st[st["RUN"] == 2]["TRNO"].unique()) == [8]
     soil = read_overview_soil(p)
-    assert len(soil) == 4 and soil["LL"].iloc[0] == 0.142 and soil["INIT_SW"].iloc[1] == 0.278
+    assert len(soil) == 4 and soil["LL"].iloc[0] == 0.15 and soil["INIT_SW"].iloc[1] == 0.278
     assert soil["ORG_C"].iloc[0] == 1.77 and soil["BOTTOM"].iloc[1] == 15.0
     cul = read_overview_cultivar(p)
     assert cul.loc[0, ["P1", "P2", "P5", "G2", "G3", "PHINT"]].tolist() == [

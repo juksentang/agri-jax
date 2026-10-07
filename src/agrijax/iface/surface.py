@@ -32,10 +32,8 @@ __all__ = [
 
 #: the P5 fields whose sum is the soil-water day's evaporation demand. The reference's actual
 #: evaporation (``.ana`` column 6) never exceeds ``PES + PER`` and equals it on the days that are
-#: not supply-limited (measured on CA-TPA 2015-2023 in
-#: ``tests/integration/test_day_rzwqm46_smoke.py`` and on the 9 daily S-W scenarios in
-#: ``tests/integration/test_pet_process_dumps.py``), so the residue evaporation is drawn from the
-#: soil water too.
+#: not supply-limited (compared with RZWQM2 4.6 outputs), so the residue evaporation is drawn from
+#: the soil water too.
 EVAPORATION_DEMAND_FIELDS: tuple[str, ...] = ("soil_evaporation", "residue_evaporation")
 
 

@@ -1,15 +1,8 @@
 """Coefficients and numerical settings of the soil-water modules, each declared once with its origin.
 
-Two kinds of numbers appear in the Richards, Green-Ampt and soil-water-day kernels besides the
-file-read soil parameters:
+The Richards redistribution has no hard-coded model coefficient: every number of its equations
+is a soil parameter. The numbers of its kernels besides the soil parameters are
 
-* **model coefficients**, numbers of the equations: declared with
-  :func:`agrijax.core.coefficients.coef` in :class:`GreenAmptCoefficients` (value, unit, meaning,
-  :class:`~agrijax.core.coefficients.Provenance`). They are calibratable pytree leaves by
-  default; ``GreenAmptParams.coefficients = None`` means the RZWQM2 values
-  (:data:`RZWQM2_GREEN_AMPT`), which are Python floats, so a default run traces the same
-  literals as before they were named. The Richards redistribution has no hard-coded model
-  coefficient: every number of its equations is a soil parameter read from ``rzwqm.dat``.
 * **numerical settings**, numbers of the scheme (sub-steps, Newton iterations, damping,
   tolerances, clamp bounds, time weights, grid geometry): declared with
   :func:`numerical_setting` (a module constant) or :func:`setting_field` (a static field of a
@@ -24,8 +17,7 @@ Numerical guards (floors that only keep a quotient or a logarithm finite) are de
 :func:`agrijax.core.coefficients.numerical_guard` next to the kernel that uses them.
 
 Source: Ahuja, L.R., Rojas, K.W., Hanson, J.D., Shaffer, M.J., Ma, L. (eds.), 2000. Root Zone
-Water Quality Model, ch. 3; RZWQM2 4.6 ``RZTEST.for`` (``EVNTRO``, ``INFIL``), ``Rzrich.for``
-(``RICHRD``, ``CNHEAD``), ``Rzmain.for`` (grid), read for conventions only.
+Water Quality Model, ch. 3.
 """
 
 from __future__ import annotations
@@ -35,17 +27,14 @@ from typing import Any
 
 import equinox as eqx
 
-from agrijax.core.coefficients import Coefficients, Provenance, coef, coefficient_table
+from agrijax.core.coefficients import Provenance
 from agrijax.core.units import parse_unit
 
 __all__ = [
     "AHUJA_2000",
     "REF_VERSION",
-    "RZWQM2_GREEN_AMPT",
     "SETTINGS",
-    "GreenAmptCoefficients",
     "NumericalSetting",
-    "green_ampt_coefficient_table",
     "numerical_setting",
     "rzwqm2",
     "setting_field",
@@ -177,59 +166,3 @@ def settings_table() -> list[dict[str, Any]]:
             }
         )
     return rows
-
-
-# ---------------------------------------------------------------------------
-# Green-Ampt event (RZWQM2 EVNTRO / INFIL)
-# ---------------------------------------------------------------------------
-
-
-class GreenAmptCoefficients(Coefficients):
-    """Hard-coded numbers of the RZWQM2 Green-Ampt event (``GreenAmptParams.coefficients``)."""
-
-    vrcf: float = coef(
-        2.0,
-        "-",
-        "reduction factor of the layered Green-Ampt infiltration capacity (V = V_GA / vrcf)",
-        rzwqm2(
-            "RZWQM/RZTEST.for:1283",
-            "INFIL",
-            note="VRCF; applied to the capacity at RZTEST.for:1382. The published chapter gives the "
-            "layered Green-Ampt capacity it scales, not the factor.",
-        ),
-        bounds=(1.0e-3, 1.0e3),
-        fortran_name="VRCF",
-    )
-    suction_offset: float = coef(
-        1.0,
-        "cm",
-        "head added to the conductivity integral in the wetting-front suction "
-        "(S_f = offset + int K/K_s ds + pond)",
-        rzwqm2("RZWQM/RZTEST.for:649", "EVNTRO", note="SWF; Mein & Larson (1973) form of the suction"),
-        fortran_name="SWF",
-    )
-    suction_dry_limit: float = coef(
-        1.0,
-        "cm",
-        "value of the conductivity integral when the initial suction is at most suction_lower",
-        rzwqm2("RZWQM/RZTEST.for:646", "EVNTRO", note="SWF for SI <= 1 cm, before the division by DC1"),
-        fortran_name="SWF",
-    )
-    suction_lower: float = coef(
-        1.0,
-        "cm",
-        "lower limit of the conductivity integral of the wetting-front suction (the first "
-        "centimetre is not integrated); also the floor of hb_k in the integral's segment split",
-        rzwqm2("RZWQM/RZTEST.for:643", "EVNTRO", note="SI > 1 cm branch and the lower limit 1 cm"),
-        static=True,
-        fortran_name="SI",
-    )
-
-
-RZWQM2_GREEN_AMPT = GreenAmptCoefficients()
-"""The RZWQM2 4.6 values (what ``GreenAmptParams.coefficients = None`` means)."""
-
-
-def green_ampt_coefficient_table() -> list[dict[str, Any]]:
-    """:func:`agrijax.core.coefficients.coefficient_table` of :data:`RZWQM2_GREEN_AMPT`."""
-    return coefficient_table(RZWQM2_GREEN_AMPT)

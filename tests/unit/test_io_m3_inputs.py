@@ -19,7 +19,7 @@ from agrijax.io.rzwqm.storms import (
     read_met_modifiers,
     storm_arrays,
 )
-from agrijax.sites.catpa_m3 import season_table, storm_forcing
+from agrijax.sites.catpa_m3 import season_table
 
 _HEADER = [
     "===============================================================================",
@@ -73,7 +73,7 @@ def test_storm_arrays_breakpoints_skip_and_midnight(tmp_path: Path) -> None:
     assert s.ts0[2] == 0.0 and s.event[2] == 0
     np.testing.assert_allclose(s.duration[2, :1], [2.0], rtol=0, atol=0)
     np.testing.assert_allclose(s.depth[2, :1], [0.125 * CM_PER_INCH], rtol=0, atol=1e-15)
-    # day 4: below the STMINP minimum
+    # day 4: below the skip threshold
     assert s.event[3] == -1 and s.ts0[3] == 24.0 and s.depth[3].sum() == 0.0
     # day 5 from 22:00: four 30-min intervals before midnight, the rest on day 6 from 0:00
     assert s.ts0[4] == 22.0 and s.event[4] == 2 and s.event[5] == 2 and s.ts0[5] == 0.0
@@ -85,8 +85,7 @@ def test_storm_arrays_breakpoints_skip_and_midnight(tmp_path: Path) -> None:
     np.testing.assert_allclose(s.depth[5, :2], np.array([0.2, 0.2]) * CM_PER_INCH, rtol=0, atol=1e-14)
     np.testing.assert_allclose(s.total_cm.sum(), (0.125 + 1.0) * CM_PER_INCH, rtol=1e-15)
     assert s.n_bp == 4
-    f = storm_forcing(s)
-    assert f.depth.shape == (7, 4) and f.ts0.shape == (7,)
+    assert s.depth.shape == (7, 4) and s.ts0.shape == (7,)
 
 
 def test_storm_arrays_rain_modifier_and_one_storm_per_day(tmp_path: Path) -> None:

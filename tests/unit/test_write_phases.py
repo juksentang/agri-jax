@@ -6,8 +6,8 @@ or reset write runs after the producer and after every same-day consumer.
 
 The fixture is P1 ``trwup`` on a harvest day, in the contract's order: yesterday's value read by the
 uptake limit (lag 1), ROOTWU's uptake (the producer), the crop, the daily output record (an entry)
-and the water ledger reading the day's value, and ROOTWU's own season end
-(:func:`~agrijax.processes.water_supply.season.rootwu_season_end`, the registered process) last:
+and the water ledger reading the day's value, and ROOTWU's own season end (a fixture process: on
+the harvest flag ``TSS = RWU = 0`` and ``trwup = 0``) last:
 
 * on the harvest day the non-zero ``trwup`` is what the crop, the daily output record and the
   ledger see (the ledger closes with it); at the end of the day and the next morning it is 0;
@@ -33,7 +33,7 @@ from agrijax.core.ledger import WaterLedger, water_ledger
 from agrijax.core.process import CHECK_ENV
 from agrijax.core.state import get_path, set_path
 from agrijax.iface.crop import CropWaterIn
-from agrijax.processes.water_supply import RootwuState, rootwu_season_end
+from agrijax.processes.water_supply import RootwuState
 
 TRWUP = "iface.crop_water.maize.trwup"
 UPTAKE = (0.3, 0.4, 0.5, 0.6)  # the producer's TRWUP of each day [cm d-1]
@@ -42,7 +42,7 @@ TRWUP0 = 0.2  # yesterday's TRWUP on the first morning
 W0 = 10.0  # soil storage on the first morning [cm]
 END = "water_supply.maize.season_end"
 DECL = PhasedWrite(END, TRWUP, "season_end", "TRWUP = 0 at the end of a harvest day, after its readers")
-LAG = Lag("soil_water.uptake_limit", TRWUP, evidence="fixture: RZWQM2 WUF reads the previous day's TRWUP")
+LAG = Lag("soil_water.uptake_limit", TRWUP, evidence="fixture: the reader takes the previous day's TRWUP")
 
 
 def _p(fn, reads, writes):
@@ -69,6 +69,16 @@ def _extract(s, p, f):
     return set_path(s, "soil_water.w", get_path(s, "soil_water.w") - jnp.sum(get_path(s, TRWUP)))
 
 
+def _season_end(s, p, f):
+    """Source: fixture (ROOTWU's own season end: on the harvest flag TSS = RWU = 0 and P1 trwup = 0)."""
+    h = jnp.asarray(f.harvest)
+
+    def zero(x):
+        return jnp.where(h, jnp.zeros_like(x), x)
+
+    return s.replace(tss=zero(s.tss), rwu=zero(s.rwu), water=s.water.replace(trwup=zero(s.water.trwup)))
+
+
 def _crop(s, p, f):
     """Source: fixture (the crop's water stress input: the day's TRWUP)."""
     return set_path(s, "crops.maize.seen_trwup", get_path(s, TRWUP))
@@ -90,7 +100,13 @@ PROCS = {
         storage="soil_water.w", inflows={"rain": "soil_water.rain"}, outflows={"uptake": TRWUP}
     ),
     END: bind(
-        rootwu_season_end,
+        process(
+            _season_end,
+            reads=("tss", "rwu", "water.trwup"),
+            writes=("tss", "rwu", "water.trwup"),
+            register=False,
+            source="fixture",
+        ),
         own="water_supply.maize",
         ports={"water": "iface.crop_water.maize"},
         forcing="events",
@@ -372,10 +388,9 @@ def test_a_contract_day_uses_the_contract_tables() -> None:
     whose tables differ is rejected, and in a contract day an iface write no port owns is too."""
     from agrijax.iface.contract import dssat_aj013_problems
     from agrijax.models.day_dssat486 import day_dssat486
-    from agrijax.models.day_rzwqm46 import day_processes, day_rzwqm46
 
-    rz = day_rzwqm46("maize")
-    assert rz.phased_writes and ("iface.crop_water.maize.trwup", "water_supply.maize") in rz.owners
+    rz = _contract_day("maize")
+    assert ("iface.crop_water.maize.trwup", "water_supply.maize") in rz.owners
     lie = tuple((p, "crops.maize") if p == "iface.crop_water.maize.trwup" else (p, o) for p, o in rz.owners)
     with pytest.raises(DayError, match="owners differ from the contract"):
         dataclasses.replace(rz, owners=lie)
@@ -386,11 +401,30 @@ def test_a_contract_day_uses_the_contract_tables() -> None:
         ("soil_water.integrate", "soil_water.flux.truncation", "daily")
     ]
     assert dssat_aj013_problems() == []
-    procs = day_processes("maize")
-    h = procs["crops.maize.harvest"]
-    procs["crops.maize.harvest"] = dataclasses.replace(h, writes=("iface.nobody.x",))
+    procs = _noop_processes(rz)
+    h = procs["crops.maize.canopy"]
+    procs["crops.maize.canopy"] = dataclasses.replace(h, writes=("iface.nobody.x",))
     probs = rz.owner_problems(rz.compile(procs, check=False))
     assert any("an iface path that no port of the contract owns" in p for p in probs), probs
+
+
+def _contract_day(slot: str) -> Day:
+    """The contract's day in the RZWQM2 4.6 order for ``slot`` (its tables: port owners, lags)."""
+    from agrijax.iface.contract import allowed_lags, day_entries
+
+    return Day(
+        ref="rzwqm2-4.6",
+        phases=tuple(Phase(ph, entries) for ph, entries in day_entries(slot)),
+        lags=allowed_lags(slot),
+        contract_slot=slot,
+    )
+
+
+def _noop_processes(day: Day) -> dict:
+    """A placeholder process for every entry of ``day`` (no reads, no writes)."""
+    from agrijax.models.entries import noop_entry
+
+    return {e: noop_entry(e, why="fixture") for ph in day.phases for e in ph.entries}
 
 
 def test_dssat_aj013_rejects_an_undeclared_or_late_integrate_write(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -442,15 +476,14 @@ def test_a_contract_is_registered_once_and_its_reference_days_are_contract_days(
     day of a registered reference is the contract's day unless it says it is a fixture (bare)."""
     from agrijax.core.day import register_contract
     from agrijax.iface.contract import port_owners
-    from agrijax.models.day_rzwqm46 import day_processes, day_rzwqm46
 
     with pytest.raises(DayError, match="already registered"):
         register_contract("rzwqm2-4.6", lambda slot: (port_owners(slot), ()))
-    rz = day_rzwqm46("maize")
+    rz = _contract_day("maize")
     # a crop entry writing TRWUP is still rejected (the table was not replaced)
-    procs = day_processes("maize")
-    h = procs["crops.maize.harvest"]
-    procs["crops.maize.harvest"] = dataclasses.replace(h, writes=("iface.crop_water.maize.trwup",))
+    procs = _noop_processes(rz)
+    h = procs["crops.maize.canopy"]
+    procs["crops.maize.canopy"] = dataclasses.replace(h, writes=("iface.crop_water.maize.trwup",))
     assert any(
         "is owned by module water_supply.maize" in p
         for p in rz.owner_problems(rz.compile(procs, check=False))

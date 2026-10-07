@@ -121,7 +121,7 @@ from agrijax.models.day_dssat486_adapters import (
     canopy_from_ceres,
     layers_in,
 )
-from agrijax.models.day_rzwqm46 import noop_entry, replay_entry
+from agrijax.models.entries import noop_entry, replay_entry
 from agrijax.processes.crop.ceres_maize import (
     CROP_PROCESSES,
     CeresMaizeParams,
