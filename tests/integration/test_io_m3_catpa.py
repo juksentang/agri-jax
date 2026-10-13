@@ -332,7 +332,7 @@ def test_forcing_pytree_shapes_units(data_dir: Path) -> None:
     when = np.asarray(brk.events["date"].to_numpy(), dtype="datetime64[D]")
     keep = (dep >= 0.01) & (when >= START) & (when <= END)
     np.testing.assert_allclose(
-        float(np.asarray(f["soil"].depth).sum()), float(dep[keep].sum()) * 2.54, rtol=1e-12
+        float(np.asarray(inp.storms.depth).sum()), float(dep[keep].sum()) * 2.54, rtol=1e-12
     )
     n_season = _exp(data_dir)["n_season"]
     assert len(inp.crop_params) == n_season and inp.seasons.n_season == n_season

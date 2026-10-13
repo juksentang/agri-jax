@@ -252,12 +252,15 @@ def test_dt_next_is_carried_across_days() -> None:
 
 def test_failed_solves_are_retried_halved_and_recovered() -> None:
     ref = _segment(_params(), _dry())
-    tight = _segment(_params(newton_max_iter=5), _dry())
+    # on the synthetic soil every solve of this day converges within 5 evaluations (5: 0 rejects,
+    # like the default); with 4 some solves fail and are retried at half the step: measured 58
+    # rejects, all recovered, storage difference 7e-15 cm; with 3 the trip budget is exhausted
+    tight = _segment(_params(newton_max_iter=4), _dry())
     for _, _, st, _ in (ref, tight):
         assert float(st.n_unconverged) == 0.0 and float(st.budget_exhausted) == 0.0
     assert float(tight[2].n_rejects) > float(ref[2].n_rejects)
     d = abs(float(tight[0].storage(layered_grid())) - float(ref[0].storage(layered_grid())))
-    print(f"storage difference, 3 vs 10 Newton evaluations: {d:.3e} cm; rejects {float(tight[2].n_rejects)}")
+    print(f"storage difference, 4 vs 10 Newton evaluations: {d:.3e} cm; rejects {float(tight[2].n_rejects)}")
     assert d <= 1e-3
 
 

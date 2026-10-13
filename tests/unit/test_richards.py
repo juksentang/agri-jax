@@ -506,23 +506,41 @@ def _parlange_sorptivity(soil1: SoilHydraulicParams, h_i: float) -> float:
     return float(np.sqrt(s2))
 
 
+_COARSE_REC1 = [15.0, 0.25, 3.0, 5.0, 0.05, 0.45]  # a coarse-textured curve
+_FINE_REC1 = [37.3, 0.131, 2.393, 0.5, 0.09, 0.475]  # a fine-textured curve
+
+
 @pytest.mark.allow_skip(reason="the 1 % sorptivity check needs float64")
 @pytest.mark.parametrize(
-    "rec1",
+    ("rec1", "dt"),
     [
-        [15.0, 0.25, 3.0, 5.0, 0.05, 0.45],  # a coarse-textured curve
-        [37.3, 0.131, 2.393, 0.5, 0.09, 0.475],  # a fine-textured curve
+        (_COARSE_REC1, 5e-4),
+        (_FINE_REC1, 5e-4),
+        pytest.param(
+            _COARSE_REC1,
+            2.5e-4,
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="solver weakness, measured 2026-10-13: on the coarse curve a halved step "
+                "(2.5e-4 h) from h = -800 cm under the 1e3 cm/h supply does not converge with 12, 16, 20 "
+                "or 40 fixed Newton iterations (balance error 3e-3 to 0.26 cm, up to 91 clamped "
+                "updates, sorptivity off by 95-127 %), while 5e-4 h and 1e-3 h converge to 1e-16",
+            ),
+            id="coarse-dt2.5e-4",
+        ),
     ],
 )
-def test_philip_early_time_infiltration(rec1: list[float]) -> None:
+def test_philip_early_time_infiltration(rec1: list[float], dt: float) -> None:
     if not X64:
         pytest.skip("needs float64")
     rec2 = [0.0, 0.0, 0.0, rec1[0], 0.0, 0.0, 0.0]
     soil1 = SoilHydraulicParams.from_rzwqm_records(np.asarray(rec1), np.asarray(rec2))
-    h_i, dz, dt, n = -800.0, 0.05, 5e-4, 600
+    h_i, dz, n = -800.0, 0.05, 600
     grid = RichardsGrid.uniform(n, dz)
     soil = nodes(soil1, n)
-    cfg = FixedStepping(n_iter=12)
+    # the first step onto the dry coarse curve needs more than 12 iterations: measured balance
+    # error of step 1 9.6e-5 cm (12), 3.2e-15 (16), 8.3e-17 (20); every later step < 1e-16
+    cfg = FixedStepping(n_iter=20)
     h0 = jnp.full(n, h_i)
 
     def body(c, _):
@@ -542,7 +560,8 @@ def test_philip_early_time_infiltration(rec1: list[float]) -> None:
     s_num, a_num = np.linalg.lstsq(np.stack([np.sqrt(t[m]), t[m]], 1), cum[m], rcond=None)[0]
     s_ref = _parlange_sorptivity(soil1, h_i)
     ks = rec1[3]
-    # measured: S within 0.44 % (loamy sand) and 0.18 % (fine) of Parlange; A = 0.63 Ks and 0.66 Ks
+    # measured (dt = 5e-4 h, 20 iterations): S within 0.38 % (coarse) and 0.18 % (fine) of
+    # Parlange; A = 0.63 Ks and 0.66 Ks
     assert s_num == pytest.approx(s_ref, rel=0.01)
     assert 0.3 * ks < a_num < 0.8 * ks  # Philip: A between Ks/3 and 2Ks/3 for the two-term series
     assert np.max(np.abs(np.asarray(bal))) < 1e-8

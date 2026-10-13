@@ -78,6 +78,15 @@ def _fd(loss, soil, name: str, hz: int, rel_step: float = 1e-6) -> float:
     return (fp - fm) / (2.0 * eps)
 
 
+def _fd_richardson(loss, soil, name: str, hz: int, rel_step: float = 1e-3) -> float:
+    """Richardson extrapolation of central differences at ``rel_step`` and ``rel_step / 2``
+    (truncation O(h^4)): for a small derivative of a large loss, a step large enough to keep the
+    round-off of ``loss`` below the derivative's own size."""
+    d1 = _fd(loss, soil, name, hz, rel_step)
+    d2 = _fd(loss, soil, name, hz, 0.5 * rel_step)
+    return (4.0 * d2 - d1) / 3.0
+
+
 @pytest.mark.allow_skip(reason="central differences at rel 1e-4 need float64")
 @pytest.mark.parametrize(("n_sub", "n_iter"), [(24, 3), (6, 1)])
 def test_unrolled_gradient_matches_central_differences(n_sub: int, n_iter: int) -> None:
@@ -189,6 +198,10 @@ def test_gradient_through_runtime_with_checkpoint() -> None:
     assert all(bool(jnp.all(jnp.isfinite(x))) for x in jax.tree_util.tree_leaves(g))
     if X64:
         lj = jax.jit(via_runtime)
+        # the loss is ~39 cm and d loss / d lambda_[4] ~ 9e-6: a 1e-6 relative step leaves round-off
+        # of ~1e-3 relative in the plain central difference (measured 1.9e-3, falling as 1 / step);
+        # Richardson at 1e-3 agrees with AD to 1.6e-6 (lambda_) and 8.1e-6 (ksat), and to < 1e-5 on
+        # every horizon of both (measured 2026-10-13)
         for name in ("lambda_", "ksat"):
-            fd = _fd(lj, soil, name, 4)
+            fd = _fd_richardson(lj, soil, name, 4)
             assert abs(float(getattr(g, name)[4]) - fd) < 1e-4 * abs(fd), name

@@ -605,8 +605,9 @@ def gradient_plan(
     Limitation: the plan is only as good as the report's line scans. A jump narrower than the
     grid spacing (``2 scan_frac width / (n_scan - 1)``; 2.3 % of the bound width with the default
     41 points) can fall between two points and go unseen: on IUAF9901 treatment 1 the default
-    scan classes (G2, t1) smooth, while a 401-point scan of the same interval finds +165 / -161
-    kg ha-1 yield jumps (the stage-5 stem-floor count going 2 -> 1 -> 2 on day 173).
+    scan finds no jump for (G2, t1), while a 401-point scan of the same interval finds +165 / -161
+    kg ha-1 yield jumps (the stage-5 stem-floor count going 2 -> 1 -> 2 on day 173); the pair is
+    caught only by the level-3 test, its 5 % secant disagreeing with AD (class ``kinked``).
     For a decision that matters, pass a report with a finer scan near the start point
     (``TrustConfig(n_scan=401)`` or a smaller ``scan_frac``)."""
     params = tuple(report["params"])

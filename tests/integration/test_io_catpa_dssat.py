@@ -20,9 +20,12 @@ Checked:
    crop's ``SOILPROP%LL`` / ``DUL`` (float32); ``SAT`` below the tilled top layers, the root growth
    factors (``.RZX`` -> ``SOILPROP%WR``), ``SLPF`` and the organic C equal the reference's; the
    ``rzwqm.dat`` FC33 / WP columns agree with the curve to their 4 printed decimals;
-2. weather: SRAD / TMAX / TMIN of the case equal what RZWQM2 passed the embedded crop
-   (``DSSATDRV`` ``SRADR`` / ``TMAXR`` / ``TMINR``) and the day's rain the crop saw (``RAINR``) on
-   every crop day; the ``.WTH`` files read back (DSSAT field rule) within the written decimals;
+2. weather: TMAX / TMIN of the case equal what RZWQM2 passed the embedded crop (``DSSATDRV``
+   ``TMAXR`` / ``TMINR``) and the day's rain the crop saw (``RAINR``) on every crop day; SRAD
+   equals the reference's daily radiation ``PHYSCL`` ``RTH`` (the prepared ``.MET`` value), while
+   the crop's ``SRADR`` is ``RTS``, the re-sum of RZWQM2's hourly radiation (``HRTS``), which the
+   case does not reproduce (strict xfail, measured difference in the test); the ``.WTH`` files
+   read back (DSSAT field rule) within the written decimals;
 3. genotype: the ``catpa`` files carry exactly the cultivar, ecotype and species values of our
    CERES-Maize parameters for CA-TPA (``ceres_maize_params``); every 4.0 / 4.8.6 difference is listed;
 4. dscsm048 read what was written: 2 x (number of seasons) treatments per set finish, ``PDAT`` / ``HDAT`` are the sowing
@@ -101,6 +104,10 @@ TOL_ECHO_3, TOL_ECHO_2 = 0.5e-3, 0.5e-2
 #: RZWQM2 hands the crop RTS as REAL: the re-sum of 24 REAL hourly values (tests/integration/
 #: test_io_m3_catpa.py, _RTS_FLOAT32_BOUND)
 TOL_SRAD = 24 * _EPS32 * 45.0
+#: RTS [MJ m-2 d-1] = 0.0036 x the sum of the 24 hourly HRTS [W m-2] of PHYSCL, each held as REAL:
+#: measured 4.7e-6 against a float32 re-sum (2026-10-13), the bound is the float32 rounding of
+#: 24 terms of at most 45 MJ m-2 d-1
+TOL_RTS_RESUM = 24 * _EPS32 * 45.0
 #: RAINR [cm] is the REAL day total of the storm's breakpoint increments (16 bounds the increments
 #: of a day; 10 cm bounds the day total): one rounding per increment
 TOL_RAIN_CM = 16 * _EPS32 * 10.0
@@ -125,7 +132,7 @@ def ref(data_dir: Path) -> dict[str, Any]:
         if not p[n].is_file():
             pytest.skip(f"{p[n]} not found")
     tabs = {}
-    for name in ("dssatdrv_entry", "dssatdrv_exit", "mz_grosub_exit"):
+    for name in ("dssatdrv_entry", "dssatdrv_exit", "mz_grosub_exit", "physcl_exit"):
         f = data_dir / TABLES / f"{name}.npz"
         if not f.is_file():
             pytest.skip(f"{f} not found")
@@ -160,6 +167,7 @@ def ref(data_dir: Path) -> dict[str, Any]:
         "seasons": seasons,
         "entry": ent,
         "exit": tabs["dssatdrv_exit"],
+        "physcl": tabs["physcl_exit"],
         "mg": tabs["mz_grosub_exit"],
         "organic": organic,
         "row0": r0,
@@ -256,19 +264,36 @@ def test_sol_file_reads_back(ref: dict[str, Any], runs: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------- 2. weather
-def test_weather_equals_crop_inputs(ref: dict[str, Any], runs: dict[str, Any]) -> None:
+def _crop_day_weather(ref: dict[str, Any]) -> tuple[Any, pd.DataFrame, pd.DataFrame, np.ndarray]:
+    """``(DSSATDRV exit table, case weather of [START, END], case weather on the crop days,
+    PHYSCL rows of the crop days)``."""
     ex = ref["exit"]
     days = _yrdoy_to_day(np.asarray(ex.date))
     w = catpa_weather(ref["paths"], ref["dat"], START, END).set_index("date")
     m = w.loc[pd.DatetimeIndex(days)]
+    pe = ref["physcl"]
+    j = pe.index_of([int(d) for d in np.asarray(ex.date)])
+    assert np.all(j >= 0)
+    return ex, w, m, j
+
+
+def test_weather_equals_crop_inputs(ref: dict[str, Any], runs: dict[str, Any]) -> None:
+    ex, w, m, j = _crop_day_weather(ref)
+    pv = ref["physcl"].values
     diffs = {
-        "SRADR": float(np.max(np.abs(m["srad"].to_numpy() - np.asarray(ex.values["SRADR"], float)))),
+        "RTH": float(np.max(np.abs(m["srad"].to_numpy() - np.asarray(pv["RTH"], float)[j]))),
         "TMAXR": float(np.max(np.abs(m["tmax"].to_numpy() - np.asarray(ex.values["TMAXR"], float)))),
         "TMINR": float(np.max(np.abs(m["tmin"].to_numpy() - np.asarray(ex.values["TMINR"], float)))),
         "RAINR": float(np.max(np.abs(m["rain"].to_numpy() / 10.0 - np.asarray(ex.values["RAINR"], float)))),
     }
-    print("crop days: max |case - DSSATDRV|: " + ", ".join(f"{k} {x:.2e}" for k, x in diffs.items()))
-    assert diffs["SRADR"] <= TOL_SRAD
+    print("crop days: max |case - reference|: " + ", ".join(f"{k} {x:.2e}" for k, x in diffs.items()))
+    # the case's SRAD is the reference's daily radiation, exactly (as in test_io_m3_catpa.py)
+    assert diffs["RTH"] == 0.0
+    # what the crop received, SRADR, is RTS: the re-sum of the hourly radiation, not RTH
+    hrts = np.asarray(pv["HRTS"], np.float32)[j]
+    rts = (hrts.sum(axis=1, dtype=np.float32) * np.float32(0.0036)).astype(float)
+    np.testing.assert_array_equal(np.asarray(pv["RTS"], float)[j], np.asarray(ex.values["SRADR"], float))
+    assert float(np.max(np.abs(rts - np.asarray(ex.values["SRADR"], float)))) <= TOL_RTS_RESUM
     assert diffs["TMAXR"] == 0.0 and diffs["TMINR"] == 0.0
     assert diffs["RAINR"] <= TOL_RAIN_CM
     # the written files, read the way dscsm048 reads them
@@ -280,6 +305,20 @@ def test_weather_equals_crop_inputs(ref: dict[str, Any], runs: dict[str, Any]) -
     for c, dec in WTH_DECIMALS.items():
         assert float(np.max(np.abs(back[c].to_numpy(float) - wb[c].to_numpy()))) <= 0.5 * 10.0**-dec + 1e-9, c
     assert back.attrs["site"]["CCO2"] == float(ref["dat"].physiography["co2_ppm"])
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="measured 2026-10-13: the case writes the daily .MET radiation (PHYSCL RTH); the crop "
+    "received RTS = 0.0036 sum(HRTS), the re-sum of RZWQM2's hourly radiation, which differs from "
+    "RTH beyond the REAL re-sum bound on nearly every crop day of the local scenario (by up to about 0.1 "
+    "MJ m-2 d-1); the hourly radiation is not reproduced by the case",
+)
+def test_case_srad_equals_crop_sradr(ref: dict[str, Any]) -> None:
+    ex, _, m, _ = _crop_day_weather(ref)
+    d = float(np.max(np.abs(m["srad"].to_numpy() - np.asarray(ex.values["SRADR"], float))))
+    print(f"crop days: max |case SRAD - DSSATDRV SRADR| {d:.3e} MJ m-2 d-1")
+    assert d <= TOL_SRAD
 
 
 # ---------------------------------------------------------------------------- 3. genotype

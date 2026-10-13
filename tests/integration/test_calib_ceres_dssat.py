@@ -180,15 +180,26 @@ def test_jumpy_pairs_fall_back(iuaf):
     outs = [f"{t}/yield" for t in tn] + [f"{t}/cwad" for t in tn]
     rep = trust_report(f, truth, space.lower, space.upper, names, outs, TrustConfig())
     plan = ceres_gradient_plan(rep, {t: [f"{t}/yield", f"{t}/cwad"] for t in tn})
-    assert plan.method == {"G2": "hybrid", "G3": "derivative_free", "RUE": "gradient"}, plan.table()
-    np.testing.assert_array_equal(plan.use_ad, [[True, False, True], [False, False, True]])
+    # (G2, t1) is kinked: AD equals the small-step central differences (rel 4e-11) and the 1 and 2 %
+    # secants, but not the 5 % secant (rel 0.115 > fd_rtol 0.05), which spans the stage-5 yield
+    # jumps a fine scan finds near the start point (calib.trust.gradient_plan docstring); measured
+    # 2026-10-13 with the level-3 test on the 1 / 2 / 5 % secants
+    assert plan.method == {"G2": "derivative_free", "G3": "derivative_free", "RUE": "gradient"}, plan.table()
+    np.testing.assert_array_equal(plan.use_ad, [[False, False, True], [False, False, True]])
+    t1_g2 = rep["params"]["G2"]["outputs"][f"{tn[0]}/yield"]
+    assert t1_g2["class"] == "kinked" and t1_g2["n_jumps"] == 0 and t1_g2["level2"] == "pass"
     tg = (Target("yield", "gwad", "final", rel_scale=0.05), Target("cwad", "cwad", "final", rel_scale=0.05))
     obs = {k: np.asarray(v) for k, v in evaluate_targets(tg, sim(jnp.asarray(truth))).items()}
     obj = Objective((Group("iuaf", sim, tg, obs, treatments=tuple(tn)),))
     z0 = space.to_unconstrained(jnp.asarray(truth * np.array([1.05, 0.95, 1.05])))
     losses = jax.jit(lambda z: obj.treatment_losses(space.to_physical(z)))
     dz = 0.1
-    v, g = pair_gradient(losses, plan.secant_mask, dz)(z0)
+    # the plan's mask, with AD put back on (G2, t1): a hybrid column (AD on one treatment, secant on
+    # the other) next to an all-secant (G3) and an all-AD (RUE) column
+    mask = plan.secant_mask.copy()
+    assert mask[0, 0] and mask[1, 0]
+    mask[0, 0] = False
+    v, g = pair_gradient(losses, mask, dz)(z0)
     g = np.asarray(g)
     assert float(v) > 0.0 and np.all(np.isfinite(g)) and np.all(g != 0.0)
     # the secant components are central finite differences of the losses at the same step:
