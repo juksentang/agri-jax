@@ -1,0 +1,30 @@
+# Run `uv run pre-commit install` once; hooks then run on every commit.
+# tests/fixtures/ holds third-party files kept byte-identical (CRLF endings), so no hook rewrites them.
+exclude: ^tests/fixtures/
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=5120]
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: agrijax-lint
+        name: agrijax three-rules lint (AJ001-AJ012, AJ020-AJ021)
+        # lint.py and core/_lint/ import nothing from JAX, so they run in the bare hook interpreter
+        # --strict: warnings fail too, the same gate as CI
+        entry: python src/agrijax/core/lint.py --strict
+        language: python
+        types: [python]
+        files: ^src/agrijax/
+        pass_filenames: true

@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="ajfig ajfig" viewBox="0 0 1000 640" role="img" aria-labelledby="speed-unroll-zh-t speed-unroll-zh-d">
+<title id="speed-unroll-zh-t">GPU：定位瓶颈、调整程序布局、核对模型不变</title>
+<desc id="speed-unroll-zh-d">H100 上层循环与展开层的成对条形图：1e5 个季时每日内核数由 489 降至 63，空闲比例由 34 % 降至 1.9 %，稳定调用快 3.1 倍，编译与首次运行变长。</desc>
+<style>
+svg.ajfig.ajfig{--f-bg:var(--panel,#E6E9E3);--f-ink:var(--ink,#16201C);--f-mut:var(--muted,#56625D);--f-rule:var(--rule,#C8CEC7);--f-neu:var(--neutral,#B9C0B7);--f-teal:var(--teal,#0F8A66);--f-rust:var(--rust,#C2591A);--f-violet:var(--violet,#6B4FBB);font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+@media (prefers-color-scheme:dark){svg.ajfig.ajfig{--f-bg:var(--panel,#1A201D);--f-ink:var(--ink,#E8EBE5);--f-mut:var(--muted,#97A29C);--f-rule:var(--rule,#2E3632);--f-neu:var(--neutral,#48504C);--f-teal:var(--teal,#2FA582);--f-rust:var(--rust,#D96A28);--f-violet:var(--violet,#8E78D8)}}
+.ajfig.ajfig text{font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;fill:var(--f-mut);font-size:15px;white-space:pre}
+.ajfig.ajfig text.k{fill:var(--f-ink)}
+.ajfig.ajfig text.m{fill:var(--f-mut)}
+.ajfig.ajfig text.n{font-family:"IBM Plex Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.ajfig.ajfig text.b{font-weight:700}
+.ajfig.ajfig text.w{font-weight:500}
+.ajfig.ajfig text.h{paint-order:stroke;stroke:var(--f-bg);stroke-width:4px;stroke-linejoin:round}
+.ajfig.ajfig text.s17{font-size:17px}
+.ajfig.ajfig text.s20{font-size:20px}
+.ajfig.ajfig text.s26{font-size:26px}
+.ajfig.ajfig .bg{fill:var(--f-bg)}
+.ajfig.ajfig .grid{stroke:var(--f-rule);stroke-width:1;fill:none}
+.ajfig.ajfig .axis{stroke:var(--f-mut);stroke-width:1;fill:none}
+.ajfig.ajfig .ink{stroke:var(--f-ink);stroke-width:1;fill:none}
+.ajfig.ajfig .ink2{stroke:var(--f-ink);stroke-width:2;fill:none;stroke-linejoin:round}
+.ajfig.ajfig .fteal{fill:var(--f-teal)}
+.ajfig.ajfig .frust{fill:var(--f-rust)}
+.ajfig.ajfig .fneu{fill:var(--f-neu)}
+.ajfig.ajfig .fink{fill:var(--f-ink)}
+.ajfig.ajfig .steal{stroke:var(--f-teal);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ajfig.ajfig .srust{stroke:var(--f-rust);fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ajfig.ajfig .ring{stroke:var(--f-bg);stroke-width:2}
+.ajfig.ajfig .w4{stroke-width:4}
+.ajfig.ajfig .w15{stroke-width:1.5}
+.ajfig.ajfig .soft{opacity:.55}
+</style>
+<rect width="1000" height="640" rx="2" class="bg"/>
+<text x="28.0" y="40.0" class="s20 k b">GPU：定位瓶颈、调整程序布局、核对模型不变</text>
+<text x="28.0" y="64.0" class="m">一块 H100，float64，65 个验收运行复制到 B 个季；六个程序。</text>
+<rect x="760.0" y="54.0" width="14.0" height="10.0" rx="2" class="fneu"/>
+<text x="782.0" y="64.0" class="k">层循环</text>
+<rect x="847.0" y="54.0" width="14.0" height="10.0" rx="2" class="fteal"/>
+<text x="869.0" y="64.0" class="k">展开</text>
+<text x="28.0" y="96.0" class="s17 k b">1  剖析：内核短而多、设备有空闲</text>
+<text x="536.0" y="96.0" class="s17 k b">2  结果：稳定调用，六个程序</text>
+<line x1="28.0" y1="104.0" x2="972.0" y2="104.0" class="grid"/>
+<text x="28.0" y="122.0" class="k w">每个模拟日的内核数</text>
+<line x1="28.0" y1="276.0" x2="252.0" y2="276.0" class="axis"/>
+<path d="M37.9,276.0V170.3A4.0,4.0 0 0 1 41.9,166.3H77.0A4.0,4.0 0 0 1 81.0,170.3V276.0Z" class="fneu"/>
+<text x="59.5" y="160.3" text-anchor="middle" class="n k h">488</text>
+<path d="M87.0,276.0V266.4A4.0,4.0 0 0 1 91.0,262.4H126.1A4.0,4.0 0 0 1 130.1,266.4V276.0Z" class="fteal"/>
+<text x="108.5" y="256.4" text-anchor="middle" class="n k h">60</text>
+<text x="84.0" y="296.0" text-anchor="middle" class="m">B = 1e4</text>
+<path d="M149.9,276.0V169.9A4.0,4.0 0 0 1 153.9,165.9H189.0A4.0,4.0 0 0 1 193.0,169.9V276.0Z" class="fneu"/>
+<text x="171.5" y="159.9" text-anchor="middle" class="n k h">489</text>
+<path d="M199.0,276.0V265.8A4.0,4.0 0 0 1 203.0,261.8H238.1A4.0,4.0 0 0 1 242.1,265.8V276.0Z" class="fteal"/>
+<text x="220.5" y="255.8" text-anchor="middle" class="n k h">63</text>
+<text x="196.0" y="296.0" text-anchor="middle" class="m">B = 1e5</text>
+<text x="282.0" y="122.0" class="k w">内核之间设备空闲的比例</text>
+<line x1="282.0" y1="276.0" x2="506.0" y2="276.0" class="axis"/>
+<path d="M291.9,276.0V179.6A4.0,4.0 0 0 1 295.9,175.6H331.0A4.0,4.0 0 0 1 335.0,179.6V276.0Z" class="fneu"/>
+<text x="313.5" y="169.6" text-anchor="middle" class="n k h">44.6 %</text>
+<path d="M341.0,276.0V272.9A3.1,3.1 0 0 1 344.1,269.7H380.9A3.1,3.1 0 0 1 384.1,272.9V276.0Z" class="fteal"/>
+<text x="362.5" y="263.7" text-anchor="middle" class="n k h">2.8 %</text>
+<text x="338.0" y="296.0" text-anchor="middle" class="m">B = 1e4</text>
+<path d="M403.9,276.0V204.4A4.0,4.0 0 0 1 407.9,200.4H443.0A4.0,4.0 0 0 1 447.0,204.4V276.0Z" class="fneu"/>
+<text x="425.5" y="194.4" text-anchor="middle" class="n k h">33.6 %</text>
+<path d="M453.0,276.0V273.9A2.1,2.1 0 0 1 455.1,271.7H493.9A2.1,2.1 0 0 1 496.1,273.9V276.0Z" class="fteal"/>
+<text x="474.5" y="265.7" text-anchor="middle" class="n k h">1.9 %</text>
+<text x="450.0" y="296.0" text-anchor="middle" class="m">B = 1e5</text>
+<text x="536.0" y="122.0" class="k w">每次调用的秒数</text>
+<line x1="536.0" y1="276.0" x2="972.0" y2="276.0" class="axis"/>
+<path d="M586.0,276.0V192.0A4.0,4.0 0 0 1 590.0,188.0H638.0A4.0,4.0 0 0 1 642.0,192.0V276.0Z" class="fneu"/>
+<text x="614.0" y="182.0" text-anchor="middle" class="n k h">1.12 s</text>
+<path d="M648.0,276.0V251.3A4.0,4.0 0 0 1 652.0,247.3H700.0A4.0,4.0 0 0 1 704.0,251.3V276.0Z" class="fteal"/>
+<text x="676.0" y="241.3" text-anchor="middle" class="n k h">0.36 s</text>
+<text x="645.0" y="296.0" text-anchor="middle" class="m">B = 1e4</text>
+<text x="645.0" y="316.0" text-anchor="middle" class="k w">快 3.1 倍</text>
+<path d="M804.0,276.0V176.9A4.0,4.0 0 0 1 808.0,172.9H856.0A4.0,4.0 0 0 1 860.0,176.9V276.0Z" class="fneu"/>
+<text x="832.0" y="166.9" text-anchor="middle" class="n k h">1.31 s</text>
+<path d="M866.0,276.0V246.6A4.0,4.0 0 0 1 870.0,242.6H918.0A4.0,4.0 0 0 1 922.0,246.6V276.0Z" class="fteal"/>
+<text x="894.0" y="236.6" text-anchor="middle" class="n k h">0.42 s</text>
+<text x="863.0" y="296.0" text-anchor="middle" class="m">B = 1e5</text>
+<text x="863.0" y="316.0" text-anchor="middle" class="k w">快 3.1 倍</text>
+<text x="28.0" y="360.0" class="s17 k b">3  代价，以及模型不变的核对</text>
+<line x1="28.0" y1="368.0" x2="972.0" y2="368.0" class="grid"/>
+<text x="28.0" y="386.0" class="k w">B = 1e5 时的秒数</text>
+<line x1="28.0" y1="520.0" x2="468.0" y2="520.0" class="axis"/>
+<path d="M42.3,520.0V502.2A4.0,4.0 0 0 1 46.3,498.2H94.3A4.0,4.0 0 0 1 98.3,502.2V520.0Z" class="fneu"/>
+<text x="70.3" y="492.2" text-anchor="middle" class="n k h">19.0 s</text>
+<path d="M104.3,520.0V446.4A4.0,4.0 0 0 1 108.3,442.4H156.3A4.0,4.0 0 0 1 160.3,446.4V520.0Z" class="fteal"/>
+<text x="132.3" y="436.4" text-anchor="middle" class="n k h">67.4 s</text>
+<text x="101.3" y="540.0" text-anchor="middle" class="m">XLA 编译</text>
+<path d="M189.0,520.0V490.9A4.0,4.0 0 0 1 193.0,486.9H241.0A4.0,4.0 0 0 1 245.0,490.9V520.0Z" class="fneu"/>
+<text x="217.0" y="480.9" text-anchor="middle" class="n k h">28.7 s</text>
+<path d="M251.0,520.0V434.7A4.0,4.0 0 0 1 255.0,430.7H303.0A4.0,4.0 0 0 1 307.0,434.7V520.0Z" class="fteal"/>
+<text x="279.0" y="424.7" text-anchor="middle" class="n k h">77.5 s</text>
+<text x="248.0" y="540.0" text-anchor="middle" class="m">首次运行</text>
+<path d="M335.7,520.0V511.1A4.0,4.0 0 0 1 339.7,507.1H387.7A4.0,4.0 0 0 1 391.7,511.1V520.0Z" class="fneu"/>
+<text x="363.7" y="501.1" text-anchor="middle" class="n k h">11.2 s</text>
+<path d="M397.7,520.0V507.4A4.0,4.0 0 0 1 401.7,503.4H449.7A4.0,4.0 0 0 1 453.7,507.4V520.0Z" class="fteal"/>
+<text x="425.7" y="497.4" text-anchor="middle" class="n k h">14.4 s</text>
+<text x="394.7" y="540.0" text-anchor="middle" class="m">热启动</text>
+<text x="510.0" y="406.0" class="k">模型不变。GPU 展开版与 CPU 相比：65 个运行中阶段日期全部一</text>
+<text x="510.0" y="428.0" class="k">致，产量最多相差 1.4e-15（相对）。GPU 上展开与循环相比：产量、</text>
+<text x="510.0" y="450.0" class="k">土壤水、径流与排水逐位一致；65 个运行中 17 个在全部输出上逐位</text>
+<text x="510.0" y="472.0" class="k">一致，其余只在末几位不同（最大为生物量 4.5e-13 kg ha⁻¹）。</text>
+</svg>

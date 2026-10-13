@@ -1,0 +1,40 @@
+# data & runs never enter git
+*.npz
+*.parquet
+*.tar.zst
+*.OUT
+*.ana
+run/
+dumps/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+site/
+.ipynb_checkpoints/
+
+# local notes, never published
+docs/internal/
+
+# RZWQM/DSSAT reference-model dumps are data, not code: keep them out of git
+dumps/
+*.npz
+
+# validation reports are kept outside the repository
+docs/en/validation_matrix.md
+docs/zh_cn/validation_matrix.md
+docs/validation/
+
+# local notes link and coverage data
+docs/internal
+.coverage
+
+# local working notes and scratch scripts
+CLAUDE.md
+poc/exp_inference.py
+scripts/rorqual/
+scripts/narval/
