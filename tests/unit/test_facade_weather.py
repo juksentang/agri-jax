@@ -492,7 +492,7 @@ class _ToyPrograms:
 
     def __init__(self) -> None:
         self.n_days = T_SIM
-        self.many = SimpleNamespace(ndev=1)
+        self.many = SimpleNamespace(ndev=1, last_days=[T_SIM - 1])  # real weather on every simulated day
 
     def weather_of(self, i: int) -> np.ndarray:
         return WEATHER
@@ -503,7 +503,8 @@ class _ToyPrograms:
         quad = np.sum(C[None] * w**2, axis=(1, 2)) / 100.0
         warm = np.mean(np.asarray(delta)[:, :, fw._IX["TMAX"]], axis=1)
         mat = MAT - np.floor(warm)
-        return np.stack([lin, quad, mat, np.full_like(mat, SILK)], axis=1), 0.0
+        # the outputs, the end of the crop, the end status (matured), silking (facade_grad._entries order)
+        return np.stack([lin, quad, mat, np.zeros_like(mat), np.full_like(mat, SILK)], axis=1), 0.0
 
     def gradient(self) -> tuple[np.ndarray, np.ndarray]:
         return np.stack([C, 2.0 * C * WEATHER / 100.0]), np.stack([C, 2.0 * C * WEATHER / 100.0])

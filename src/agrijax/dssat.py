@@ -179,6 +179,10 @@ class Season:
     #: the experiment's own names, for the run header of the DSSAT-format files
     #: (:meth:`write_dssat_out`): ``"experiment"`` (the ``*EXP.DETAILS`` text) and ``"treatment"`` (TNAME)
     labels: dict[str, str] = field(default_factory=dict, repr=False)
+    #: how the season ended (season readout, :mod:`agrijax.calib.dssat_day`): ``"matured"``,
+    #: ``"failed"`` (a crop failure set the end), ``"harvested"`` (not mature by the harvest day) or
+    #: ``"censored"`` (not mature by the last day of real weather; :data:`SUMMARY`'s ``MDAT`` is then NaN)
+    end: str = "matured"
 
     def compare_daily(self, reference: Reference) -> Any:
         """Daily differences to ``reference`` (the DSSAT run) on the days both report, per series:
@@ -306,9 +310,12 @@ def _summary_row(row: Any) -> dict[str, float]:
 # ------------------------------------------------------------------ batches
 @dataclass
 class BatchResult:
-    """A batch of seasons: :attr:`table` (one row per season: the scenario, the cultivar sample and
-    :data:`SUMMARY`) and :attr:`timing` (``compile_s``: compiling the batched program, 0 when it was
-    compiled before; ``run_s``: running it, results on the host; ``seasons``; ``devices``)."""
+    """A batch of seasons: :attr:`table` (one row per season: the scenario, the cultivar sample,
+    :data:`SUMMARY` read on the season's real days and ``end``, how the season ended: ``"matured"``,
+    ``"failed"``, ``"harvested"`` or ``"censored"`` as :attr:`Season.end`; ``MDAT`` is NaN when the
+    crop has not ended by the harvest day / the last day of real weather) and :attr:`timing`
+    (``compile_s``: compiling the batched program, 0 when it was compiled before; ``run_s``: running
+    it, results on the host; ``seasons``; ``devices``)."""
 
     table: Any
     timing: dict[str, Any]
@@ -434,7 +441,16 @@ class Scenarios:
                 return self.run(cultivar)
         import pandas as pd
 
-        from agrijax.calib.dssat_day import E_DATE, E_FINAL, OUT_NAMES, DaySimulator, Entry
+        from agrijax.calib.dssat_day import (
+            CROP_END,
+            E_DATE,
+            E_FINAL,
+            E_STATUS,
+            END_NAMES,
+            OUT_NAMES,
+            DaySimulator,
+            Entry,
+        )
         from agrijax.facade_execution import active, simulator
 
         _x64()
@@ -443,16 +459,17 @@ class Scenarios:
         k, n_s = theta.shape[0], len(self.runs)
         ents = [
             Entry(E_DATE, _SILKING),
-            Entry(E_DATE, _MATURITY),
+            Entry(E_DATE, CROP_END),
             Entry(E_FINAL, OUT_NAMES.index("gwad")),
             Entry(E_FINAL, OUT_NAMES.index("cwad")),
+            Entry(E_STATUS, 0),
         ]
         sim = simulator(self, lambda **kw: DaySimulator(self.runs, [ents] * n_s, **kw))
         s0 = sim.stats()
         tid = np.repeat(np.arange(n_s), k)
         y = sim(np.tile(theta, (n_s, 1)), tid)
         s1 = sim.stats()
-        pad = {i: sim.n_days[sim.where[i][0]] for i in range(n_s)}
+        last = sim.last_days  # each scenario's last real day: a date after it is censored
         rows = []
         for j in range(y.shape[0]):
             i = int(tid[j])
@@ -465,10 +482,11 @@ class Scenarios:
                     "sowing_shift": int(self.table.loc[i, "sowing_shift"]),
                     "sample": j % k,
                     **dict(zip(CULTIVAR, theta[j % k].tolist(), strict=True)),
-                    "ADAT": _yrdoy_add(int(r.days[0]), ad) if ad < pad[i] else np.nan,
-                    "MDAT": _yrdoy_add(int(r.days[0]), md) if md < pad[i] else np.nan,
+                    "ADAT": _yrdoy_add(int(r.days[0]), ad) if ad <= last[i] else np.nan,
+                    "MDAT": _yrdoy_add(int(r.days[0]), md) if md <= last[i] else np.nan,
                     "HWAM": float(y[j, 2]),
                     "CWAM": float(y[j, 3]),
+                    "end": END_NAMES[int(y[j, 4])],
                 }
             )
         timing = {
@@ -823,8 +841,10 @@ class Experiment:
         device: str | None = None,
     ) -> Season:
         """One season of ``treatment`` simulated by Agri-JAX (published cultivar, or the
-        coefficients ``cultivar`` replaced: the season then runs up to :data:`PAD_DAYS` days past the
-        reference season and stops at maturity). ``soil_evaporation`` swaps the soil evaporation
+        coefficients ``cultivar`` replaced: the season then runs on the real weather up to
+        :data:`PAD_DAYS` days past the reference season and stops at the end of the crop, maturity or a
+        crop failure; a season harvested on a reported date stops on the harvest day at the latest;
+        :attr:`Season.end` says how it ended). ``soil_evaporation`` swaps the soil evaporation
         (``"ritchie"`` or ``"salus"``, :func:`alternatives`; default the experiment's own, DSSAT's
         ``MESEV``): the season is then the swapped model's, ending at its own maturity.
 
@@ -839,6 +859,7 @@ class Experiment:
                 return self.run(treatment, cultivar=cultivar, soil_evaporation=soil_evaporation)
         import pandas as pd
 
+        from agrijax.calib.dssat_day import CROP_END, E_DATE, E_STATUS, END_NAMES, Entry, entry_values
         from agrijax.core.units import MM_PER_CM
         from agrijax.facade_execution import active, simulate
         from agrijax.sites.dssat_free_run import _pad
@@ -849,12 +870,21 @@ class Experiment:
         o = simulate(x, cultivar, pad_days=pad)
         n = x.n_days + pad
         days = [int(d) for d in x.days] + [_yrdoy_add(int(x.days[-1]), i) for i in range(1, pad + 1)]
-        stage = np.asarray(o["istage"])[:, 0]
-        mat = _first(stage, _MATURITY)
-        silk = _first(stage, _SILKING)
+        # the season readout (agrijax.calib.dssat_day): the end of the crop (MDATE), read on real days only
+        t_last = x.last_real_day(pad)
+        silk, end, status = (
+            int(v)
+            for v in entry_values(
+                o,
+                [Entry(E_DATE, _SILKING), Entry(E_DATE, CROP_END), Entry(E_STATUS, 0)],
+                last_day=t_last,
+                harvest=x.harvest,
+            )
+        )
+        t_end = min(end, t_last)
         dl = _pad(np.asarray(x.series["dlayr_end"], dtype=float), n)
         swtd = np.sum(np.asarray(o["soil_sw"])[:, : x.nl] * dl, axis=-1) * MM_PER_CM
-        last = n if (mat is None or not cultivar) else mat + 1
+        last = t_end + 1 if cultivar else x.n_days
         daily = pd.DataFrame(
             {
                 "date": _dates(days[:last]),
@@ -865,16 +895,15 @@ class Experiment:
                 "swtd": swtd[:last],
             }
         )
-        t_end = mat if mat is not None else n - 1
         summary = {
-            "ADAT": float(days[silk]) if silk is not None else np.nan,
-            "MDAT": float(days[mat]) if mat is not None else np.nan,
+            "ADAT": float(days[silk]) if silk <= t_last else np.nan,
+            "MDAT": float(days[end]) if end <= t_last else np.nan,
             "HWAM": float(np.asarray(o["gwad"])[t_end, 0]),
             "CWAM": float(np.asarray(o["cwad"])[t_end, 0]),
         }
         cul = {**x.published(), **dict(cultivar or {})}
         labels = {"experiment": self.title, "treatment": self.treatments.get(int(x.trno), "")}
-        return Season(x.key, daily, summary, cul, x, o, active().precision, labels)
+        return Season(x.key, daily, summary, cul, x, o, active().precision, labels, END_NAMES[status])
 
     def scenarios(
         self,

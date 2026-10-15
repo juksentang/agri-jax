@@ -63,7 +63,18 @@ from typing import Any
 
 import numpy as np
 
-from agrijax.calib.dssat_day import CUL_ORDER, E_DATE, E_FINAL, OUT_NAMES, Entry
+from agrijax.calib.dssat_day import (
+    CROP_END,
+    CUL_ORDER,
+    E_DATE,
+    E_FINAL,
+    E_STATUS,
+    END_CENSORED,
+    END_HARVESTED,
+    END_NAMES,
+    OUT_NAMES,
+    Entry,
+)
 
 __all__ = [
     "BOX_MARGIN",
@@ -124,15 +135,18 @@ METHODS = ("cma", "staged", "adam")
 PHENOLOGY = ("P1", "P2", "P5", "PHINT")
 GROWTH = ("G2", "G3")
 
-#: entries every treatment carries first (predictions for reports and the DSSAT check): silking,
-#: maturity and emergence dates, yield, tops weight and grain number at simulated maturity
+#: entries every treatment carries first (predictions for reports and the DSSAT check): silking date,
+#: the end of the crop (dscsm048's MDAT: maturity, or the failure day), emergence date, yield, tops
+#: weight and grain number at the end of the crop (season readout, :mod:`agrijax.calib.dssat_day`)
+#: and the end status
 PROBES: tuple[tuple[str, Entry], ...] = (
     ("ADAT", Entry(E_DATE, 4)),
-    ("MDAT", Entry(E_DATE, 10)),
+    ("MDAT", Entry(E_DATE, CROP_END)),
     ("EDAT", Entry(E_DATE, 1)),
     ("HWAM", Entry(E_FINAL, OUT_NAMES.index("gwad"))),
     ("CWAM", Entry(E_FINAL, OUT_NAMES.index("cwad"))),
     ("H#AM", Entry(E_FINAL, OUT_NAMES.index("g_ad"))),
+    ("END", Entry(E_STATUS, 0)),
 )
 
 
@@ -429,6 +443,9 @@ class FitResult:
     #: False when no written candidate beat the published cultivar (then it is what is returned)
     improved: bool = True
     warnings: list[str] = field(default_factory=list)
+    #: ``{"treatment", "cultivar", "end"}`` of every report season (``"calibrated"`` / ``"published"``)
+    #: whose crop does not end within the run's real days (``end``: ``"harvested"`` or ``"censored"``)
+    censored: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _warn(msgs: list[str], msg: str) -> None:
@@ -845,12 +862,20 @@ def fit_cultivar(
         "calibrated": _predictions(problem, y_cal, tid1),
         "published": _predictions(problem, y_pub, tid1),
     }
-    late = [n for n, p in preds["calibrated"].items() if p["MDAT_index"] >= p["n_real_days"]]
+    open_codes = (END_HARVESTED, END_CENSORED)
+    censored = [
+        {"treatment": n, "cultivar": which, "end": END_NAMES[int(p["END"])]}
+        for which in ("calibrated", "published")
+        for n, p in preds[which].items()
+        if int(p["END"]) in open_codes
+    ]
+    late = [c["treatment"] for c in censored if c["cultivar"] == "calibrated"]
     if late:
         _warn(
             msgs,
-            f"calibrated maturity falls on padded forcing days (after the reference season) for {late}: "
-            "those seasons are simulated on repeated weather, DSSAT will differ there",
+            f"at the calibrated cultivar the crop does not end within the run's real days for {late} "
+            "(not mature by the harvest day, or by the last day of real weather): the maturity date is "
+            "censored there (a lower bound) and the end values are read there (listed in .censored)",
         )
     holdout_res = None
     if hold:
@@ -893,4 +918,5 @@ def fit_cultivar(
         wall_s=time.perf_counter() - t0,
         improved=improved,
         warnings=msgs,
+        censored=censored,
     )

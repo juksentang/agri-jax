@@ -353,8 +353,8 @@ def simulate(x: Any, cultivar: Any = None, *, pad_days: int = 0) -> dict[str, np
         with _runtime(opts, devs):
             return x.simulate(cultivar, pad_days=pad_days)
     from agrijax.core.runtime import run_sites
-    from agrijax.models.day_dssat486 import SLOT, day_dssat486, day_outputs, day_processes
-    from agrijax.sites.dssat_free_run import stack_trees, with_cultivar
+    from agrijax.models.day_dssat486 import SLOT, day_dssat486, day_processes
+    from agrijax.sites.dssat_free_run import season_outputs, stack_trees, with_cultivar
 
     n = x.n_days + int(pad_days)
     with _x64(True):  # the inputs are built in float64, as validated, and rounded once
@@ -363,7 +363,7 @@ def simulate(x: Any, cultivar: Any = None, *, pad_days: int = 0) -> dict[str, np
         trees = _to_float32([stack_trees([t]) for t in (p, x.forcing(n), x.state(p0))])
     with _runtime(opts, devs):
         model = day_dssat486(SLOT).compile(
-            day_processes(SLOT, mesev=x.mesev), outputs=day_outputs(SLOT), exact_lags=True
+            day_processes(SLOT, mesev=x.mesev), outputs=season_outputs(), exact_lags=True
         )
         out = run_sites(model, *trees)
         return {k: _widen(np.asarray(v)[0]) for k, v in out.items()}

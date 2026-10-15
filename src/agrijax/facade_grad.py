@@ -212,9 +212,14 @@ def _output_unit(name: str) -> str:
     return OUTPUTS[name][0] if name in OUTPUTS else SERIES[name.split("@")[0]][1]
 
 
+#: entries :func:`_entries` appends after the outputs: the end of the crop and the end status
+N_END_ENTRIES = 2
+
+
 def _entries(names: Sequence[str], run: Any) -> list[Any]:
-    """The simulator entries of ``names`` on ``run``, then the maturity date (for the matured flag)."""
-    from agrijax.calib.dssat_day import E_DATE, E_DAY, E_FINAL, ISTAGE_MATURITY, OUT_NAMES, Entry
+    """The simulator entries of ``names`` on ``run``, then the end of the crop (``CROP_END`` date) and
+    the end status (for the matured flag; season readout, :mod:`agrijax.calib.dssat_day`)."""
+    from agrijax.calib.dssat_day import CROP_END, E_DATE, E_DAY, E_FINAL, E_STATUS, OUT_NAMES, Entry
 
     ents = []
     for n in names:
@@ -230,7 +235,8 @@ def _entries(names: Sequence[str], run: Any) -> list[Any]:
         else:
             out = {"HWAM": "gwad", "CWAM": "cwad", "H#AM": "g_ad"}[n]
             ents.append(Entry(E_FINAL, OUT_NAMES.index(out)))
-    ents.append(Entry(E_DATE, ISTAGE_MATURITY))
+    ents.append(Entry(E_DATE, CROP_END))
+    ents.append(Entry(E_STATUS, 0))
     return ents
 
 
@@ -649,9 +655,10 @@ class Sensitivity:
 
     :attr:`table` has one row per (scenario, output, coefficient) with the columns of
     :attr:`Gradient.table` after ``scenario``, ``year``, ``sowing_shift`` and ``matured`` (the season
-    reached maturity within the simulated days; if not, ``HWAM`` etc. are the values on the last
-    day). :attr:`summary` has one row per (output, coefficient): the mean, minimum and maximum
-    derivative over the scenarios, the mean ``sensitivity``, how many scenarios are
+    reached maturity within its real days; if not, ``HWAM`` etc. are the values on the day the crop
+    failed, on the harvest day or on the last day of real weather, never on padded days).
+    :attr:`summary` has one row per (output, coefficient): the mean, minimum and maximum derivative
+    over the scenarios, the mean ``sensitivity``, how many scenarios are
     ``validated`` and the ``trust`` label (``"validated gradient"`` only when every scenario is).
     :attr:`trust` is the label of each coefficient (the weakest over outputs and scenarios),
     :attr:`reasons` why a coefficient is not validated."""
@@ -892,15 +899,18 @@ def _run(
     raw = _analyse(
         rows, x, idx, sp.lower, sp.upper, len(runs), len(out_names), cfg, rows.exact, rows.unrounded
     )
-    matured = raw["extra"][:, 0] < rows.season_days  # the maturity date (last entry) was reached
+    from agrijax.calib.dssat_day import END_MATURED
+
+    matured = raw["extra"][:, 1] == END_MATURED  # the end status (last entry): ISTAGE 10 on a real day
     names_s = [_scenario_name(r) for r in scn_rows]
     lab, trust, reasons = _labels(raw, p_names, out_names, names_s)
     table = _tables(raw, lab, p_names, out_names, x, idx, scn_rows, matured)
     if not matured.all():
         late = [int(i) for i in np.nonzero(~matured)[0]]
         warnings.warn(
-            f"scenarios {late} do not reach maturity within the simulated days: "
-            "their end values are the values on the last day (column 'matured')",
+            f"scenarios {late} do not reach maturity within their real days: their end values are the "
+            "values on the day the crop failed, on the harvest day or on the last day of real weather "
+            "(column 'matured')",
             stacklevel=3,
         )
     timing = {

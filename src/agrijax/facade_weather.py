@@ -1552,19 +1552,22 @@ def _analyse(
     calendar, the stage table and (``check``) the trust check."""
     import pandas as pd
 
-    from agrijax.facade_grad import _output_unit, _planting_index
+    from agrijax.calib.dssat_day import END_MATURED
+    from agrijax.facade_grad import N_END_ENTRIES, _output_unit, _planting_index
 
     e_n = len(out_names)
-    e_mat, e_silk = e_n, e_n + 1
+    # the outputs, then the end of the crop and the end status (facade_grad._entries), then silking
+    e_mat, e_status, e_silk = e_n, e_n + 1, e_n + N_END_ENTRIES
     x = progs.weather_of(i)
     n_days = progs.n_days
+    t_last = progs.many.last_days[i]
     deltas: list[np.ndarray] = [np.zeros((n_days, len(_VORDER)))]
     # the base row and the calendar
     t0 = time.perf_counter()
     yb, _ = progs.values(np.stack(deltas), np.asarray([i]))
     base = yb[0]
     t_mat = int(base[e_mat])
-    t_cal = min(t_mat, n_days - 1) + 1
+    t_cal = min(t_mat, t_last) + 1  # the season's real days up to the end of the crop
     o = run.simulate(pad_days=n_days - run.n_days)
     stage = _morning_stage(np.asarray(o["istage"])[:, 0])
     start = _date(int(run.days[0]))
@@ -1676,9 +1679,9 @@ def _analyse(
     info = {
         "start": dates[0],
         "planting": dates[t_plant],
-        "silking": dates[silk] if silk < n_days else None,
-        "maturity": dates[min(t_mat, n_days - 1)],
-        "matured": t_mat < n_days,
+        "silking": dates[silk] if silk <= t_last else None,
+        "maturity": dates[min(t_mat, t_last)],
+        "matured": int(base[e_status]) == END_MATURED,
         "days": t_cal,
     }
     timing = {

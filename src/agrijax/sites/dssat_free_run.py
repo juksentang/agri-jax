@@ -382,6 +382,19 @@ class FreeRunInputs:
     #: as :attr:`series` and the crop forcing of those days; :meth:`forcing` uses them before padding
     extension: dict[str, np.ndarray] = field(default_factory=dict)
     extension_crop: Any = None
+    #: the FileX harvest option (``HARVS``): ``"M"`` at maturity, ``"R"`` on the reported date (the
+    #: season then ends on the harvest day), any other option is read as "not at maturity" (the
+    #: reference run's own harvest day ends the season)
+    harvest: str = "M"
+
+    def last_real_day(self, pad_days: int = 0) -> int:
+        """The last day index a readout may use (the season readout of
+        :class:`agrijax.calib.dssat_day.DaySimulator`): harvest at maturity: the season plus its real
+        weather extension, at most ``pad_days`` days; any other harvest option: the harvest day
+        (``n_days - 1``). Padded days (the last day repeated) are never real."""
+        if str(self.harvest).strip().upper()[:1] == "M":
+            return self.n_days - 1 + min(max(int(pad_days), 0), self.n_ext)
+        return self.n_days - 1
 
     @property
     def n_ext(self) -> int:
@@ -413,8 +426,8 @@ class FreeRunInputs:
     def forcing(self, n: int | None = None) -> dict[str, Any]:
         """The day's global forcing over ``n`` days (default the season): after the reference season
         the real days of :attr:`extension` (native inputs with ``extend_days``), then the last day
-        repeated with rain and irrigation 0 (padding: a candidate cultivar that matures later is
-        simulated on these days)."""
+        repeated with rain and irrigation 0 (padding: it only brings the runs of a batch group to one
+        length; the season readout never reads it, :meth:`last_real_day`)."""
         from agrijax.models.day_dssat486 import dssat_soil_values
         from agrijax.processes.pet.spam_dssat import SpamWeather
         from agrijax.processes.soil_water.bucket import BucketForcing, BucketSoil, MulchForcing
@@ -512,8 +525,9 @@ class FreeRunInputs:
         self, cultivar: Mapping[str, float] | None = None, *, pad_days: int = 0
     ) -> dict[str, np.ndarray]:
         """Host-side: the free-run day over the season (plus ``pad_days`` padded days,
-        :meth:`forcing`), the daily outputs of :func:`agrijax.models.day_dssat486.day_outputs` as
-        NumPy arrays ``[days, ...]`` (crop outputs ``[days, 1]``, the soil water ``[days, layers]``).
+        :meth:`forcing`), the daily outputs of :func:`season_outputs` (those of
+        :func:`agrijax.models.day_dssat486.day_outputs` and ``mdate``) as NumPy arrays ``[days, ...]``
+        (crop outputs ``[days, 1]``, the soil water ``[days, layers]``).
 
         ``cultivar`` replaces ``MZCER048.CUL`` coefficients (``{"P1": ..., "G2": ...}``,
         :func:`with_cultivar`); the morning state is the published cultivar's, as in
@@ -737,6 +751,10 @@ def free_run_inputs(
             raise ValueError(
                 f"{key}: {part['nl']} native soil layers, {crop.params.soil.dlayr.shape[0]} in DSSAT48.INP"
             )
+    from agrijax.io.dssat import read_filex
+
+    harvs = harvest_option(read_filex(fx), trno)
+    check_harvest(key, harvs, crop.summary, crop.days)
     return FreeRunInputs(
         key=key,
         exp=exp,
@@ -746,6 +764,7 @@ def free_run_inputs(
         params_crop=crop.params,
         forcing_crop=crop.forcing,
         summary=crop.summary,
+        harvest=harvs,
         **part,
     )
 
@@ -1045,15 +1064,55 @@ SEASON_WINDOW = 240
 _HARVS = ("M", "R")
 
 
+def season_outputs() -> Any:
+    """The daily outputs of :meth:`FreeRunInputs.simulate`: those of
+    :func:`agrijax.models.day_dssat486.day_outputs` and the crop's ``mdate`` (``MDATE``, -99 until
+    maturity or a crop failure sets it; the end of the crop of the season readout,
+    :func:`agrijax.calib.dssat_day.entry_values`)."""
+    from agrijax.core.state import get_path
+    from agrijax.models.day_dssat486 import SLOT, day_outputs
+
+    base = day_outputs(SLOT)
+
+    def outputs(state: Any, params: Any, forcing_t: Any) -> dict[str, Any]:
+        return {**base(state, params, forcing_t), "mdate": get_path(state, f"crops.{SLOT}").phen.mdate}
+
+    return outputs
+
+
 @functools.lru_cache(maxsize=4)
 def _season_model(mesev: str) -> Any:
     """The day with its daily outputs for ``mesev`` (one per soil evaporation, so its compiled runners
     are reused from season to season)."""
-    from agrijax.models.day_dssat486 import SLOT, day_dssat486, day_outputs, day_processes
+    from agrijax.models.day_dssat486 import SLOT, day_dssat486, day_processes
 
     return day_dssat486(SLOT).compile(
-        day_processes(SLOT, mesev=mesev), outputs=day_outputs(SLOT), exact_lags=True
+        day_processes(SLOT, mesev=mesev), outputs=season_outputs(), exact_lags=True
     )
+
+
+def harvest_option(x: Mapping[str, Any], trno: int) -> str:
+    """The harvest option (``HARVS``, first letter, upper case; ``"M"`` when blank) of treatment
+    ``trno`` of a :func:`~agrijax.io.dssat.read_filex` dict: the ``MANAGEMENT`` block of the
+    treatment's simulation-control level (level 1 when the treatment names none)."""
+    from agrijax.io.dssat.native_management import treatment_levels
+
+    tr = treatment_levels(x, trno)
+    sc = x.get("SIMULATION CONTROLS", {}) or {}
+    ma = sc.get(int(tr.get("SM", 0) or 0), sc.get(1, {})).get("MANAGEMENT", {}) or {}
+    return str(ma.get("HARVS", "M") or "M").strip().upper()[:1] or "M"
+
+
+def check_harvest(key: str, harvest: str, summary: Mapping[str, float], days: np.ndarray) -> None:
+    """A reported harvest (``HARVS = R``) must end the reference season: ``Summary.OUT``'s ``HDAT`` is
+    its last day; ``ValueError`` otherwise."""
+    if harvest != "R":
+        return
+    hdat = summary.get("HDAT", float("nan"))
+    if not np.isfinite(hdat) or int(hdat) != int(days[-1]):
+        raise ValueError(
+            f"{key}: HARVS = R but the reference season ends on {int(days[-1])}, not on HDAT = {hdat}"
+        )
 
 
 def native_inp(
@@ -1120,9 +1179,7 @@ def dssat_free_inputs(
     x = read_filex(fx)
     bad = list(unsupported_features(x, trno))
     tr = treatment_levels(x, trno)
-    sc = x.get("SIMULATION CONTROLS", {})
-    ma = sc.get(int(tr.get("SM", 0) or 0), sc.get(1, {})).get("MANAGEMENT", {})
-    harvs = str(ma.get("HARVS", "M") or "M").strip().upper()[:1] or "M"
+    harvs = harvest_option(x, trno)
     if harvs not in _HARVS:
         bad.append(
             f"HARVS = {harvs}: harvest options other than at maturity (M) or reported (R) not implemented"
@@ -1253,6 +1310,7 @@ def dssat_free_inputs(
         notes=notes,
         extension=ext,
         extension_crop=fc_ext,
+        harvest=harvs,
     )
 
 

@@ -260,6 +260,10 @@ class _Inputs:
     mesev = "S"
     days = np.array([2020001, 2020002, 2020003])
     series = {"dlayr_end": np.full((3, 2), 10.0)}
+    harvest = "M"
+
+    def last_real_day(self, pad_days: int = 0) -> int:
+        return self.n_days - 1 + pad_days  # real weather on every simulated day
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
@@ -312,6 +316,27 @@ def _experiment(inputs: Any) -> ajd.Experiment:
     if inputs is not None:
         exp._inputs[1] = inputs
     return exp
+
+
+class _HarvestedInputs(_Inputs):
+    """A season harvested on a reported date (``HARVS = R``): its last real day is the harvest day."""
+
+    harvest = "R"
+
+    def last_real_day(self, pad_days: int = 0) -> int:
+        return self.n_days - 1
+
+
+def test_run_with_a_cultivar_stops_on_the_harvest_day_of_a_reported_harvest():
+    x = _HarvestedInputs()
+    season = _experiment(x).run(1, cultivar={"P5": 900.0})
+    assert x.calls[-1]["pad_days"] == ajd.PAD_DAYS  # maturity falls on day 62, after the harvest day 2
+    assert season.end == "harvested" and len(season.daily) == x.n_days
+    assert np.isnan(season.summary["MDAT"]) and season.summary["ADAT"] == 2020001
+    gwad = np.linspace(0, 5e3, x.n_days + ajd.PAD_DAYS)
+    assert season.summary["HWAM"] == gwad[x.n_days - 1]
+    plain = _experiment(_Inputs()).run(1, cultivar={"P5": 900.0})  # harvest at maturity, real weather
+    assert plain.end == "matured" and plain.summary["MDAT"] == ajd._yrdoy_add(2020001, 2 + ajd.PAD_DAYS)
 
 
 def test_run_without_options_is_the_unchanged_float64_call():
@@ -442,6 +467,7 @@ class _Sim:
         self.ndev = len(self.devs)
         self.n_days = {"g": 30}
         self.where = {0: ("g", 0)}
+        self.last_days = [29]
         self.calls: list[dict[str, Any]] = []
         self._calls = 0
 
@@ -451,7 +477,7 @@ class _Sim:
     def __call__(self, theta: np.ndarray, tid: np.ndarray) -> np.ndarray:
         self._calls += 1
         self.calls.append({"x64": bool(jax.config.jax_enable_x64), "device": jax.config.jax_default_device})
-        return np.tile([4.0, 9.0, 5000.0, 12000.0], (theta.shape[0], 1))
+        return np.tile([4.0, 9.0, 5000.0, 12000.0, 0.0], (theta.shape[0], 1))  # ... and matured
 
 
 def _scenarios(sim: Any) -> ajd.Scenarios:
@@ -473,6 +499,7 @@ def test_scenarios_run_default_uses_the_cached_simulator_unchanged():
     assert batch.timing["precision"] == "float64" and batch.timing["devices"] == "1 x stand-in"
     assert batch.timing["seasons"] == 2 and list(batch.table["HWAM"]) == [5000.0, 5000.0]
     assert list(batch.table["ADAT"]) == [2020104, 2020104]
+    assert list(batch.table["end"]) == ["matured", "matured"]
 
 
 def test_simulator_cache_is_per_options_and_the_calls_run_under_them():

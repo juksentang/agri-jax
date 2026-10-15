@@ -24,7 +24,16 @@ import pandas as pd
 import pytest
 
 from agrijax.calib import observations as obs_mod
-from agrijax.calib.dssat_day import CUL_ORDER, E_DATE, E_DAY, E_FINAL, OUT_NAMES, Entry, entry_values
+from agrijax.calib.dssat_day import (
+    CROP_END,
+    CUL_ORDER,
+    E_DATE,
+    E_DAY,
+    E_FINAL,
+    OUT_NAMES,
+    Entry,
+    entry_values,
+)
 from agrijax.calib.fit import (
     PROBES,
     CalibrationWarning,
@@ -84,7 +93,8 @@ def twin_values(xp, theta, kind, out, t, env):
     hw = gn * g3 * (mat - silk) / 400.0
     cw = 2.0 * hw + 60.0 * phint
     lai = 4.0 * env * (1.0 - xp.exp(-t * phint / 2000.0))
-    date = xp.where(out == 4, silk, xp.where(out == 10, mat, 5.0))
+    # the twin always matures: the end of the crop (CROP_END, dscsm048's MDAT) is its maturity
+    date = xp.where(out == 4, silk, xp.where((out == 10) | (out == CROP_END), mat, 5.0))
     final = xp.where(out == I_GWAD, hw, xp.where(out == I_CWAD, cw, xp.where(out == I_GAD, gn, 0.0)))
     day = xp.where(out == I_LAI, lai, 0.0)
     return xp.where(kind == E_DATE, date, xp.where(kind == E_FINAL, final, xp.where(kind == E_DAY, day, 0.0)))
@@ -98,7 +108,7 @@ def make_problem(
     days = np.asarray(yrdoy_range(1982056, 1982056 + 199), dtype=np.int64)
     obs_entry = {
         "ADAT": [Entry(E_DATE, 4)],
-        "MDAT": [Entry(E_DATE, 10)],
+        "MDAT": [Entry(E_DATE, CROP_END)],
         "HWAM": [Entry(E_FINAL, I_GWAD)],
         "CWAM": [Entry(E_FINAL, I_CWAD)],
         "H#AM": [Entry(E_FINAL, I_GAD)],

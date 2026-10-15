@@ -44,8 +44,12 @@ the held-out ones.
 
 1. ``dscsm048`` runs every treatment once with the published cultivar (nitrogen off): the reference
    run gives the crop parameters, weather and the season (planting to maturity / harvest), whose
-   days carry real forcing; the forcing is padded after them (:data:`~agrijax.calib.dssat_day.PAD_DAYS`)
-   so a later-maturing candidate still matures.
+   days carry real forcing (native inputs add up to :data:`~agrijax.calib.dssat_day.PAD_DAYS` days of
+   real weather after a season harvested at maturity). A candidate is read on the run's real days
+   only (the season readout of :mod:`agrijax.calib.dssat_day`): a candidate whose crop has not ended
+   by the harvest day (``HARVS = R``) or by the last real day (``HARVS = M``) has its maturity date
+   censored there and its end values read there; it is warned about and listed in
+   :attr:`CalibrationResult.censored`.
 2. **Targets**: ``targets="auto"`` uses :data:`BASE_TARGETS` (ADAT, MDAT, HWAM, CWAM, H#AM, LAID)
    where observed; ``"all"`` every observed quantity of the A / T files that maps to a model output
    (:data:`agrijax.calib.observations.DSSAT_TARGETS`, with the organ-weight series); or a list of
@@ -90,7 +94,17 @@ from typing import Any, cast
 
 import numpy as np
 
-from agrijax.calib.dssat_day import CUL_ORDER, E_DATE, E_DAY, E_FINAL, OUT_NAMES, Entry
+from agrijax.calib.dssat_day import (
+    CROP_END,
+    CUL_ORDER,
+    E_DATE,
+    E_DAY,
+    E_FINAL,
+    ISTAGE_MATURITY,
+    OUT_NAMES,
+    PAD_DAYS,
+    Entry,
+)
 from agrijax.calib.fit import (
     PROBES,
     CalibrationWarning,
@@ -267,6 +281,11 @@ class CalibrationResult:
     warnings: list[str] = field(default_factory=list)
     #: the source of the free-run inputs (``"native"`` or ``"tables"``)
     inputs: str = "tables"
+    #: treatments whose crop at the calibrated (``"calibrated"``) or published cultivar does not end
+    #: within the run's real days: ``{"treatment", "cultivar", "end"}`` (``end``: ``"harvested"``, not
+    #: ended by the harvest day, or ``"censored"``, not ended by the last real day); their maturity
+    #: date is censored, a lower bound
+    censored: list[dict[str, Any]] = field(default_factory=list)
     #: what :meth:`write_cul` / :meth:`check_dssat` need (experiment files, engine, cultivar)
     context: dict[str, Any] | None = field(default=None, repr=False)
 
@@ -568,7 +587,10 @@ def _observations(
             idx = int(v[0])
             stage = t.code if t.code is not None else m.code_stage
             assert stage is not None
-            rows.append((t.name, Entry(E_DATE, int(stage)), float(idx), int(days[idx])))
+            # an observed maturity date is dscsm048's MDAT: the end of the crop (the day MDATE holds), the
+            # first day of ISTAGE 10 at maturity, the failure (or later maturity) day of a failed crop
+            stage = CROP_END if int(stage) == ISTAGE_MATURITY else int(stage)
+            rows.append((t.name, Entry(E_DATE, stage), float(idx), int(days[idx])))
         elif t.kind == "final" or m.kind == "final":
             val = float(v[0]) if t.kind == "final" else float(v[np.asarray(t.mask)[:, 0], 0][0])
             rows.append((t.name, Entry(E_FINAL, out), val, -1))
@@ -647,8 +669,8 @@ def _reference_inputs(
     from agrijax.sites.dssat_free_run import free_run_inputs, run_reference
 
     r = root if root is not None else engine
-    if source == "native":
-        return free_run_inputs(filex, trno, None, engine=r, source="native")
+    if source == "native":  # real weather after the season, read up to the run's last real day
+        return free_run_inputs(filex, trno, None, engine=r, source="native", extend_days=PAD_DAYS)
     assert engine is not None and r is not None
     out = run_reference(
         filex,
@@ -1129,4 +1151,5 @@ def calibrate(
         warnings=msgs,
         inputs=source,
         context=ctx,
+        censored=res.censored,
     )
