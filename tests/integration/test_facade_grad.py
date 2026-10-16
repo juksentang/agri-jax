@@ -19,11 +19,13 @@ data; no DSSAT run: the reference program is not used).
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 
 import jax
 import numpy as np
 import pytest
 
+import agrijax
 from agrijax import facade_grad as fg
 from agrijax.port.run_fortran import DSSAT_ENGINE
 
@@ -376,6 +378,7 @@ def _registered_sites_exact():
     from agrijax.core.process import registry
 
     saved = []
+    sites: set[tuple[str, str]] = set()
     try:
         for p in list(registry.values()):
             for g in () if p.info is None else p.info.gradient_conventions:
@@ -384,7 +387,8 @@ def _registered_sites_exact():
                 mod = importlib.import_module(g.site.rsplit(".", 1)[0])
                 saved.append((mod, g.helper, getattr(mod, g.helper)))
                 setattr(mod, g.helper, functools.partial(getattr(mod, g.helper), mode="exact"))
-        yield len(saved)
+                sites.add((g.site, g.helper))
+        yield sites
     finally:
         for mod, name, fn in reversed(saved):
             setattr(mod, name, fn)
@@ -402,8 +406,15 @@ def test_the_registered_sites_are_the_whole_straight_through_derivative(exp):
     th = np.repeat(x[None], 6 * n, axis=0)
     tan = np.tile(np.eye(6), (n, 1))
     scn = np.repeat(np.arange(n), 6)
-    with _registered_sites_exact() as n_sites:
-        assert n_sites >= 4
+    from tests.unit.test_process_registry import _quantiser_call_sites
+
+    # the sites switched to the exact mode are every straight-through call site of the package (the
+    # static scan of the source: every trunc_st / round_st call; real4_store has the cast's derivative
+    # in every mode), so the bit-for-bit equality below covers them all; no count is assumed
+    root = Path(agrijax.__file__).parent
+    in_source = {s for s in _quantiser_call_sites(root) if s[1] != "real4_store"}
+    with _registered_sites_exact() as sites:
+        assert sites and sites == in_source, (sorted(sites), sorted(in_source))
         rows = fg._Rows(scen.runs, entries)  # programs traced inside the context
         y_s, d_s = rows(th, tan, scn)
         y_x, d_x = rows.exact(th, tan, scn)
