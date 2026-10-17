@@ -627,7 +627,11 @@ def gradient_plan(
     ``scan_frac`` 0.1 and 41 points) can fall between two points and go unseen: on IUAF9901
     treatment 1 the default scan classes (G2, t1) smooth, while a 401-point scan of the same
     interval finds +165 / -161 kg ha-1 yield jumps (the stage-5 stem-floor count going 2 -> 1 -> 2
-    on day 173). For a decision that matters, pass a report with a finer scan near the start point
+    on day 173). The default plan therefore uses AD on that pair (``method="adam"`` of
+    :func:`agrijax.calibrate` calibrates G2 there): before the finite differences were kept inside
+    the bounds, a central difference across a bound of G2 saw a jump beyond it and made the pair
+    derivative-free, which hid the jumps inside the box by chance. For a decision that matters,
+    pass a report with a finer scan near the start point
     (``TrustConfig(n_scan=401)`` or a smaller ``scan_frac``)."""
     params = tuple(report["params"])
     outputs = list(report["outputs"])
