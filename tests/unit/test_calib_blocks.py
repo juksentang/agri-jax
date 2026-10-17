@@ -528,45 +528,80 @@ def test_a_treatment_subset_of_the_loss_simulates_those_treatments_only(sites, m
 
 
 def _season_entries(run) -> list:
-    """Entries of the season readout: those of :func:`_entries` on the run's real days, then final
-    values, the crop-end date and the end status."""
+    """Entries of the season readout: those of :func:`_entries` on the run's real days, the outputs
+    of the last real day, then final values, the crop-end date and the end status."""
     from agrijax.calib.dssat_day import CROP_END, E_DATE, E_DAY, E_FINAL, E_STATUS, OUT_NAMES, Entry
 
     last = run.last_real_day(PAD)
     day = [e for e in _entries(run) if e.kind != E_DAY or e.t <= last]
+    day += [Entry(E_DAY, OUT_NAMES.index(o), last) for o in ("lai", "et", "sw1")]
     end = [Entry(E_FINAL, OUT_NAMES.index(o)) for o in ("gwad", "et", "sw1")]
     return day + end + [Entry(E_DATE, CROP_END), Entry(E_STATUS, 0)]
+
+
+def _cut(run, n: int, *, extend: bool):
+    """``run`` on its first ``n`` days; ``extend``: the days after them become its real weather
+    extension (read by the season readout under harvest at maturity), else they are dropped."""
+    head = lambda a: np.asarray(a)[:n]  # noqa: E731
+    tail = lambda a: np.asarray(a)[n:]  # noqa: E731
+    kw = {
+        "series": {k: head(v) for k, v in run.series.items()},
+        "forcing_crop": jax.tree.map(head, run.forcing_crop),
+    }
+    if extend:
+        kw["extension"] = {k: tail(v) for k, v in run.series.items()}
+        kw["extension_crop"] = jax.tree.map(tail, run.forcing_crop)
+    return dataclasses.replace(run, **kw)
 
 
 @_x64
 def test_season_readout_of_the_loss_on_blocks_and_interleaved_groups(sites) -> None:
     """The default (season) readout of ``jax_loss`` on parameter blocks with soil, three treatments
-    in two batch groups out of order (A, C, B) and two end conventions (C harvested on its
-    reported day, A and B at maturity): each treatment reads its own last day and open status,
-    so its loss equals its single-site loss, a treatment subset equals those losses in its order,
-    and the gradient is finite."""
-    from agrijax.calib.dssat_day import E_STATUS, END_CENSORED, END_HARVESTED
+    in two batch groups out of order (A, C, B). In the group of A and B the two treatments differ in
+    their last real day and their open status: A at maturity with 40 season days and a real weather
+    extension of 5 (last day 44, censored), B harvested on its reported day after 38 days (last day
+    37, harvested); C, alone in the other group, harvested after 45 days. Each treatment reads its
+    own last day and open status, so its loss equals its single-site loss, a treatment subset equals
+    those losses in its order, and the gradient is finite."""
+    from agrijax.calib.dssat_day import E_DAY, E_FINAL, E_STATUS, END_CENSORED, END_HARVESTED, OUT_NAMES
 
     names = ("A", "C", "B")
     local = dict(sites)
+    run_a, m_a = sites["A"]
+    run_b, m_b = sites["B"]
     run_c, m_c = sites["C"]
+    local["A"] = (_cut(run_a, 40, extend=True), m_a)
+    local["B"] = (dataclasses.replace(_cut(run_b, 38, extend=False), harvest="R"), m_b)
     local["C"] = (dataclasses.replace(run_c, harvest="R"), m_c)
+    assert local["A"][0].n_ext == 5 and local["B"][0].n_days == 38
     sim, blocks = _problem(local, names, readout="season", entries=_season_entries)
     assert sim.readout == "season" and sorted(len(v) for v in sim.groups.values()) == [1, 2]
+    group_ab = next(v for v in sim.groups.values() if len(v) == 2)
+    assert sorted(group_ab) == [0, 2]
+    assert sim.last_days == [44, 44, 37]
     truth, start = _truth_and_start(local, blocks)
     obs, winv = _obs(sim, truth)
     # the end status of each treatment: the synthetic season does not reach maturity, so each
-    # reads its own open status (C harvested, A and B censored at their last real day)
+    # reads its own open status (A censored, B and C harvested, on their own last real day)
     ents = [_season_entries(local[n][0]) for n in names]
     i_status = [next(j for j, e in enumerate(es) if e.kind == E_STATUS) for es in ents]
     statuses = [int(obs[b, i_status[b]]) for b in range(3)]
-    assert statuses == [END_CENSORED, END_HARVESTED, END_CENSORED], statuses
+    assert statuses == [END_CENSORED, END_HARVESTED, END_HARVESTED], statuses
+    # each treatment's final values are its outputs of its own last real day
+    i_sw1 = OUT_NAMES.index("sw1")
+    for b, es in enumerate(ents):
+        j_day = next(
+            j for j, e in enumerate(es) if e.kind == E_DAY and e.out == i_sw1 and e.t == sim.last_days[b]
+        )
+        j_fin = next(j for j, e in enumerate(es) if e.kind == E_FINAL and e.out == i_sw1)
+        assert obs[b, j_fin] == obs[b, j_day]
     th = jnp.asarray(start)
     joint = np.asarray(jax.jit(sim.jax_loss(obs, winv))(th))
     assert joint.shape == (3,) and np.all(np.isfinite(joint)) and np.all(joint > 0.0)
     singles = []
     for b, name in enumerate(names):
         s1, _ = _problem(local, (name,), readout="season", entries=_season_entries)
+        assert s1.last_days == [sim.last_days[b]]
         e, cols = s1.n_entries, blocks.columns(name)
         np.testing.assert_allclose(
             s1(truth[cols][None], np.zeros(1, np.int64))[0], obs[b, :e], rtol=1e-12, atol=1e-12
