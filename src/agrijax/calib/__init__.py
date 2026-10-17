@@ -1,6 +1,7 @@
 """Calibration and inference: parameter spaces, objectives, batched optimisers, gradient trust.
 
-* :mod:`~agrijax.calib.space` - named, bounded parameters and their unconstrained coordinates;
+* :mod:`~agrijax.calib.space` - named, bounded parameters and their unconstrained coordinates, and
+  shared plus per-site blocks of them laid out in one vector (several sites at once);
 * :mod:`~agrijax.calib.objective` - observed quantities (final values, series, stage dates) and a
   weighted loss over batch groups;
 * :mod:`~agrijax.calib.optim` - batched Adam, L-BFGS, Levenberg-Marquardt, CMA-ES and random
@@ -15,8 +16,11 @@
   calibrated CERES-Maize cultivar coefficients, a ``.CUL`` row and the check in DSSAT; its data-free
   core is :mod:`~agrijax.calib.fit`, the batched free-run day :mod:`~agrijax.calib.dssat_day`
   (imported on first use: they import the models);
-* :mod:`~agrijax.calib.soil` - DSSAT soil parameters (CN, SWCON, U bounds with sources; a layer's
-  LL < DUL < SAT as one ordered chain).
+* :mod:`~agrijax.calib.soil` - DSSAT soil parameters (CN, SWCON, U, SLPF, SRGF, SWCN bounds with
+  sources; a layer's LL < DUL < SAT as one ordered chain; a site's space by ``.SOL`` layer, with the
+  coordinates whose site value is an end of their domain left out on record);
+* :mod:`~agrijax.calib.day_soil` - a soil written into every copy the free-run DSSAT day holds
+  (``with_soil``; imported on first use: it imports the models).
 
 **Simulators and the gradient mode.** The gradient mode (``exact`` / ``ste`` / ``implicit``,
 :mod:`agrijax.core.grad`) is read when a function is traced, and ``jax.jit`` does not key its
@@ -58,7 +62,16 @@ from agrijax.calib.optim import (
     secant_gradient,
     time_calls,
 )
-from agrijax.calib.space import UNBOUNDED, Domain, OrderedChain, ParamSpace, ParamSpec, non_negative, positive
+from agrijax.calib.space import (
+    UNBOUNDED,
+    Domain,
+    OrderedChain,
+    ParamBlocks,
+    ParamSpace,
+    ParamSpec,
+    non_negative,
+    positive,
+)
 from agrijax.calib.trust import (
     GradientPlan,
     TrustConfig,
@@ -105,6 +118,7 @@ __all__ = [
     "ObservationError",
     "OptResult",
     "OrderedChain",
+    "ParamBlocks",
     "ParamSpace",
     "ParamSpec",
     "ScopeError",

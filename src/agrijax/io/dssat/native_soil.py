@@ -56,6 +56,8 @@ __all__ = [
     "SoilInputCoefficients",
     "find_soil_profile",
     "initial_soil_water",
+    "initial_soil_water_input",
+    "layer_weights",
     "lmatch",
     "lyrset2",
     "lyrset3",
@@ -447,6 +449,20 @@ def lmatch(
     return vs
 
 
+def layer_weights(zlayr: ArrayLike, ds: ArrayLike, c: SoilInputCoefficients = DSSAT_SOIL_INPUT) -> np.ndarray:
+    """Host-side: the weights ``W [model layers, soil-file layers]`` of :func:`lmatch` from the
+    soil-file layer bottoms ``zlayr`` onto the model layer bottoms ``ds``: column ``j`` is
+    ``lmatch(zlayr, e_j, ds)`` for the unit vector ``e_j`` (REAL*4, promoted), so a model layer cut
+    from one soil-file layer has the weight exactly 1 there and 0 elsewhere, and
+    ``lmatch(zlayr, v, ds)`` is ``W @ v`` up to REAL*4 rounding for any ``v`` without missing values.
+    One map for the native builder's matching and for writing soil-file values into the model
+    (:func:`agrijax.calib.day_soil.with_soil`)."""
+    z = np.asarray(zlayr, dtype=_F)
+    n = z.shape[0]
+    eye = np.eye(n, dtype=_F)
+    return np.stack([lmatch(z, eye[j], ds, c) for j in range(n)], axis=-1).astype(np.float64)
+
+
 # ------------------------------------------------------------------------ DSSAT48.INP round trip
 def swcn_width(swcn: float, c: SoilInputCoefficients = DSSAT_SOIL_INPUT) -> tuple[int, int]:
     """Host-side: the ``F5.d`` edit descriptor ``optempy2k.for`` 544-556 prints ``SSKS`` with."""
@@ -587,6 +603,39 @@ def _ic_field(v: Any) -> np.float32:
     return _F(v)
 
 
+def _matched_initial_water(
+    soil: NativeSoil, ic_rows: Sequence[Mapping[str, Any]] | None, c: SoilInputCoefficients
+) -> np.ndarray:
+    """The FileX initial water matched onto the layers of ``soil`` (REAL*4; ``<= 0`` where DSSAT
+    takes ``DUL``: ``INSOIL.for`` 84-86)."""
+    ds = np.asarray(soil.ds, dtype=_F)
+    if ic_rows:
+        dsi = np.asarray([_ic_field(r.get("ICBL")) for r in ic_rows], dtype=_F)
+        swi = np.asarray([_ic_field(r.get("SH2O")) for r in ic_rows], dtype=_F)
+        sw = lmatch(dsi, swi, ds, c)
+    else:
+        sw = np.full(soil.nl, _F(-99.0), dtype=_F)
+    if np.any(sw > _F(c.sw_init_max)):
+        raise ValueError(f"initial soil water above {c.sw_init_max} (DSSAT stops, IPSLIN 171)")
+    return sw
+
+
+def initial_soil_water_input(
+    soil: NativeSoil,
+    ic_rows: Sequence[Mapping[str, Any]] | None,
+    c: SoilInputCoefficients = DSSAT_SOIL_INPUT,
+) -> np.ndarray:
+    """Host-side: the initial soil water [cm3 cm-3, decimals] ``SOILDYN`` reads from ``DSSAT48.INP``
+    **before** it limits it to ``[LL, SAT]``: the FileX layers matched onto ``soil`` and printed
+    ``F5.3``, NaN in a layer where DSSAT takes the drained upper limit (no initial value there).
+    :func:`initial_soil_water` is this value (``DUL`` in the NaN layers) after the limits; a soil
+    with other ``LL``, ``DUL`` or ``SAT`` but the same layers starts from the same input."""
+    sw = _matched_initial_water(soil, ic_rows, c)
+    printed = np.asarray([_inp(x, 5, 3) if x > 0 else _F(-99.0) for x in sw], dtype=_F)
+    out = decimal_of(printed)
+    return np.where(sw > 0, out, np.nan)
+
+
 def initial_soil_water(
     soil: NativeSoil,
     ic_rows: Sequence[Mapping[str, Any]] | None,
@@ -596,15 +645,7 @@ def initial_soil_water(
     the FileX initial-condition layers ``ic_rows`` (``ICBL`` layer bottom, ``SH2O``; ``None`` or
     empty: no initial conditions, ``DUL`` everywhere) matched onto ``soil`` (module docstring)."""
     nl = soil.nl
-    ds = np.asarray(soil.ds, dtype=_F)
-    if ic_rows:
-        dsi = np.asarray([_ic_field(r.get("ICBL")) for r in ic_rows], dtype=_F)
-        swi = np.asarray([_ic_field(r.get("SH2O")) for r in ic_rows], dtype=_F)
-        sw = lmatch(dsi, swi, ds, c)
-    else:
-        sw = np.full(nl, _F(-99.0), dtype=_F)
-    if np.any(sw > _F(c.sw_init_max)):
-        raise ValueError(f"initial soil water above {c.sw_init_max} (DSSAT stops, IPSLIN 171)")
+    sw = _matched_initial_water(soil, ic_rows, c)
     dul_in = np.asarray(soil.dul_input, dtype=_F)
     sw = np.where(sw <= 0, dul_in, sw).astype(_F)
     # DSSAT48.INP (F5.3) read back by SOILDYN (F5.1 field: the printed decimal)

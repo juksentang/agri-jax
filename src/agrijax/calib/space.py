@@ -23,6 +23,13 @@ The map is continuous, strictly increasing in each ``z_k`` and invertible given 
 members; every ``z`` gives ``theta_k >= theta_{k-1} + gap`` (``gap > 0``) and ``theta_k`` inside
 its own bounds.
 
+**Shared and per-site blocks** (:class:`ParamBlocks`) calibrate several sites at once: one space
+whose parameters every run reads (e.g. the cultivar) and one space per site (e.g. that site's soil).
+``theta`` is laid out once and for all as the shared block followed by the site blocks in the order
+given; :meth:`ParamBlocks.columns` gives the columns a site's runs read, which form a ``theta`` of
+:meth:`ParamBlocks.space_of` (the shared specs followed by the site's). Each block keeps its own
+transforms and ordered chains.
+
 Everything here is a pure JAX function of arrays, so ``jax.grad`` / ``jax.vmap`` go through it.
 """
 
@@ -30,7 +37,7 @@ from __future__ import annotations
 
 import itertools
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -46,6 +53,7 @@ __all__ = [
     "UNBOUNDED",
     "Domain",
     "OrderedChain",
+    "ParamBlocks",
     "ParamSpace",
     "ParamSpec",
     "Transform",
@@ -373,3 +381,156 @@ class ParamSpace:
     def width_error(self, theta: Any, truth: Any) -> np.ndarray:
         """``|theta - truth| / (upper - lower)`` per parameter (error as a fraction of the box)."""
         return np.abs(np.asarray(theta, dtype=float) - np.asarray(truth, dtype=float)) / self.width
+
+
+@dataclass(frozen=True, eq=False)
+class ParamBlocks:
+    """A shared :class:`ParamSpace` and one :class:`ParamSpace` per site, laid out in one ``theta``.
+
+    ``theta`` = the shared block (``shared.n`` columns), then each site's block in the order of
+    ``per_site`` (module docstring). A run of site ``s`` reads the columns :meth:`columns` ``(s)``:
+    a ``theta`` of :meth:`space_of` ``(s)``. A parameter (path and index) in the shared block cannot
+    also be in a site block (a run would get two values for it); within a site the shared and site
+    specs together must form a valid :class:`ParamSpace`. Names are the shared names and
+    ``"<site>:<name>"`` for the site blocks."""
+
+    shared: ParamSpace
+    per_site: dict[str, ParamSpace]
+
+    def __init__(
+        self, shared: ParamSpace | None = None, per_site: Mapping[str, ParamSpace] | None = None
+    ) -> None:
+        sh = shared if shared is not None else ParamSpace([])
+        ps = dict(per_site or {})
+        for site, sp in ps.items():
+            if not isinstance(site, str) or not site:
+                raise ValueError(f"ParamBlocks: site names must be non-empty strings, got {site!r}")
+            if not isinstance(sp, ParamSpace):
+                raise TypeError(f"ParamBlocks: the block of {site!r} is not a ParamSpace")
+            both = sorted({s.key for s in sh.specs} & {s.key for s in sp.specs}, key=str)
+            if both:
+                raise ValueError(f"ParamBlocks: {site!r} repeats shared parameters {both}")
+            ParamSpace([*sh.specs, *sp.specs], ordered=(*sh.ordered, *sp.ordered))  # validates the union
+        object.__setattr__(self, "shared", sh)
+        object.__setattr__(self, "per_site", ps)
+
+    @classmethod
+    def of(cls, space: ParamSpace | ParamBlocks) -> ParamBlocks:
+        """``space`` itself, or a :class:`ParamSpace` as the shared block of blocks without sites."""
+        return space if isinstance(space, ParamBlocks) else cls(space)
+
+    # ------------------------------------------------------------------ layout
+    @property
+    def sites(self) -> tuple[str, ...]:
+        return tuple(self.per_site)
+
+    @property
+    def blocks(self) -> tuple[ParamSpace, ...]:
+        """The shared block, then the site blocks."""
+        return (self.shared, *self.per_site.values())
+
+    @property
+    def offsets(self) -> dict[str | None, int]:
+        """First ``theta`` column of each block (``None``: the shared block)."""
+        out: dict[str | None, int] = {None: 0}
+        k = self.shared.n
+        for site, sp in self.per_site.items():
+            out[site] = k
+            k += sp.n
+        return out
+
+    @property
+    def n(self) -> int:
+        return sum(b.n for b in self.blocks)
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        out = list(self.shared.names)
+        for site, sp in self.per_site.items():
+            out += [f"{site}:{n}" for n in sp.names]
+        return tuple(out)
+
+    @property
+    def lower(self) -> np.ndarray:
+        return np.concatenate([b.lower for b in self.blocks]) if self.n else np.zeros(0)
+
+    @property
+    def upper(self) -> np.ndarray:
+        return np.concatenate([b.upper for b in self.blocks]) if self.n else np.zeros(0)
+
+    @property
+    def width(self) -> np.ndarray:
+        return self.upper - self.lower
+
+    def columns(self, site: str | None = None) -> np.ndarray:
+        """The ``theta`` columns a run of ``site`` reads: the shared block, then the site's block
+        (``None``: the shared block only). An unknown site is refused."""
+        if site is not None and site not in self.per_site:
+            raise KeyError(f"ParamBlocks: unknown site {site!r} (sites: {list(self.per_site)})")
+        cols = list(range(self.shared.n))
+        if site is not None:
+            k = self.offsets[site]
+            cols += list(range(k, k + self.per_site[site].n))
+        return np.asarray(cols, dtype=np.int64)
+
+    def space_of(self, site: str | None = None) -> ParamSpace:
+        """The space of ``theta[..., columns(site)]``: the shared specs, then the site's."""
+        if site is None:
+            return self.shared
+        sp = self.per_site[site]
+        return ParamSpace([*self.shared.specs, *sp.specs], ordered=(*self.shared.ordered, *sp.ordered))
+
+    def split(self, theta: Any) -> tuple[Any, dict[str, Any]]:
+        """``(shared part, {site: site part})`` of ``theta`` (last axis)."""
+        k = self.offsets
+        sh = theta[..., : self.shared.n]
+        return sh, {s: theta[..., k[s] : k[s] + sp.n] for s, sp in self.per_site.items()}
+
+    def join(self, shared: Any, per_site: Mapping[str, Any]) -> Any:
+        """``theta`` from its parts (the inverse of :meth:`split`); every site block is required."""
+        missing = [s for s in self.per_site if s not in per_site]
+        if missing:
+            raise ValueError(f"ParamBlocks.join: no values for sites {missing}")
+        parts = [jnp.asarray(shared)] + [jnp.asarray(per_site[s]) for s in self.per_site]
+        return jnp.concatenate(parts, axis=-1)
+
+    def table(self) -> list[dict[str, Any]]:
+        """One row per ``theta`` column (:meth:`ParamSpace.table` with the block's ``site``)."""
+        rows = [{**r, "site": None} for r in self.shared.table()]
+        for site, sp in self.per_site.items():
+            rows += [{**r, "name": f"{site}:{r['name']}", "site": site} for r in sp.table()]
+        return rows
+
+    # ------------------------------------------------------------------ transforms
+    def _blockwise(self, x: Any, fn: str) -> Array:
+        x = jnp.asarray(x)
+        parts, k = [], 0
+        for b in self.blocks:
+            if b.n:
+                parts.append(getattr(b, fn)(x[..., k : k + b.n]))
+            k += b.n
+        if not parts:
+            return x[..., :0]
+        return jnp.concatenate(parts, axis=-1)
+
+    def to_physical(self, z: Array) -> Array:
+        """``theta`` of ``z``, block by block (:meth:`ParamSpace.to_physical`)."""
+        return self._blockwise(z, "to_physical")
+
+    def to_unconstrained(self, theta: Any) -> Array:
+        """``z`` of ``theta``, block by block (:meth:`ParamSpace.to_unconstrained`)."""
+        return self._blockwise(theta, "to_unconstrained")
+
+    def clip(self, theta: Any) -> np.ndarray:
+        """``theta`` clipped into the bounds (as :meth:`ParamSpace.clip`)."""
+        return np.clip(np.asarray(theta, dtype=float), self.lower, self.upper)
+
+    def violations(self, theta: Any, dtype: Any = None) -> list[str]:
+        """:meth:`ParamSpace.violations` of every block, site names prefixed."""
+        raw = np.asarray(theta)
+        out, k = [], 0
+        for site, b in zip((None, *self.per_site), self.blocks, strict=True):
+            v = b.violations(raw[k : k + b.n], dtype=dtype) if b.n else []
+            out += v if site is None else [f"{site}:{m}" for m in v]
+            k += b.n
+        return out
