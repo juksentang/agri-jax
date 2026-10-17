@@ -587,6 +587,226 @@ def test_group_loss_zero_on_observed_values(tmp_path: Path) -> None:
     assert float(g.target_losses(jnp.asarray([1.1]))["LAID"]) > 0.0
 
 
+# soil water as UFGA8201.MZT holds it: 0.000 in every column of a treatment whose soil water was not
+# measured (TRNO 1), measured values with a missing (-99) and a 0 (TRNO 2, its 82132 row twice: SW1D
+# averaged), a treatment with three model layers only (TRNO 3: SW4D, SW5D have no layer) and a date
+# after the simulated days; ETAA all 0 for TRNO 1 (no data), a single 0 for TRNO 2 (kept)
+FILET_WATER = """\
+*EXP. DATA (T): TEST0301MZ SOIL WATER
+@TRNO   DATE  LAID  SW1D  SW2D  SW3D  SW4D  SW5D
+     1 82113  1.00 0.000 0.000 0.000 0.000 0.000
+     1 82132  1.20 0.000 0.000 0.000 0.000 0.000
+     2 82113  1.10 0.087 0.079 0.078 0.082 0.090
+     2 82132  1.30 0.012 0.017 0.030   -99 0.000
+     2 82132   -99 0.014   -99   -99   -99   -99
+     3 82113  1.00 0.087 0.074 0.078 0.079 0.090
+     3 82300  1.00 0.050   -99   -99   -99   -99
+
+@TRNO   DATE  ETAA
+     1 82113  0.00
+     1 82114  0.00
+     2 82113  3.21
+     2 82114  0.00
+"""
+#: model layer bottoms [cm]: the UFGA8201 profile (nine layers, 30-60 cm split) and a 3-layer one
+UFGA_DS = [5.0, 15.0, 30.0, 45.0, 60.0, 90.0, 120.0, 150.0, 180.0]
+SHALLOW_DS = [10.0, 20.0, 40.0]
+
+
+def _observed_water(tmp_path: Path):
+    _write(tmp_path, "TEST0301.MZX", "*EXP.DETAILS: TEST0301MZ\n")
+    _write(tmp_path, "TEST0301.MZT", FILET_WATER)
+    return read_observed(tmp_path / "TEST0301.MZX")
+
+
+def _at(yrdoy: int) -> int:
+    return yrdoy - 1982056
+
+
+def test_soil_water_and_et_need_the_model_layers(tmp_path: Path) -> None:
+    o = _observed_water(tmp_path)
+    yr = np.stack([_days(1982056, 140)] * 3)
+    ot = observation_targets(o, [1, 2, 3], yr)
+    assert {t.name for t in ot.targets} == {"LAID"}
+    assert "soil-calibration target" in ot.unsupported["SW1D"]
+    assert "soil-calibration target" in ot.unsupported["ETAA"]
+    assert not ot.depths
+    with pytest.raises(ValueError, match="need soil_layers"):
+        observation_targets(
+            o, [1, 2, 3], yr, soil_water=pd.DataFrame(columns=["TRNO", "YRDOY", "DEPTH", "SW"])
+        )
+
+
+def test_soil_water_by_layer_zero_columns_are_no_data(tmp_path: Path) -> None:
+    o = _observed_water(tmp_path)
+    yr = np.stack([_days(1982056, 140)] * 3)
+    ot = observation_targets(o, [1, 2, 3], yr, soil_layers=[UFGA_DS, UFGA_DS, SHALLOW_DS])
+    by = {t.name: t for t in ot.targets}
+    assert set(by) == {"LAID", "SW1D", "SW2D", "SW3D", "SW4D", "SW5D", "ETAA"}
+    assert not {"SW1D", "ETAA"} & set(ot.unsupported)
+    for k in range(1, 6):
+        t = by[f"SW{k}D"]
+        assert t.kind == "series" and t.output == f"sw{k}" and t.mask.shape == (140, 3)
+        assert not t.mask[:, 0].any()  # TRNO 1: every value 0, no data
+    sw = {k: ot.observed[f"SW{k}D"] for k in range(1, 6)}
+    m = {k: by[f"SW{k}D"].mask for k in range(1, 6)}
+    # TRNO 2: values on their days, the repeated 82132 row averaged, -99 and 0 no data
+    assert sw[1][_at(1982113), 1] == 0.087 and sw[1][_at(1982132), 1] == pytest.approx(0.013, abs=1e-15)
+    assert sw[4][_at(1982113), 1] == 0.082 and not m[4][_at(1982132), 1]
+    assert sw[5][_at(1982113), 1] == 0.090 and not m[5][_at(1982132), 1]
+    # TRNO 3: three layers, SW4D and SW5D have no layer; its 82300 date lies after the season
+    assert sw[3][_at(1982113), 2] == 0.078 and not m[4][:, 2].any() and not m[5][:, 2].any()
+    assert int(m[1].sum()) == 3 and ot.n_obs["SW1D"] == 3 and ot.n_obs["SW4D"] == 1
+    assert by["SW1D"].scale == pytest.approx((0.087 + 0.013 + 0.087) / 3)
+    # ETAA: TRNO 1 all 0 is no data, a single 0 of TRNO 2 is a value
+    assert by["ETAA"].output == "et" and not by["ETAA"].mask[:, 0].any()
+    assert ot.observed["ETAA"][_at(1982113), 1] == 3.21 and by["ETAA"].mask[_at(1982114), 1]
+    assert ot.observed["ETAA"][_at(1982114), 1] == 0.0
+    notes = "\n".join(ot.notes)
+    assert "SW1D, SW2D, SW3D, SW4D, SW5D, ETAA: every value of TRNO [1] is 0" in notes
+    assert "treated as no data" in notes
+    assert "SW4D: TRNO 3 has 3 model layers, no layer 4" in notes
+    assert "SW5D: 1 soil-water values missing or 0 or less" in notes
+    assert "SW1D: 1 observation dates outside the simulated days" in notes and "3:1982300" in notes
+    assert "SW1D: 1 layer-days observed more than once; averaged" in notes
+    # the depth range of each target's layer, per treatment
+    assert ot.depths["SW1D"] == ((0.0, 5.0), (0.0, 5.0), (0.0, 10.0))
+    assert ot.depths["SW4D"][:2] == ((30.0, 45.0), (30.0, 45.0)) and np.isnan(ot.depths["SW4D"][2]).all()
+    # codes restrict the water targets too
+    only = observation_targets(o, [1, 2, 3], yr, soil_layers=[UFGA_DS] * 3, codes={"SW2D"})
+    assert [t.name for t in only.targets] == ["SW2D"]
+    # and their notes: none about the codes left out
+    assert not [n for n in only.notes if any(c in n for c in ("SW1D", "SW3D", "SW4D", "SW5D", "ETAA"))]
+
+
+def test_soil_water_mapping_of_every_zero_column_leaves_no_target(tmp_path: Path) -> None:
+    o = _observed_water(tmp_path)
+    ot = observation_targets(o, [1], _days(1982056, 140)[None], soil_layers=[UFGA_DS])
+    assert {t.name for t in ot.targets} == {"LAID"}
+    assert any(
+        n.startswith("SW1D, SW2D, SW3D, SW4D, SW5D, ETAA: every value of TRNO [1] is 0")
+        and "no target for SW1D, SW2D, SW3D, SW4D, SW5D, ETAA" in n
+        for n in ot.notes
+    ), ot.notes
+
+
+def test_soil_water_by_depth_is_placed_in_the_layer_holding_the_depth(tmp_path: Path) -> None:
+    o = _observed_water(tmp_path)
+    yr = np.stack([_days(1982056, 140)] * 3)
+    table = pd.DataFrame(
+        [
+            (1, 1982113, 10.0, 0.20),  # 5 < 10 <= 15: layer 2
+            (1, 1982113, 15.0, 0.30),  # on the bottom of layer 2: layer 2, averaged with the above
+            (1, 1982113, 15.01, 0.10),  # just below: layer 3
+            (1, 1982120, 180.0, 0.25),  # the deepest bottom: layer 9
+            (1, 1982120, 180.5, 0.25),  # below the profile
+            (1, 1982120, 0.0, 0.25),  # the surface: no layer
+            (1, 1982120, 12.0, 0.0),  # 0: no data (layer 2, requested)
+            (1, 1982120, 50.0, 0.0),  # 0 in layer 5, not requested: neither used nor noted
+            (2, 1982113, 2.5, 0.090),  # layer 1, averaged with FILET's 0.087
+            (3, 1982113, 25.0, 0.05),  # shallow profile: 20 < 25 <= 40, layer 3; averaged with FILET's 0.078
+            (9, 1982113, 10.0, 0.11),  # not a treatment of the group: ignored
+        ],
+        columns=["TRNO", "YRDOY", "DEPTH", "SW"],
+    )
+    ot = observation_targets(
+        o,
+        [1, 2, 3],
+        yr,
+        soil_layers=[UFGA_DS, UFGA_DS, SHALLOW_DS],
+        soil_water=table,
+        codes={"SW1D", "SW2D", "SW3D", "SW9D"},
+    )
+    by = {t.name: t for t in ot.targets}
+    assert set(by) == {"SW1D", "SW2D", "SW3D", "SW9D"}
+    d = _at(1982113)
+    assert ot.observed["SW2D"][d, 0] == pytest.approx(0.25, abs=1e-15) and by["SW2D"].mask[d, 0]
+    assert ot.observed["SW3D"][d, 0] == 0.10
+    assert ot.observed["SW9D"][_at(1982120), 0] == 0.25 and int(by["SW9D"].mask.sum()) == 1
+    assert ot.observed["SW1D"][d, 1] == pytest.approx((0.087 + 0.090) / 2, abs=1e-15)
+    assert ot.observed["SW3D"][d, 2] == pytest.approx((0.078 + 0.05) / 2, abs=1e-15)
+    assert ot.depths["SW3D"][2] == (20.0, 40.0)
+    notes = "\n".join(ot.notes)
+    assert "soil_water: 2 observations outside the profile" in notes
+    assert "soil_water: 1 soil-water values missing or 0 or less" in notes
+    assert "SW2D: 1 layer-days observed more than once" in notes
+    # SW1D: FILET's repeated 82132 row of TRNO 2 and the 82113 depth value averaged with FILET's
+    assert "SW1D: 2 layer-days observed more than once" in notes
+    assert "SW3D: 1 layer-days observed more than once" in notes
+    with pytest.raises(ValueError, match="columns"):
+        observation_targets(o, [1], yr[:1], soil_layers=[UFGA_DS], soil_water=table.drop(columns="DEPTH"))
+
+
+def test_soil_water_depth_table_notes_follow_the_requested_codes(tmp_path: Path) -> None:
+    o = _observed_water(tmp_path)
+    yr = np.stack([_days(1982056, 140)] * 3)
+    table = pd.DataFrame(
+        [
+            (1, 1982113, 400.0, 0.20),  # below the profile
+            (1, 1982113, 10.0, 0.0),  # 0: no data
+            (1, 1982114, 10.0, math.nan),  # missing
+            (2, 1982120, 10.0, 0.21),  # a value of layer 2
+        ],
+        columns=["TRNO", "YRDOY", "DEPTH", "SW"],
+    )
+    layers = [UFGA_DS, UFGA_DS, SHALLOW_DS]
+    only_lai = observation_targets(o, [1, 2, 3], yr, soil_layers=layers, soil_water=table, codes={"LAID"})
+    assert [t.name for t in only_lai.targets] == ["LAID"]
+    assert not [n for n in only_lai.notes if "soil_water" in n or "SW" in n], only_lai.notes
+    # every code: both depth-table notes, the NaN counted as missing
+    every = observation_targets(o, [1, 2, 3], yr, soil_layers=layers, soil_water=table)
+    notes = "\n".join(every.notes)
+    assert "soil_water: 1 observations outside the profile" in notes
+    assert "soil_water: 2 soil-water values missing or 0 or less" in notes
+    assert every.observed["SW2D"][_at(1982120), 1] == 0.21
+
+
+@pytest.mark.parametrize("yrdoy", [math.nan, 82113.0, 1982113.5, 1982000.0, 1982367.0, 12345001.0])
+def test_soil_water_dates_must_be_four_digit_year_days(tmp_path: Path, yrdoy: float) -> None:
+    o = _observed_water(tmp_path)
+    table = pd.DataFrame([(1, yrdoy, 10.0, 0.2)], columns=["TRNO", "YRDOY", "DEPTH", "SW"])
+    with pytest.raises(ValueError, match="YRDOY must be a four-digit-year date"):
+        observation_targets(o, [1], _days(1982056, 140)[None], soil_layers=[UFGA_DS], soil_water=table)
+
+
+@pytest.mark.parametrize(
+    ("layers", "match"),
+    [
+        ([UFGA_DS, UFGA_DS], "2 rows for 3 treatments"),
+        ([UFGA_DS, UFGA_DS, [10.0, 5.0]], "positive and increasing"),
+        ([UFGA_DS, UFGA_DS, [0.0, 5.0]], "positive and increasing"),
+        ([UFGA_DS, UFGA_DS, [float(k) for k in range(1, 22)]], "at most 20"),
+    ],
+)
+def test_soil_layers_are_checked(tmp_path: Path, layers, match: str) -> None:
+    o = _observed_water(tmp_path)
+    with pytest.raises(ValueError, match=match):
+        observation_targets(o, [1, 2, 3], np.stack([_days(1982056, 140)] * 3), soil_layers=layers)
+
+
+def test_water_targets_give_zero_loss_on_observed_values(tmp_path: Path) -> None:
+    o = _observed_water(tmp_path)
+    n = 140
+    yr = np.stack([_days(1982056, n)] * 3)
+    ot = observation_targets(o, [1, 2, 3], yr, soil_layers=[UFGA_DS, UFGA_DS, SHALLOW_DS])
+    obs = {t.output: jnp.asarray(ot.observed[t.name]) for t in ot.targets}
+
+    def simulate(theta):
+        return {k: v * theta[0] for k, v in obs.items()}
+
+    g = ot.group("water", simulate)
+    assert sum(float(v) for v in g.target_losses(jnp.asarray([1.0])).values()) == 0.0
+    assert float(g.target_losses(jnp.asarray([1.1]))["SW1D"]) > 0.0
+
+
+def test_water_target_layers_match_the_simulator_outputs() -> None:
+    from agrijax.calib.dssat_day import OUT_NAMES, SW_LAYERS
+
+    assert {m.output for m in obs_mod.WATER_TARGETS.values()} <= set(OUT_NAMES)
+    assert len(obs_mod.WATER_TARGETS) == SW_LAYERS + 1
+    assert not set(obs_mod.WATER_TARGETS) & set(DSSAT_TARGETS)
+
+
 def test_stage_codes_match_the_model() -> None:
     """The stage codes of calib.observations are the crop model's (defined there to keep the module
     free of the crop-model import)."""
@@ -654,6 +874,34 @@ def test_every_maize_observed_file(capsys: pytest.CaptureFixture[str]) -> None:
         )
         for ln in lines:
             print("  " + ln)
+
+
+@pytest.mark.allow_skip(reason="needs the DSSAT example tree ($AGRI_JAX_DSSAT); CI has none")
+def test_ufga8201_soil_water_zero_columns_are_no_data() -> None:
+    """UFGA8201.MZT: SW1D-SW5D are 0.000 for treatments 1-4 (not measured) and measured for 5 and 6."""
+    root = _tree()
+    u = read_observed(root / "Maize" / "UFGA8201.MZX")
+    yr = np.stack([_days(1982050, 150)] * 3)
+    ot = observation_targets(u, [2, 4, 6], yr, soil_layers=[UFGA_DS] * 3)
+    by = {t.name: t for t in ot.targets}
+    assert {f"SW{k}D" for k in range(1, 6)} <= set(by) and "SW6D" not in by
+    for k in range(1, 6):
+        mask = by[f"SW{k}D"].mask
+        assert not mask[:, :2].any() and int(mask[:, 2].sum()) == 2  # TRNO 2, 4: no data; TRNO 6: two dates
+    sw1 = ot.observed["SW1D"][:, 2]
+    assert sw1[1982113 - 1982050] == 0.087 and sw1[1982132 - 1982050] == 0.012
+    assert ot.observed["SW5D"][1982132 - 1982050, 2] == 0.034
+    assert any(
+        n.startswith("SW1D, SW2D, SW3D, SW4D, SW5D: every value of TRNO [2, 4] is 0") for n in ot.notes
+    )
+    assert ot.depths["SW4D"][0] == (30.0, 45.0)
+    # the rainfed and the irrigated treatment without measurements: no soil-water target at all
+    none = observation_targets(u, [2, 4], yr[:2], soil_layers=[UFGA_DS] * 2)
+    assert not any(re.fullmatch(r"SW[0-9]+D", t.name) for t in none.targets)
+    # without the layers the workflow's targets stay the crop ones
+    crop = observation_targets(u, [2, 4, 6], yr)
+    assert not any(re.fullmatch(r"SW[0-9]+D", t.name) for t in crop.targets)
+    assert "SW1D" in crop.unsupported
 
 
 def _filea_files(root: Path, maize_only: bool = False) -> list[Path]:

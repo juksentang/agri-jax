@@ -38,6 +38,7 @@ import test_dssat_native_inputs as ni
 import agrijax as aj
 from agrijax.calib.dssat_day import (
     CROP_END,
+    CROP_OUT_NAMES,
     CUL_ORDER,
     E_DATE,
     E_DAY,
@@ -88,7 +89,7 @@ HOST_RTOL = 1e-9
 #: the common entries (both readouts) and the season readout's own
 ENTRIES = (
     [Entry(E_DATE, c) for c in (1, 4, 10)]
-    + [Entry(E_FINAL, i) for i in range(len(OUT_NAMES))]
+    + [Entry(E_FINAL, i) for i in range(len(CROP_OUT_NAMES))]
     + [Entry(E_DAY, OUT_NAMES.index("lai"), 30)]
 )
 SEASON_ONLY = [Entry(E_DATE, CROP_END), Entry(E_STATUS, 0)]

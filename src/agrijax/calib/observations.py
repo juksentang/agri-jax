@@ -31,6 +31,39 @@ G#AD   T       g_ad       series    grain number [m-2]
 L#SD   T       lsd        series    leaf number
 =====  ======  =========  ========  =====================================================
 
+**Soil water and evapotranspiration** (for calibrating soil parameters) are mapped only when the
+model layers are given (``soil_layers``: the bottom depth of every model layer of each treatment,
+``DS`` [cm]); the cultivar workflow does not give them, so its targets stay the crop ones above:
+
+=====  ======  =========  ========  =====================================================
+code   file    output     kind      meaning [unit]
+=====  ======  =========  ========  =====================================================
+SW#D   T       sw#        series    volumetric soil water of model layer ``#`` [cm3 cm-3],
+                                    end of day (``SW<#>D`` of ``SoilWat.OUT``)
+ETAA   T       et         series    actual evapotranspiration of the day ``EVAP + EP``
+                                    [mm d-1] (``ETAA`` of a daily ``ET.OUT``)
+=====  ======  =========  ========  =====================================================
+
+``SW#D`` of a FILET names model layer ``#``, the layer of the same column of ``SoilWat.OUT`` that
+DSSAT compares it with. This is the **model-layer index even for a split profile**: when DSSAT
+splits a ``.SOL`` layer (``UFGA8201`` splits its 30-60 cm layer into model layers 4 and 5), ``SW5D``
+is compared with model layer 5 (45-60 cm), not with ``.SOL`` layer 5 (60-90 cm). A FILET carries no
+depth, so which reading the experimenters meant cannot be read from the file; this reading follows
+the output column name and is an assumption to confirm per experiment (give such data by depth in
+``soil_water`` instead when the ``.SOL`` layer is meant). Soil-water observations at a **depth**
+(``soil_water``: a table with ``TRNO``, ``YRDOY``, ``DEPTH`` [cm] and ``SW``) are placed in the
+model layer that holds the depth (top < depth <= bottom), both join the same per-layer targets
+``SW#D`` (named by layer, as DSSAT names them), and :attr:`ObservationTargets.depths` gives the
+depth range of each target's layer for every treatment. A soil-water value of 0 or less is no data
+(a volumetric water content of 0 is no measurement: ``UFGA8201.MZT`` holds ``0.000`` in
+``SW1D``-``SW5D`` of the treatments whose soil water was not measured), and so is a missing
+(``-99``) one; a treatment whose every value of a code is 0 (soil water or ``ETAA``) is listed in
+:attr:`ObservationTargets.notes` as having no data for it (with no target for a code left with only
+such zeros), and a code without a value in any treatment (every value missing) gives no target. The
+``YRDOY`` of ``soil_water`` must be a four-digit-year date ``YYYYDDD`` (year 1000 .. 9999). Notes
+about the depth table are written only when some ``SW#D`` is requested (``codes`` is ``None`` or
+holds one), and its missing or non-positive values are counted only for the layers requested.
+
 FILEA codes are those of the reader, i.e. after ``READA_Y4K``'s header aliases
 (:data:`agrijax.io.dssat.observed.FILEA_ALIASES`: ``HWAH`` -> ``HWAM``, ``CWAH`` -> ``CWAM``,
 ``BWAH`` -> ``BWAM``, ``HDAT`` -> ``R8AT`` ...; of two columns with one name the last wins), so
@@ -63,6 +96,7 @@ Conventions:
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -71,12 +105,14 @@ from typing import Any, Literal, cast
 import numpy as np
 import pandas as pd
 
+from agrijax.calib.dssat_day import SW_LAYERS
 from agrijax.calib.objective import Group, Simulator, Target
 from agrijax.io.dssat.observed import ObservedData, reada_date, y4k_date
 
 __all__ = [
     "DSSAT_TARGETS",
     "UNSUPPORTED_REASONS",
+    "WATER_TARGETS",
     "ObservationError",
     "ObservationTargets",
     "TargetMap",
@@ -143,7 +179,24 @@ DSSAT_TARGETS: dict[str, TargetMap] = {
     )
 }
 
-_SOIL_WATER = "soil water: the free-run CERES model does not output it (the day assembly replays the soil)"
+_SOIL_WATER = "soil water: a soil-calibration target (it needs the model layer depths), not a cultivar one"
+_SOIL_WATER_TOTALS = "soil water: profile totals, not layer contents (no model output)"
+_EVAPOTRANSPIRATION = (
+    "evapotranspiration: a soil-calibration target (it needs the model layer depths), not a cultivar one"
+)
+#: the soil-water-balance targets (module docstring table), used only with ``soil_layers``: the soil
+#: water of every model layer a DSSAT run can have (``SW_LAYERS``) and the daily evapotranspiration
+WATER_TARGETS: dict[str, TargetMap] = {
+    m.code: m
+    for m in (
+        *(
+            TargetMap(f"SW{k}D", "T", f"sw{k}", "series", "cm3 cm-3", f"soil water of model layer {k}")
+            for k in range(1, SW_LAYERS + 1)
+        ),
+        TargetMap("ETAA", "T", "et", "series", "mm d-1", "actual evapotranspiration of the day (EVAP + EP)"),
+    )
+}
+
 _NITROGEN = "nitrogen: the CERES model runs with nitrogen off"
 _PHOSPHORUS = "phosphorus/potassium: not modelled"
 _DERIVED = "derived quantity (ratio or difference of outputs), not a model output"
@@ -175,8 +228,12 @@ UNSUPPORTED_REASONS: dict[str, str] = {
 def _reason(code: str) -> str:
     if code in UNSUPPORTED_REASONS:
         return UNSUPPORTED_REASONS[code]
-    if (code.startswith("SW") and code.endswith("D")) or code in {"SWTD", "SWXD", "PESW"}:
+    if code in {"SWTD", "SWXD", "PESW"}:
+        return _SOIL_WATER_TOTALS
+    if _SW_CODE.match(code):
         return _SOIL_WATER
+    if code == "ETAA":
+        return _EVAPOTRANSPIRATION
     if code.startswith(("NI", "NH", "NO")) or "N%" in code or code.endswith(("NAD", "NAM")) or code == "NUPC":
         return _NITROGEN
     if "P%" in code or "K%" in code or code.endswith(("PAD", "KAD", "PAM", "KAM")):
@@ -197,6 +254,8 @@ class ObservationTargets:
     notes: tuple[str, ...] = ()
     #: finite observations used per target
     n_obs: dict[str, int] = field(default_factory=dict)
+    #: ``{SW#D target: [(top, bottom) of model layer # per treatment, cm]}`` (with ``soil_layers``)
+    depths: dict[str, tuple[tuple[float, float], ...]] = field(default_factory=dict)
 
     def group(self, name: str, simulate: Simulator) -> Group:
         """The :class:`Group` of these targets with the simulator of the same treatments."""
@@ -246,6 +305,8 @@ def observation_targets(
     sim_start: Sequence[int] | None = None,
     first_weather: _FirstWeather | Sequence[_FirstWeather] | np.ndarray = None,
     available_outputs: Collection[str] | None = None,
+    soil_layers: Sequence[Sequence[float]] | np.ndarray | None = None,
+    soil_water: pd.DataFrame | None = None,
 ) -> ObservationTargets:
     """Targets of the treatments ``trnos`` (batch order) from their observations.
 
@@ -259,6 +320,11 @@ def observation_targets(
     NaN, ``-99`` and ``0``: the cross-over rule) for the ``Y4K_DOY`` dates of both files;
     ``available_outputs`` (the keys the group's simulator returns) leaves out,
     with a note, the targets whose output the simulator does not produce.
+
+    ``soil_layers[b]`` (the bottom depth of every model layer of treatment ``b``, ``DS`` [cm],
+    increasing) maps the soil-water-balance codes (:data:`WATER_TARGETS`: ``SW#D`` and ``ETAA`` of
+    FILET) and the depth observations ``soil_water`` (columns ``TRNO``, ``YRDOY`` (``YYYYDDD``),
+    ``DEPTH`` [cm], ``SW`` [cm3 cm-3]; module docstring); without it they are unsupported codes.
     """
     days = np.asarray(yrdoy, dtype=np.int64)
     trn = tuple(int(t) for t in trnos)
@@ -274,6 +340,9 @@ def observation_targets(
         fws = [_plain_first_weather(f) for f in cast("Iterable[_FirstWeather]", first_weather)]
         if len(fws) != b_n:
             raise ValueError(f"first_weather: {len(fws)} values for {b_n} treatments")
+    bottoms = _soil_layers(soil_layers, b_n)
+    if soil_water is not None and bottoms is None:
+        raise ValueError("soil_water: observations by depth need soil_layers (the model layer depths)")
     scales = dict(scales or {})
     weights = dict(weights or {})
     targets: list[Target] = []
@@ -288,7 +357,7 @@ def observation_targets(
     if obs.filet is not None:
         present += [("T", c) for c in obs.filet.codes]
     for f, c in present:
-        m = DSSAT_TARGETS.get(c)
+        m = DSSAT_TARGETS.get(c) or (WATER_TARGETS.get(c) if bottoms is not None else None)
         if m is None or m.file != f:
             unsupported.setdefault(
                 c, _reason(c) if m is None else f"{c} is mapped for FILE{m.file}, found in FILE{f}"
@@ -413,4 +482,193 @@ def observation_targets(
             notes.append(f"{m.code}: {repeated} dates observed more than once; averaged")
         if mask.any():
             add(m, "series", arr, mask, int(mask.sum()))
-    return ObservationTargets(tuple(targets), observed, trn, unsupported, tuple(notes), n_obs)
+
+    # ---- soil water by layer (FILET SW#D and observations by depth) and daily evapotranspiration
+    depths: dict[str, tuple[tuple[float, float], ...]] = {}
+    if bottoms is not None:
+        cells = _water_cells(tt, soil_water, trn, days, bottoms, fws, notes, codes)
+        for m in WATER_TARGETS.values():
+            have = cells.get(m.code)
+            if not have or not use(m):
+                continue
+            arr = np.zeros((t_n, b_n))
+            mask = np.zeros((t_n, b_n), dtype=bool)
+            repeated = 0
+            for (t, b), vals in sorted(have.items()):
+                repeated += int(len(vals) > 1)
+                arr[t, b] = float(np.mean(vals))
+                mask[t, b] = True
+            if repeated:
+                notes.append(f"{m.code}: {repeated} layer-days observed more than once; averaged")
+            add(m, "series", arr, mask, int(mask.sum()))
+            if m.output != "et":
+                k = int(m.output[2:])
+                depths[m.code] = tuple(
+                    (float(bt[k - 2]) if k > 1 else 0.0, float(bt[k - 1]))
+                    if k <= bt.size
+                    else (math.nan, math.nan)
+                    for bt in bottoms
+                )
+    return ObservationTargets(tuple(targets), observed, trn, unsupported, tuple(notes), n_obs, depths)
+
+
+def _soil_layers(
+    soil_layers: Sequence[Sequence[float]] | np.ndarray | None, b_n: int
+) -> list[np.ndarray] | None:
+    """The model layer bottoms of each treatment, checked: positive, increasing, one row per treatment."""
+    if soil_layers is None:
+        return None
+    rows = [np.asarray(r, dtype=float).ravel() for r in soil_layers]
+    if len(rows) != b_n:
+        raise ValueError(f"soil_layers: {len(rows)} rows for {b_n} treatments")
+    for b, r in enumerate(rows):
+        if r.size == 0 or not np.all(np.isfinite(r)) or r[0] <= 0.0 or np.any(np.diff(r) <= 0.0):
+            raise ValueError(
+                f"soil_layers[{b}]: layer bottoms must be positive and increasing, got {r.tolist()}"
+            )
+        if r.size > SW_LAYERS:
+            raise ValueError(f"soil_layers[{b}]: {r.size} layers, a DSSAT run has at most {SW_LAYERS}")
+    return rows
+
+
+_SW_CODE = re.compile(r"^SW([0-9]+)D$")
+#: a four-digit-year date ``YYYYDDD``: ``YYYY * 1000 + DDD`` (``DDD`` = 1 .. 366, ``YYYY`` = 1000 .. 9999);
+#: smallest such date (year 1000, day 1)
+_YRDOY_MIN = 1000001
+#: first number past the four-digit years (year 10000, day 0): ``YRDOY`` must be below it
+_YRDOY_END = 10_000_000
+#: the YRDOY encoding step of one year (YYYYDDD: year x 1000 + day; an encoding, not a unit change)
+_YRDOY_YEAR_STEP = 1000
+_DOY_MAX = 366
+
+
+def _check_yrdoy(yd: np.ndarray) -> None:
+    """Refuse ``soil_water`` dates that are not finite whole ``YYYYDDD`` numbers (a NaN, a fraction,
+    a two-digit year ``YYDDD``, a year above 9999 or a day of year outside 1 .. 366)."""
+    finite = np.isfinite(yd)
+    whole = np.where(finite, yd, 0.0)
+    doy = np.mod(whole, _YRDOY_YEAR_STEP)
+    ok = (
+        finite
+        & (whole == np.trunc(whole))
+        & (whole >= _YRDOY_MIN)
+        & (whole < _YRDOY_END)
+        & (doy >= 1)
+        & (doy <= _DOY_MAX)
+    )
+    if not ok.all():
+        bad = yd[~ok][:5].tolist()
+        raise ValueError(f"soil_water: YRDOY must be a four-digit-year date YYYYDDD, got {bad}")
+
+
+def _water_cells(
+    tt: Any,
+    soil_water: pd.DataFrame | None,
+    trn: tuple[int, ...],
+    days: np.ndarray,
+    bottoms: list[np.ndarray],
+    fws: Sequence[int | str | date | None],
+    notes: list[str],
+    codes: Collection[str] | None = None,
+) -> dict[str, dict[tuple[int, int], list[float]]]:
+    """``{code: {(day index, treatment position): [values]}}`` of the soil-water-balance targets:
+    FILET ``SW#D`` and ``ETAA`` and the depth observations placed in their layers; no-data values
+    (soil water <= 0, a treatment whose every value of a code is 0) and values off the simulated
+    days or below the profile are left out, with notes; codes outside ``codes`` (when given) are
+    neither collected nor noted."""
+    cells: dict[str, dict[tuple[int, int], list[float]]] = {}
+    outside: dict[str, list[str]] = {}
+    zeros: dict[str, int] = {}
+    all_zero: dict[str, list[int]] = {}
+
+    def put(code: str, b: int, yd: int, v: float) -> None:
+        if codes is not None and code not in codes:
+            return
+        hit = np.nonzero(days[b] == yd)[0]
+        if not hit.size:
+            outside.setdefault(code, []).append(f"{trn[b]}:{yd}")
+            return
+        cells.setdefault(code, {}).setdefault((int(hit[0]), b), []).append(v)
+
+    if tt is not None:
+        for c in tt.codes:
+            sw = _SW_CODE.match(c)
+            if (sw is None and c != "ETAA") or (codes is not None and c not in codes):
+                continue
+            k = int(sw.group(1)) if sw is not None else 0
+            for b, t in enumerate(trn):
+                s = tt.series(t, c)
+                if s.empty:
+                    continue
+                if fws[b] is None or tt.first_weather is not None:
+                    yds = s["YRDOY"].to_numpy(dtype=np.int64)
+                else:  # the file was read without FirstWeatherDate: redo Y4K_DOY with it
+                    yds = np.array(
+                        [_yrdoy_int(y4k_date(int(d), fws[b])) for d in s["DATECODE"]], dtype=np.int64
+                    )
+                vals = s["value"].to_numpy(dtype=float)
+                if np.all(vals == 0.0):
+                    all_zero.setdefault(c, []).append(t)
+                    continue
+                if sw is not None and k > bottoms[b].size:
+                    notes.append(
+                        f"{c}: TRNO {t} has {bottoms[b].size} model layers, no layer {k}; "
+                        f"{vals.size} observations left out"
+                    )
+                    continue
+                for yd, v in zip(yds.tolist(), vals.tolist(), strict=True):
+                    if sw is not None and not v > 0.0:
+                        zeros[c] = zeros.get(c, 0) + 1
+                        continue
+                    put(c, b, int(yd), float(v))
+    if soil_water is not None:
+        need = {"TRNO", "YRDOY", "DEPTH", "SW"}
+        if not need <= set(soil_water.columns):
+            raise ValueError(f"soil_water: columns {sorted(need)} needed, got {list(soil_water.columns)}")
+        _check_yrdoy(soil_water["YRDOY"].to_numpy(dtype=float))
+        # notes about the depth table only when some layer target is requested
+        want_sw = codes is None or any(_SW_CODE.match(c) for c in codes)
+        pos = {t: b for b, t in enumerate(trn)}
+        below: list[str] = []
+        for t, yd, dep, v in zip(
+            soil_water["TRNO"].to_numpy(dtype=np.int64).tolist(),
+            soil_water["YRDOY"].to_numpy(dtype=np.int64).tolist(),
+            soil_water["DEPTH"].to_numpy(dtype=float).tolist(),
+            soil_water["SW"].to_numpy(dtype=float).tolist(),
+            strict=True,
+        ):
+            b = pos.get(int(t))
+            if b is None or not want_sw:
+                continue
+            bt = bottoms[b]
+            if not 0.0 < dep <= bt[-1]:
+                below.append(f"{t}:{yd}:{dep:g}")
+                continue
+            k = int(np.searchsorted(bt, dep, side="left")) + 1
+            if codes is not None and f"SW{k}D" not in codes:
+                continue
+            if not v > 0.0:  # NaN (missing) too
+                zeros["soil_water"] = zeros.get("soil_water", 0) + 1
+                continue
+            put(f"SW{k}D", b, int(yd), float(v))
+        if below:
+            notes.append(
+                f"soil_water: {len(below)} observations outside the profile (depth <= 0 or below the "
+                f"deepest layer) left out (TRNO:YRDOY:DEPTH {below[:5]})"
+            )
+    by_trnos: dict[tuple[int, ...], list[str]] = {}
+    for c, ts in all_zero.items():
+        by_trnos.setdefault(tuple(ts), []).append(c)
+    for ts, cs in by_trnos.items():
+        gone = [c for c in cs if c not in cells]
+        notes.append(
+            f"{', '.join(cs)}: every value of TRNO {list(ts)} is 0 (a placeholder, no measurement); "
+            "treated as no data" + (f"; no target for {', '.join(gone)}" if gone else "")
+        )
+    for c, n in zeros.items():
+        notes.append(f"{c}: {n} soil-water values missing or 0 or less (no measurement) treated as no data")
+    for c, o in outside.items():
+        notes.append(
+            f"{c}: {len(o)} observation dates outside the simulated days dropped (TRNO:YRDOY {o[:5]}...)"
+        )
+    return cells

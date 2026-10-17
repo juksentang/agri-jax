@@ -2,7 +2,10 @@
 the end of the crop (the first ``MDATE`` setting under harvest at maturity, the setting that holds on the
 harvest day otherwise), the run's last real day, the censored dates, the
 end status, the device gather against the host readout, the earlier (``readout="padded"``) gather kept
-bit for bit, and the harvest option of the free-run inputs.
+bit for bit, and the harvest option of the free-run inputs. The soil-water and evapotranspiration
+outputs under the season readout: derived on the host from the day outputs (``evap``, ``ep``,
+``soil_sw``) and, on the synthetic soil run of ``test_calib_day_soil`` (float64), read by the
+simulator on the run's real days only.
 
 The day indices of a synthetic season: ``T`` simulated days (the batch group's length), the run's last
 real day ``last`` (the harvest day, or the season plus its real weather extension), padding after it.
@@ -19,6 +22,7 @@ import pytest
 
 from agrijax.calib.dssat_day import (
     CROP_END,
+    CUL_ORDER,
     E_DATE,
     E_DAY,
     E_FINAL,
@@ -34,6 +38,7 @@ from agrijax.calib.dssat_day import (
     ISTAGE_SILKING,
     OUT_NAMES,
     READOUTS,
+    WATER_OUT_NAMES,
     DaySimulator,
     Entry,
     _first_idx,
@@ -342,3 +347,89 @@ def test_t11_harvest_option_and_the_reported_harvest_check():
     other = types.SimpleNamespace(n_days=20, n_ext=60, harvest="A")
     assert FreeRunInputs.last_real_day(other, 60) == 19  # type: ignore[arg-type]
     assert FreeRunInputs.harvest == "M"  # the default of a direct construction
+
+
+# ------------------------------------------------------------------------ T12-T13: water outputs
+def test_t12_water_outputs_are_derived_from_the_day_outputs_on_the_host():
+    """``et = evap + ep`` and ``sw<k> = soil_sw[:, k - 1]`` when the outputs carry the day outputs
+    (``season_outputs``) instead of the water names; equal to the device gather of the same series."""
+    last, nl = 30, 3
+    t = np.arange(T, dtype=float)
+    base = season(efg_end=20, mature=23)
+    day = {k: v for k, v in base.items() if k not in WATER_OUT_NAMES}
+    day["evap"] = 0.25 * t + 1.0
+    day["ep"] = (0.5 * t + 0.125)[:, None]  # a plant axis of one, as the crop outputs carry
+    day["soil_sw"] = 0.01 * t[:, None] + 0.125 * np.arange(1, nl + 1)[None, :]
+    i_et, sw = OUT_NAMES.index("et"), {k: OUT_NAMES.index(f"sw{k}") for k in range(1, nl + 1)}
+    ents = [
+        Entry(E_DAY, i_et, 5),
+        Entry(E_DAY, sw[2], 7),
+        Entry(E_DAY, sw[3], last),
+        Entry(E_FINAL, i_et),
+        Entry(E_FINAL, sw[1]),
+        Entry(E_FINAL, I_GWAD),
+    ]
+    host = entry_values(day, ents, last_day=last)
+    expect = [
+        day["evap"][5] + day["ep"][5, 0],
+        day["soil_sw"][7, 1],
+        day["soil_sw"][last, 2],
+        day["evap"][23] + day["ep"][23, 0],  # the end of the crop: maturity on day 23
+        day["soil_sw"][23, 0],
+        value("gwad", 23),
+    ]
+    np.testing.assert_array_equal(host, expect)
+    explicit = dict(base)
+    explicit["et"] = day["evap"] + day["ep"][:, 0]
+    for k in range(1, nl + 1):
+        explicit[f"sw{k}"] = day["soil_sw"][:, k - 1]
+    np.testing.assert_array_equal(entry_values(explicit, ents, last_day=last), host)
+    if jax.config.jax_enable_x64:  # the series are not exact in float32
+        np.testing.assert_array_equal(device(explicit, last, END_CENSORED, entries=ents), host)
+    with pytest.raises(ValueError, match="outside the run's real days"):
+        entry_values(day, [Entry(E_DAY, sw[1], last + 1)], last_day=last)
+
+
+@pytest.mark.skipif(not jax.config.jax_enable_x64, reason="the synthetic run is built in float64")
+@pytest.mark.allow_skip(reason="float64 synthetic run, skipped in the float32 tier")
+def test_t13_season_readout_of_water_entries_on_a_synthetic_run():
+    """The simulator's season readout of ``et`` / ``sw<k>`` entries equals the host readout of the
+    day's own outputs (``run_sites``, the keys ``evap``, ``ep``, ``soil_sw``); its ``E_DAY`` values are
+    those of the padded readout on the real days; an ``E_DAY`` water entry after the run's last real
+    day is refused under the season readout and accepted under the padded one."""
+    from agrijax.core.runtime import run_sites
+    from agrijax.sites.dssat_free_run import _season_model, stack_trees
+
+    from . import test_calib_day_soil as synth
+
+    run = synth._inputs(synth._profile())
+    probe = DaySimulator([run], [[Entry(E_FINAL, I_GWAD)]])
+    last, n = probe.last_days[0], probe.n_days[(run.nl, run.mesev)]
+    assert last < n - 1  # the run has padded days
+    i_et = OUT_NAMES.index("et")
+    sw = {k: OUT_NAMES.index(f"sw{k}") for k in range(1, run.nl + 1)}
+    days = range(0, last + 1, 3)
+    day_ents = [Entry(E_DAY, i_et, d) for d in days]
+    day_ents += [Entry(E_DAY, sw[k], d) for k in (1, run.nl) for d in days]
+    ends = [Entry(E_FINAL, i_et), Entry(E_FINAL, sw[run.nl]), Entry(E_FINAL, I_GWAD)]
+    ends += [Entry(E_DATE, CROP_END), Entry(E_STATUS, 0)]
+    ents = day_ents + ends
+    sim = DaySimulator([run], [ents])
+    assert sim.water[(run.nl, run.mesev)] == ("et", "sw1", f"sw{run.nl}")
+    theta = np.asarray([[run.published()[c] for c in CUL_ORDER]])
+    y = sim(theta, np.zeros(1, np.int64))[0]
+    p = run.params()
+    o = run_sites(_season_model(run.mesev), *(stack_trees([x]) for x in (p, run.forcing(n), run.state(p))))
+    o = {k: np.asarray(v)[0] for k, v in o.items()}
+    assert "et" not in o and "sw1" not in o  # the host readout derives them
+    host = entry_values(o, ents, last_day=last, harvest=run.harvest)
+    # two compiled programs: fusion or FMA contraction may differ in the last bits
+    np.testing.assert_allclose(y, host, rtol=1e-12, atol=1e-12)
+    assert np.ptp(y[: len(days)]) > 0.0 and np.all(np.isfinite(y))
+    padded = DaySimulator([run], [day_ents], readout="padded")
+    np.testing.assert_allclose(
+        padded(theta, np.zeros(1, np.int64))[0], y[: len(day_ents)], rtol=1e-13, atol=0.0
+    )
+    with pytest.raises(ValueError, match="outside the run's real days"):
+        DaySimulator([run], [[Entry(E_DAY, sw[1], last + 1)]])
+    DaySimulator([run], [[Entry(E_DAY, sw[1], last + 1)]], readout="padded")
