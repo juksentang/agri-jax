@@ -3,7 +3,8 @@
 * :mod:`~agrijax.calib.space` - named, bounded parameters and their unconstrained coordinates;
 * :mod:`~agrijax.calib.objective` - observed quantities (final values, series, stage dates) and a
   weighted loss over batch groups;
-* :mod:`~agrijax.calib.optim` - batched Adam, CMA-ES and random search with model-call counts,
+* :mod:`~agrijax.calib.optim` - batched Adam, L-BFGS, Levenberg-Marquardt, CMA-ES and random
+  search with model-call counts (per row for L-BFGS and LM, which stop and freeze rows one by one),
   and the secant replacement of untrustworthy gradient components;
 * :mod:`~agrijax.calib.trust` - the gradient-trust report (FD agreement at two steps, line scans
   counting jumps and zero-derivative stretches, sensitivities, trust levels 1-3);
@@ -38,14 +39,21 @@ from agrijax.calib.objective import (
     synthetic_observations,
 )
 from agrijax.calib.optim import (
+    LM_MINPACK_TOL,
     AdamConfig,
     CmaConfig,
+    LbfgsConfig,
+    LmConfig,
     OptResult,
     adam,
     batched_loss,
+    batched_residual_jacobian,
     batched_value_and_grad,
     cma_es,
+    lbfgs,
+    lm,
     pair_gradient,
+    pair_gradient_forwards,
     random_search,
     secant_gradient,
     time_calls,
@@ -83,6 +91,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
+    "LM_MINPACK_TOL",
     "UNBOUNDED",
     "AdamConfig",
     "CalibrationResult",
@@ -90,6 +99,8 @@ __all__ = [
     "Domain",
     "GradientPlan",
     "Group",
+    "LbfgsConfig",
+    "LmConfig",
     "Objective",
     "ObservationError",
     "OptResult",
@@ -101,6 +112,7 @@ __all__ = [
     "TrustConfig",
     "adam",
     "batched_loss",
+    "batched_residual_jacobian",
     "batched_value_and_grad",
     "calibrate",
     "cma_es",
@@ -108,9 +120,12 @@ __all__ = [
     "fd_check",
     "first_day_index",
     "gradient_plan",
+    "lbfgs",
     "line_scan",
+    "lm",
     "non_negative",
     "pair_gradient",
+    "pair_gradient_forwards",
     "positive",
     "random_search",
     "secant_gradient",
