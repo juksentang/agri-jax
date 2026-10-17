@@ -269,6 +269,58 @@ def test_t8_season_equals_padded_on_a_sample_matured_on_a_real_day():
         np.testing.assert_array_equal(new, old)
 
 
+def _entry_values_reference(outputs, entries):
+    """The host readout before the season readout (a frozen copy)."""
+    ist = np.asarray(outputs["istage"])
+    t_n = ist.shape[0]
+
+    def first(code):
+        hit = np.nonzero(ist == code)[0]
+        return int(hit[0]) if hit.size else t_n
+
+    t_mat = min(first(ISTAGE_MATURITY), t_n - 1)
+    out = np.zeros(len(entries))
+    for j, e in enumerate(entries):
+        if e.kind == E_DATE:
+            out[j] = first(e.out)
+        elif e.kind == E_FINAL:
+            out[j] = float(np.asarray(outputs[OUT_NAMES[e.out]])[t_mat])
+        elif e.kind == E_DAY:
+            out[j] = float(np.asarray(outputs[OUT_NAMES[e.out]])[min(max(e.t, 0), t_n - 1)])
+    return out
+
+
+def test_t8_host_padded_readout_is_the_earlier_host_readout_and_the_padded_gather():
+    rng = np.random.default_rng(1)
+    for _ in range(20):
+        mature = int(rng.integers(5, T + 8))
+        outs = season(silk=int(rng.integers(3, 8)), efg_end=None, mature=mature if mature < T else None)
+        outs.update({n: rng.normal(size=T) for n in OUT_NAMES})
+        # stage codes the device gather knows (1, 4, 10); the host reads any code (3: never reached)
+        ents = [Entry(E_DATE, c) for c in (1, 4, 10)] + [Entry(E_FINAL, i) for i in range(len(OUT_NAMES))]
+        ents += [Entry(E_DAY, int(rng.integers(0, len(OUT_NAMES))), d) for d in (-3, 0, T - 1, T, T + 5)]
+        ents += [Entry(E_PAD, 0)]
+        host = entry_values(outs, ents, readout="padded")
+        np.testing.assert_array_equal(host, _entry_values_reference(outs, ents))
+        other = [Entry(E_DATE, 3)]
+        np.testing.assert_array_equal(
+            entry_values(outs, other, readout="padded"), _entry_values_reference(outs, other)
+        )
+        y = jnp.asarray(
+            np.stack([outs[n] for n in OUT_NAMES]), jnp.float64 if jax.config.jax_enable_x64 else None
+        )
+        k, o, t = (jnp.asarray([getattr(e, a) for e in ents], jnp.int32) for a in ("kind", "out", "t"))
+        dev = np.asarray(_gather_one(y, jnp.asarray(outs["istage"]), k, o, t), np.float64)
+        np.testing.assert_allclose(dev, host, rtol=0 if jax.config.jax_enable_x64 else 1e-6)
+    # the season readout refuses a day after the run, the padded one clips it
+    outs = season()
+    assert entry_values(outs, [Entry(E_DAY, I_LAI, T + 5)], readout="padded")[0] == value("lai", T - 1)
+    with pytest.raises(ValueError, match="season readout"):
+        entry_values(outs, [Entry(E_STATUS, 0)], readout="padded")
+    with pytest.raises(ValueError, match="readout must be one of"):
+        entry_values(outs, ENTRIES, readout="last")
+
+
 # ------------------------------------------------------------------------ T9: refusals
 def _fake_run(n_days: int = 10) -> types.SimpleNamespace:
     return types.SimpleNamespace(n_days=n_days, n_ext=0, harvest="M", nl=4, mesev="R")

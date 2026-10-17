@@ -40,7 +40,7 @@ def season_fn(run, n_pad: int = 60):
     """``f(theta [6]) -> (flat float state per day [T, N], names)`` of one season."""
     import equinox as eqx
 
-    from agrijax.calib.dssat_day import _FIELDS, CUL_ORDER
+    from agrijax.calib.dssat_day import CUL_ORDER
     from agrijax.models.day_dssat486 import SLOT, day_dssat486, day_processes
 
     model = day_dssat486(SLOT).compile(day_processes(SLOT, mesev=run.mesev), outputs=None, exact_lags=True)
@@ -49,7 +49,7 @@ def season_fn(run, n_pad: int = 60):
     params0 = run.params()
     forcing = run.forcing(n)
     state0 = run.state(params0)
-    names = [_FIELDS[k] for k in CUL_ORDER]
+    names = [k.lower() for k in CUL_ORDER]
 
     leaves, _ = jax.tree_util.tree_flatten_with_path(state0)
     float_idx = [i for i, (_, x) in enumerate(leaves) if jnp.issubdtype(jnp.asarray(x).dtype, jnp.floating)]

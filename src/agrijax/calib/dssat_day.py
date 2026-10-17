@@ -272,6 +272,7 @@ def entry_values(
     *,
     last_day: int | None = None,
     harvest: str = "M",
+    readout: str = "season",
 ) -> np.ndarray:
     """Host version of the season readout: ``outputs[name] [T]`` of one run (and ``istage``) -> ``[E]``.
 
@@ -284,8 +285,17 @@ def entry_values(
     ``E_FINAL`` reads ``t_last``). A soil-water-balance output (:data:`WATER_OUT_NAMES`) absent from
     ``outputs`` is derived from the day outputs (:func:`agrijax.models.day_dssat486.day_outputs`, the
     keys of :func:`~agrijax.sites.dssat_free_run.season_outputs`) as the program derives it:
-    ``et = evap + ep``, ``sw<k> = soil_sw[:, k - 1]``."""
+    ``et = evap + ep``, ``sw<k> = soil_sw[:, k - 1]``.
+
+    ``readout="padded"``: the readout before the season readout, as :class:`DaySimulator` with
+    ``readout="padded"`` reads it (``last_day``, ``harvest`` and ``mdate`` ignored): a date is the
+    first day of its stage (``T`` if never reached), ``E_FINAL`` reads the first ISTAGE 10 (the
+    last day if never reached) and an ``E_DAY`` day is clipped into ``0 .. T - 1``; ``E_STATUS``
+    and the ``CROP_END`` date are refused."""
     from agrijax.processes.crop.ceres_maize.constants import MDATE_NONE
+
+    if readout not in READOUTS:
+        raise ValueError(f"readout must be one of {READOUTS}, got {readout!r}")
 
     ist = np.asarray(outputs["istage"])
     ist = ist.reshape(ist.shape[0], -1)[:, 0] if ist.ndim > 1 else ist
@@ -332,6 +342,18 @@ def entry_values(
         raise KeyError(name)
 
     out = np.zeros(len(entries))
+    if readout == "padded":
+        t_mat = min(f_mat, t_n - 1)
+        for j, e in enumerate(entries):
+            if e.kind == E_STATUS or (e.kind == E_DATE and e.out == CROP_END):
+                raise ValueError("E_STATUS and the CROP_END date need the season readout (readout='season')")
+            if e.kind == E_DATE:
+                out[j] = first(ist == e.out)
+            elif e.kind == E_FINAL:
+                out[j] = float(series(e.out)[t_mat])
+            elif e.kind == E_DAY:
+                out[j] = float(series(e.out)[min(max(e.t, 0), t_n - 1)])
+        return out
     for j, e in enumerate(entries):
         if e.kind == E_DATE:
             out[j] = cap(t_end) if e.out == CROP_END else cap(first(ist == e.out))
