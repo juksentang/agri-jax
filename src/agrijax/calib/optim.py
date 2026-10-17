@@ -863,13 +863,13 @@ class LmConfig:
     trial, accepted or rejected (see the status notes: ``extra["rejects_in_a_row"]`` tells a
     converged row from one that stopped after a run of rejections).
 
-    ``ftol = xtol = 0`` (the default) switches both tests off: the stop rules are then those of
-    the per-row damping loop of the earlier staged-calibration benchmark driver (stall, rejects,
-    damping, ``max_iter``, target). :data:`LM_MINPACK_TOL` (the square root of the double-precision
+    ``ftol = xtol = 0`` (the default) switches both tests off: the stop rules are then the
+    default stop rules of the per-row damping loop (stall, rejects, damping, ``max_iter``,
+    target). :data:`LM_MINPACK_TOL` (the square root of the double-precision
     machine epsilon, the value MINPACK-1 Section 2 recommends for ``tol`` of ``lmder1``) is the
     opt-in value; with it a row at a minimum or at the rounding floor stops earlier, so its call
-    counts differ from that loop. The other values are harness choices (``lambda0 = 1e-3``,
-    factor 3, those of that loop)."""
+    counts differ from the default rules. The other values are harness choices (``lambda0 =
+    1e-3``, damping factor 3)."""
 
     lambda0: float = 1e-3
     lambda_factor: float = 3.0
@@ -977,15 +977,17 @@ def lm(
     ``extra["n_forward_rows"]`` / ``extra["n_grad_rows"]``; ``n_forward`` / ``n_grad`` are the
     largest of them.
 
-    Relation to the per-row damping loop of the earlier staged-calibration benchmark driver: with
-    the default settings (``ftol = xtol = gtol = 0``, no target) the damping, acceptance and stop
-    rules are the same, but not the iterates bit for bit. That loop formed ``J'J``, ``J'r`` and
-    ``sum(r^2)`` with BLAS products and ``np.sum``; here they are summed in index order (needed for
-    row invariance), so the iterates differ at rounding level. Far from the minimum this changes
+    Default rules: with the default settings (``ftol = xtol = gtol = 0``, no target) a row follows
+    the plain per-row damping loop (one Jacobian at each new accepted point, one trial per round;
+    accept when the trial loss is lower; ``lambda`` divided by ``lambda_factor`` after an accept,
+    multiplied by it after a reject; stop on stall, rejects, damping, ``max_iter`` or target).
+    ``J'J``, ``J'r`` and ``sum(r^2)`` are summed in index order (needed for row invariance), so an
+    implementation of the same loop with BLAS products and ``np.sum`` gives the same decisions but
+    iterates that differ at rounding level. Far from the minimum this changes
     nothing visible, but near the noise floor of the loss, where acceptance (``trial < loss``) and
     the stall test are decided by the last bits, a row's status and call counts can differ. Two
     rules also differ by design: a row whose loss meets ``target`` at its first point stops before
-    any trial (that loop made one trial first), and a row with an exactly zero ``J'r`` stops
+    any trial (the plain loop makes one trial first), and a row with an exactly zero ``J'r`` stops
     (``gradient``, with ``gtol = 0``) instead of making ``max_rejects`` zero steps."""
     z = np.array(z0, dtype=float, copy=True)
     r_n, n = z.shape

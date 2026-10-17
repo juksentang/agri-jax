@@ -15,8 +15,8 @@
   after a run of rejections is told apart by ``rejects_in_a_row``;
 * the L-BFGS memory: more pairs than ``memory`` (the ring buffer wraps) gives the explicit BFGS
   update on the last ``memory`` pairs;
-* LM against an independent NumPy reimplementation of the per-row damping loop of the earlier
-  staged benchmark driver (BLAS sums): with the default settings, the same accept / reject
+* LM against an independent NumPy reimplementation of its default stop rules (the plain
+  per-row damping loop, BLAS sums): with the default settings, the same accept / reject
   decisions, statuses and call counts per row on a noisy exponential fit, and the iterates within
   rounding;
 * the Rosenbrock function: both agree with the SciPy reference solutions (``L-BFGS-B`` and
@@ -475,8 +475,8 @@ _SEC_MASK = np.array([[False, False, False], [True, False, False], [True, False,
 
 
 def test_lm_secant_columns_counted_per_row():
-    """As in the staged reference driver: each Jacobian call of a row adds two forward calls per
-    secant column of that row to its forward count."""
+    """Each Jacobian call of a row adds two forward calls per secant column of that row to its
+    forward count (a central difference per secant column)."""
     z0 = _STARTS[:, :3] * 0.5
     fpd = 2 * _SEC_MASK.sum(axis=1)
     batch = lm(_np_rosen3_rj_secant(_SEC_MASK), _np_rosen3_res, z0, LmConfig(), forward_per_derivative=fpd)
@@ -1034,8 +1034,8 @@ def _exp_fit():
 
 
 def _reference_lm_loop(rj, res, z0, cfg):
-    """An independent reimplementation of the per-row damping loop of the earlier staged
-    benchmark driver: one row at a time, J'J, J'r and sum(r^2) with BLAS products and np.sum; one
+    """An independent reimplementation of the default stop rules of ``lm`` (the plain per-row
+    damping loop): one row at a time, J'J, J'r and sum(r^2) with BLAS products and np.sum; one
     Jacobian at a new accepted point, one trial per round; accept when the trial loss is lower;
     lambda / 3 (floored) after an accept, x 3 after a reject; stop on stall, rejects, damping or
     the round cap. Returns per row (status, forwards, Jacobians, accepted, accept / reject
