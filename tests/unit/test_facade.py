@@ -43,12 +43,13 @@ _FILEX = (
 def test_import_is_light_and_names_are_lazy():
     code = (
         "import sys, agrijax as aj; assert 'jax' not in sys.modules, 'jax imported'; "
-        "print(sorted(n for n in ('dssat','calibrate','plot','machine') if n in dir(aj)))"
+        "print(sorted(n for n in ('dssat','calibrate','calib','plot','machine') if n in dir(aj)))"
     )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert "calibrate" in out.stdout and "dssat" in out.stdout
+    assert "calibrate" in out.stdout and "dssat" in out.stdout and "'calib'" in out.stdout
     assert callable(aj.calibrate) and aj.dssat is ajd and callable(aj.dssat.install_reference)
     assert aj.plot.__name__ == "agrijax.report.plot"
+    assert callable(aj.calib.plan_methods) and aj.calib.__name__ == "agrijax.calib"
     with pytest.raises(AttributeError):
         _ = aj.no_such_name  # type: ignore[attr-defined]
     assert "JAX" in aj.machine() and "logical cores" in aj.machine()

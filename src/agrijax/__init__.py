@@ -7,6 +7,8 @@ The short way in (``import agrijax as aj``; everything below is imported on firs
   DSSAT's own experiment files: run a season, batch scenarios (``aj.dssat.experiment("UFGA8201")``),
   and compare with the original DSSAT program (``aj.dssat.install_reference()``);
 * :func:`calibrate` - CERES-Maize cultivar calibration on an experiment (:func:`agrijax.dssat.calibrate`);
+  :mod:`calib <agrijax.calib>` - its building blocks (parameter spaces, optimisers, the gradient-trust
+  report and the method plan, ``aj.calib.plan_methods``);
 * :mod:`plot <agrijax.report.plot>` - figures of seasons, comparisons, batches and calibrations
   (needs matplotlib: ``pip install "agrijax[plot]"``);
 * :mod:`export <agrijax.facade_export>` - results to pandas, xarray, DSSAT-style CSV files and
@@ -31,6 +33,7 @@ __version__ = "0.0.1"
 _LAZY: dict[str, tuple[str, str | None]] = {
     "dssat": ("agrijax.dssat", None),
     "calibrate": ("agrijax.dssat", "calibrate"),
+    "calib": ("agrijax.calib", None),
     "plot": ("agrijax.report.plot", None),
     "machine": ("agrijax._machine", "machine"),
     "options": ("agrijax.facade_execution", "options"),
