@@ -9,6 +9,8 @@
   and the secant replacement of untrustworthy gradient components;
 * :mod:`~agrijax.calib.trust` - the gradient-trust report (FD agreement at two steps, line scans
   counting jumps and zero-derivative stretches, sensitivities, trust levels 1-3);
+* :mod:`~agrijax.calib.methods` - which parameters get a gradient and which a derivative-free
+  search, from the trust report at one point (:func:`plan_methods`, :class:`MethodPlan`);
 * :mod:`~agrijax.calib.ceres` - the CERES-Maize adapter (cultivar bounds, batch simulators,
   the default gradient / derivative-free split); import it explicitly (it imports the crop model);
 * :func:`calibrate` (:mod:`~agrijax.calib.workflow`) - one call from a DSSAT v4.8.6 maize example
@@ -34,6 +36,7 @@ an explicit ``gradient_mode`` context of another mode raises
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
+from agrijax.calib.methods import MethodPlan, plan_methods
 from agrijax.calib.objective import (
     Group,
     Objective,
@@ -114,6 +117,7 @@ __all__ = [
     "Group",
     "LbfgsConfig",
     "LmConfig",
+    "MethodPlan",
     "Objective",
     "ObservationError",
     "OptResult",
@@ -140,6 +144,7 @@ __all__ = [
     "non_negative",
     "pair_gradient",
     "pair_gradient_forwards",
+    "plan_methods",
     "positive",
     "random_search",
     "secant_gradient",

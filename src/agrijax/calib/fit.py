@@ -75,6 +75,7 @@ from agrijax.calib.dssat_day import (
     OUT_NAMES,
     Entry,
 )
+from agrijax.calib.methods import TRUST_SCAN, CalibrationWarning
 
 __all__ = [
     "BOX_MARGIN",
@@ -126,9 +127,6 @@ SCAN_START = 101
 #: a coefficient is inert when the objective's range over the box is at most this, relative to
 #: max(1, the largest objective value on the scan)
 INERT_RTOL = 1e-12
-#: line-scan points of the gradient-trust report (method ``adam``; the default 41 misses jumps
-#: narrower than 2.3 % of the bound width)
-TRUST_SCAN = 201
 #: floor of a target scale (a code observed as 0 everywhere)
 SCALE_FLOOR = 1e-12
 METHODS = ("cma", "staged", "adam")
@@ -148,10 +146,6 @@ PROBES: tuple[tuple[str, Entry], ...] = (
     ("H#AM", Entry(E_FINAL, OUT_NAMES.index("g_ad"))),
     ("END", Entry(E_STATUS, 0)),
 )
-
-
-class CalibrationWarning(UserWarning):
-    """Something the calibration did or found that the user should know (also in the result)."""
 
 
 @dataclass(frozen=True)
@@ -294,6 +288,12 @@ def _starts(
 
 
 # ------------------------------------------------------------------ CMA-ES with restarts (batched rows)
+def _cma_popsize(n: int) -> int:
+    """CMA-ES population of an ``n``-dimensional search: ``4 + floor(3 ln n)`` (Hansen 2016, The CMA
+    Evolution Strategy: A Tutorial, arXiv:1604.00772, Table 1 default lambda)."""
+    return 4 + int(np.floor(3 * np.log(max(n, 1))))
+
+
 def _cma_rows(
     evaluate: Callable[[np.ndarray], np.ndarray],
     z0: np.ndarray,
@@ -313,7 +313,7 @@ def _cma_rows(
     r_n = z0.shape[0]
     d = list(dims)
     n = len(d)
-    lam = 4 + int(np.floor(3 * np.log(max(n, 1))))
+    lam = _cma_popsize(n)
     p = _cma_defaults(n, lam)
     rng = np.random.default_rng(seed)
     mean = z0[:, d].copy()

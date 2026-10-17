@@ -182,10 +182,20 @@ def fd_check(
     *,
     f_exact: Callable[[Array], Array] | None = None,
     f_unrounded: Callable[[Array], Array] | None = None,
+    lower: Any = None,
+    upper: Any = None,
 ) -> dict[str, np.ndarray]:
     """AD Jacobian ``[m, n]``, central differences at the small and large step sets (fractions of
     ``width``; all points of one step in one ``vmap`` call) and their verdicts
     (:func:`fd_diagnostics`).
+
+    ``lower``, ``upper``: the parameter bounds (widened to hold ``x``). A difference whose step
+    would leave them on one side is one-sided (``(f(x + h) - f(x)) / h`` or
+    ``(f(x) - f(x - h)) / h``), the convention of :func:`agrijax.facade_grad.sensitivity`: the
+    model is never evaluated outside the bounds, which a calibration never leaves either (a 5 %
+    secant of a parameter 1.3 % below its upper bound would otherwise judge the derivative by a
+    jump beyond the bound). A step that leaves them on both sides raises ``ValueError``. Without
+    bounds every difference is central.
 
     For an ``f`` whose derivative is straight-through (module docstring): ``f_exact`` (the same
     function in the ``exact`` mode) gives ``ad_exact``, the derivative level 2 judges; the large
@@ -199,12 +209,19 @@ def fd_check(
     ad_exact = ad if f_exact is None else np.asarray(jax.jit(lambda z: _jac(f_exact, z))(x))
     y0 = np.asarray(jax.jit(f)(x))
     fv = jax.jit(jax.vmap(f))
+    xn = np.asarray(x)
+    lo = np.full(n, -np.inf) if lower is None else np.minimum(np.asarray(lower, dtype=float), xn)
+    hi = np.full(n, np.inf) if upper is None else np.maximum(np.asarray(upper, dtype=float), xn)
 
     def central(fn: Any, frac: float) -> np.ndarray:
         h = frac * width
-        pts = np.concatenate([np.asarray(x) + np.diag(h), np.asarray(x) - np.diag(h)])
+        fwd = np.where(xn + h <= hi, h, 0.0)
+        bwd = np.where(xn - h >= lo, h, 0.0)
+        if np.any(fwd + bwd <= 0.0):
+            raise ValueError(f"fd_check: a step of {frac} of the width leaves the bounds on both sides")
+        pts = np.concatenate([xn + np.diag(fwd), xn - np.diag(bwd)])
         vals = np.asarray(fn(jnp.asarray(pts)))
-        return ((vals[:n] - vals[n:]) / (2 * h[:, None])).T  # [m, n]
+        return ((vals[:n] - vals[n:]) / (fwd + bwd)[:, None]).T  # [m, n]
 
     small = [central(fv, fr) for fr in cfg.fd_small_steps]
     large = [central(fv, fr) for fr in cfg.fd_large_steps]
@@ -451,7 +468,8 @@ def trust_report(
     """The gradient-trust report of ``f`` at ``x`` (JSON-serialisable dict).
 
     For every parameter ``i`` a line scan over ``x_i +- cfg.scan_frac * width_i`` (clipped to
-    the bounds); for every (parameter, output) the FD agreement at both steps, the scan
+    the bounds); for every (parameter, output) the FD agreement at both step sets (one-sided where
+    a step would leave the bounds: :func:`fd_check`), the scan
     diagnostics, the normalised sensitivity, the class and the trust level (0-3).
 
     ``f_exact``, ``f_unrounded``: the counterparts of a straight-through ``f`` (:func:`fd_check`);
@@ -473,6 +491,8 @@ def trust_report(
         cfg,
         f_exact=dx if f_exact is None else f_exact,
         f_unrounded=(du if diagnostics else None) if f_unrounded is None else f_unrounded,
+        lower=lo,
+        upper=hi,
     )
     sens = sensitivity(fd["ad"], fd["y0"], width)
     params: dict[str, Any] = {}
@@ -603,12 +623,11 @@ def gradient_plan(
     default, e.g. the phenology parameters, whose event gradients are experimental).
 
     Limitation: the plan is only as good as the report's line scans. A jump narrower than the
-    grid spacing (``2 scan_frac width / (n_scan - 1)``; 2.3 % of the bound width with the default
-    41 points) can fall between two points and go unseen: on IUAF9901 treatment 1 the default
-    scan finds no jump for (G2, t1), while a 401-point scan of the same interval finds +165 / -161
-    kg ha-1 yield jumps (the stage-5 stem-floor count going 2 -> 1 -> 2 on day 173); the pair is
-    caught only by the level-3 test, its 5 % secant disagreeing with AD (class ``kinked``).
-    For a decision that matters, pass a report with a finer scan near the start point
+    grid spacing (``2 scan_frac width / (n_scan - 1)``; 0.5 % of the bound width with the default
+    ``scan_frac`` 0.1 and 41 points) can fall between two points and go unseen: on IUAF9901
+    treatment 1 the default scan classes (G2, t1) smooth, while a 401-point scan of the same
+    interval finds +165 / -161 kg ha-1 yield jumps (the stage-5 stem-floor count going 2 -> 1 -> 2
+    on day 173). For a decision that matters, pass a report with a finer scan near the start point
     (``TrustConfig(n_scan=401)`` or a smaller ``scan_frac``)."""
     params = tuple(report["params"])
     outputs = list(report["outputs"])

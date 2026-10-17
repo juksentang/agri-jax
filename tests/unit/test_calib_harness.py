@@ -288,6 +288,32 @@ def test_fd_check_and_line_scan():
     np.testing.assert_allclose(sc["secant"][0], 2.0, rtol=1e-12)  # (1.5^2 - 0.5^2) / 1
 
 
+def _jump_beyond_bound(t):
+    """Smooth on the bounds [0, 1]; a jump of 10 at 1.02, outside them."""
+    return jnp.stack([t[0] ** 2 + jnp.where(t[0] > 1.02, 10.0, 0.0)])
+
+
+@pytest.mark.skipif(not X64, reason="finite differences at a 1e-5 step need float64")
+@pytest.mark.allow_skip(reason="finite differences are float64-only (CI float32 pass)")
+def test_secants_stay_inside_the_bounds():
+    """At x = 0.99 of [0, 1] the 2 % and 5 % steps would leave the upper bound: with the bounds they are
+    one-sided backward differences (the convention of agrijax.facade_grad.sensitivity), so a jump beyond
+    the bound, which a calibration never reaches, does not class the pair kinked; without the bounds the
+    5 % central secant crosses it. The measured case: IUAF9901 t1, G2 = 980 of [248, 990], a yield jump
+    at G2 = 997.65 that only the 5 % central secant (942.9, 1017.1) reached."""
+    x, lo, hi, cfg = np.array([0.99]), np.zeros(1), np.ones(1), TrustConfig()
+    fd = fd_check(_jump_beyond_bound, x, hi - lo, cfg, lower=lo, upper=hi)
+    np.testing.assert_allclose(fd["fd1"][0, 0], 0.99 + 0.97, rtol=1e-12)  # (f(0.99) - f(0.97)) / 0.02
+    assert bool(fd["agree1"][0, 0]) and fd["rel_err1_max"][0, 0] < 0.05 and fd["status0"][0, 0] == "pass"
+    free = fd_check(_jump_beyond_bound, x, hi - lo, cfg)  # no bounds: central, the 5 % one across the jump
+    np.testing.assert_allclose(free["fd1"][0, 0], (1.01**2 - 0.97**2) / 0.04, rtol=1e-12)
+    assert not bool(free["agree1"][0, 0]) and free["rel_err1_max"][0, 0] > 0.9
+    r = trust_report(_jump_beyond_bound, x, lo, hi, ["x"], ["y"], cfg)["params"]["x"]["outputs"]["y"]
+    assert (r["class"], r["level"], r["n_jumps"]) == ("smooth", 3, 0), r
+    with pytest.raises(ValueError, match="both sides"):  # a step wider than the range
+        fd_check(_jump_beyond_bound, np.array([0.5]), np.ones(1) * 20.0, cfg, lower=lo, upper=hi)
+
+
 # ------------------------------------------------------------------------------ domains and chains
 def test_domain_is_checked_against_the_bounds():
     pos = positive("divides x")
