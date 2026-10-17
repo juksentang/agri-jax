@@ -82,6 +82,8 @@ If G2 and G3 are calibrated but no grain number (`H#AM` or `G#AD`) is observed, 
 - `method="staged"`: first CMA-ES on the phenology coefficients against the dates and the LAI before silking, then on G2 and G3 against the other targets, then a joint refinement. Every stage is derivative-free.
 - `method="adam"`: gradient steps, only on the coefficients whose gradient passes the gradient-trust report on every treatment. P1, P2, P5 and PHINT are derivative-free by default, because their event gradients are experimental. The other coefficients stay at their published values and are reported in `res.trust`.
 
+  The trust report evaluates the model only inside the `MINIMA`–`MAXIMA` box: a finite-difference step that would leave a bound is taken one-sided, from the start point inward. Version 0.0.1 took every difference central, so a jump of the model beyond a bound could mark a coefficient that starts close to that bound as kinked and keep it derivative-free. With such a cultivar, `method="adam"` can therefore select more gradient coefficients than in 0.0.1 and return a different fit. Starting points farther than 5 % of the box width from both bounds give the same plan as before.
+
 **The result is selected on the written coefficients.** A `.CUL` row holds five characters per value (for example P1 to 0.1, G3 to 0.01 or 0.001), and rounding can move a date by a day when a threshold is close.
 
 - The candidates are, for every start: the best point of each run that ended in a restart, the start's overall best point and its 8 best points (unrounded objective). The last run of a start does not end in a restart and adds no candidate of its own. The published cultivar itself is also a candidate.

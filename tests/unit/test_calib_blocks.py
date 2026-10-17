@@ -18,8 +18,10 @@ day simulator on any space (``calib/dssat_day.py`` :class:`DaySimulator`), no da
   column-wise sum of the single-site gradients (one group, interleaved groups).
 
 The simulators run the padded readout (``readout="padded"``: the value at the first ISTAGE 10 or
-on the last simulated day, entries on any simulated day); the season readout of the same program
-is checked in ``test_dssat_day_readout``.
+on the last simulated day, entries on any simulated day), except one test of the default season
+readout: ``jax_loss`` on blocks with soil, interleaved groups, two end conventions and treatment
+subsets. The season readout of a single run against the host readout is checked in
+``test_dssat_day_readout``.
 """
 
 from __future__ import annotations
@@ -276,15 +278,16 @@ def test_a_soil_space_runs_the_season_of_with_soil(sites) -> None:
         assert np.max(np.abs(y[: len(ents)] - base[: len(ents)])) > 1e-3
 
 
-def _problem(sites, names):
-    """``(simulator, theta builder, obs, winv)`` for the sites ``names`` with shared CUL_ORDER."""
+def _problem(sites, names, readout: str = READOUT, entries=_entries):
+    """``(simulator, blocks)`` for the sites ``names`` with shared CUL_ORDER (``entries(run)``: the
+    entries of each run)."""
     from agrijax.calib.ceres import ceres_space
     from agrijax.calib.dssat_day import CUL_ORDER, DaySimulator
 
     spaces = {n: _site_space(n, sites[n][1]) for n in names}
     blocks = ParamBlocks(ceres_space(CUL_ORDER), spaces)
     runs = [sites[n][0] for n in names]
-    ents = [_entries(r) for r in runs]
+    ents = [entries(r) for r in runs]
     sim = DaySimulator(
         runs,
         ents,
@@ -292,7 +295,7 @@ def _problem(sites, names):
         sites=list(names),
         soil=[sites[n][1] for n in names],
         pad_days=PAD,
-        readout=READOUT,
+        readout=readout,
     )
     return sim, blocks
 
@@ -522,6 +525,60 @@ def test_a_treatment_subset_of_the_loss_simulates_those_treatments_only(sites, m
     for bad in ((), (0, 0), (3,), (-1,)):
         with pytest.raises(ValueError, match="distinct run indices"):
             sim.jax_loss(obs, winv, treatments=bad)
+
+
+def _season_entries(run) -> list:
+    """Entries of the season readout: those of :func:`_entries` on the run's real days, then final
+    values, the crop-end date and the end status."""
+    from agrijax.calib.dssat_day import CROP_END, E_DATE, E_DAY, E_FINAL, E_STATUS, OUT_NAMES, Entry
+
+    last = run.last_real_day(PAD)
+    day = [e for e in _entries(run) if e.kind != E_DAY or e.t <= last]
+    end = [Entry(E_FINAL, OUT_NAMES.index(o)) for o in ("gwad", "et", "sw1")]
+    return day + end + [Entry(E_DATE, CROP_END), Entry(E_STATUS, 0)]
+
+
+@_x64
+def test_season_readout_of_the_loss_on_blocks_and_interleaved_groups(sites) -> None:
+    """The default (season) readout of ``jax_loss`` on parameter blocks with soil, three treatments
+    in two batch groups out of order (A, C, B) and two end conventions (C harvested on its
+    reported day, A and B at maturity): each treatment reads its own last day and open status,
+    so its loss equals its single-site loss, a treatment subset equals those losses in its order,
+    and the gradient is finite."""
+    from agrijax.calib.dssat_day import E_STATUS, END_CENSORED, END_HARVESTED
+
+    names = ("A", "C", "B")
+    local = dict(sites)
+    run_c, m_c = sites["C"]
+    local["C"] = (dataclasses.replace(run_c, harvest="R"), m_c)
+    sim, blocks = _problem(local, names, readout="season", entries=_season_entries)
+    assert sim.readout == "season" and sorted(len(v) for v in sim.groups.values()) == [1, 2]
+    truth, start = _truth_and_start(local, blocks)
+    obs, winv = _obs(sim, truth)
+    # the end status of each treatment: the synthetic season does not reach maturity, so each
+    # reads its own open status (C harvested, A and B censored at their last real day)
+    ents = [_season_entries(local[n][0]) for n in names]
+    i_status = [next(j for j, e in enumerate(es) if e.kind == E_STATUS) for es in ents]
+    statuses = [int(obs[b, i_status[b]]) for b in range(3)]
+    assert statuses == [END_CENSORED, END_HARVESTED, END_CENSORED], statuses
+    th = jnp.asarray(start)
+    joint = np.asarray(jax.jit(sim.jax_loss(obs, winv))(th))
+    assert joint.shape == (3,) and np.all(np.isfinite(joint)) and np.all(joint > 0.0)
+    singles = []
+    for b, name in enumerate(names):
+        s1, _ = _problem(local, (name,), readout="season", entries=_season_entries)
+        e, cols = s1.n_entries, blocks.columns(name)
+        np.testing.assert_allclose(
+            s1(truth[cols][None], np.zeros(1, np.int64))[0], obs[b, :e], rtol=1e-12, atol=1e-12
+        )
+        f1 = jax.jit(s1.jax_loss(obs[b : b + 1, :e], winv[b : b + 1, :e]))
+        singles.append(float(np.asarray(f1(jnp.asarray(start[cols])))[0]))
+    np.testing.assert_allclose(joint, singles, rtol=1e-12, atol=0.0)
+    for sub in ((2, 0), (1,), (1, 2, 0)):
+        f = sim.jax_loss(obs, winv, treatments=sub)
+        np.testing.assert_allclose(np.asarray(jax.jit(f)(th)), joint[list(sub)], rtol=1e-12, atol=0.0)
+    g = np.asarray(jax.jit(jax.grad(lambda t: jnp.sum(sim.jax_loss(obs, winv, treatments=(1, 2))(t))))(th))
+    assert np.all(np.isfinite(g)) and np.any(g[:6] != 0.0)
 
 
 @_x64
