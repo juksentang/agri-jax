@@ -19,7 +19,7 @@ table (``season`` is ``None``) the scalar parameters are the only season.
 
 DSSAT-CSM is distributed under the BSD 3-clause licence (Copyright 1998-2026 DSSAT Foundation,
 University of Florida, International Fertilizer Development Center); the ``SEASINIT`` state here
-is an independent implementation of its published initialisation.
+is translated from its source code (notice retained).
 """
 
 from __future__ import annotations

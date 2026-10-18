@@ -77,8 +77,8 @@ def provenance(eng: Path, exe: Path) -> str:
         "               configures it), without Help, BatchFiles and Default",
         "Licence        BSD-3-Clause, Copyright (c) the DSSAT Foundation (LICENSE)",
         "",
-        "Agri-JAX uses this program only as the reference it is compared with; Agri-JAX itself is an",
-        "independent implementation from published equations and runs without it.",
+        "Agri-JAX uses this program only as the reference it is compared with; the Agri-JAX DSSAT model is",
+        "translated from the DSSAT-CSM v4.8.6 source code (BSD-3; notice retained) and runs without it.",
     ]
     return "\n".join(lines) + "\n"
 

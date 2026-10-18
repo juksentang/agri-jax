@@ -1,6 +1,6 @@
 # Swapping a process: the soil evaporation of the DSSAT day
 
-Agri-JAX is an independent implementation from published equations, validated against DSSAT-CSM (BSD-3) and RZWQM2 outputs. Its DSSAT-CSM v4.8.6.0 day (`agrijax.models.day_dssat486`) is validated against DSSAT-CSM v4.8.6.0 (`dscsm048`) outputs. It is a table of entries (weather, soil water, SPAM, root water uptake, CERES-Maize, water ledger), and each entry runs a registered process. This page shows how to replace one of them, the soil evaporation, and what the framework checks when you do.
+Agri-JAX's DSSAT model is translated from the DSSAT-CSM v4.8.6 source code (BSD-3; notice retained) into pure JAX process functions, and validated against DSSAT-CSM outputs. Its DSSAT-CSM v4.8.6.0 day (`agrijax.models.day_dssat486`) is validated against DSSAT-CSM v4.8.6.0 (`dscsm048`) outputs. It is a table of entries (weather, soil water, SPAM, root water uptake, CERES-Maize, water ledger), and each entry runs a registered process. This page shows how to replace one of them, the soil evaporation, and what the framework checks when you do.
 
 Two soil evaporation methods are registered, and both reproduce `dscsm048`:
 

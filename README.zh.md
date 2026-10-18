@@ -1,6 +1,6 @@
 # Agri-JAX
 
-**基于 JAX 的可微、批量并行田块尺度作物—土壤模型**——依据已发表方程独立实现，并以 DSSAT-CSM（BSD-3）和 RZWQM2 的输出验证。
+**基于 JAX 的可微、批量并行田块尺度作物—土壤模型**——依据开源 DSSAT-CSM v4.8.6 源码（BSD-3，保留署名声明）翻译并重构为 JAX 过程函数，并以 DSSAT-CSM 输出验证；RZWQM2 的输出只作为 Richards 土壤水模块的外部对照。
 
 [English](README.md) · [成果展示](https://juksentang.github.io/agri-jax/)
 
@@ -148,7 +148,7 @@ uv run python -m agrijax.core.lint src --strict
 
 ## 许可、来源、致谢与引用
 
-Apache-2.0。CERES-Maize 和 DSSAT 土壤水量平衡依据开源 DSSAT-CSM（BSD-3）独立实现，其署名声明保留于 `THIRD_PARTY_NOTICES.md`。Richards 求解器依据已发表方程（Ahuja et al., 2000; Celia et al., 1990）。RZWQM2（USDA-ARS）仅作为外部参考模型对比输出，并仅报告所得数值；项目不包含 RZWQM2 的源代码、数据或由其源代码衍生的代码。
+Apache-2.0。CERES-Maize 和 DSSAT 土壤水量平衡依据开源 DSSAT-CSM（BSD-3）源码翻译，其署名声明保留于 `THIRD_PARTY_NOTICES.md`。Richards 求解器依据已发表方程（Ahuja et al., 2000; Celia et al., 1990）。RZWQM2（USDA-ARS）仅作为外部参考模型对比输出，并仅报告所得数值；项目不包含 RZWQM2 的源代码、数据或由其源代码衍生的代码。
 
 Richards 求解器的 Newton 提前停止实验（`scripts/bench/collab/`）由 Jiaqi Zhang 完成（pull request #1）。本研究的部分工作得到 [Calcul Québec](https://www.calculquebec.ca) 和 [Digital Research Alliance of Canada](https://alliancecan.ca) 的支持。全部 GPU 工作均在 Calcul Québec 运营的 rorqual 集群上运行。
 

@@ -1,6 +1,6 @@
 # Writing a new process: a leaf-area formula from NumPy to a checked component
 
-Agri-JAX is an independent implementation from published equations, validated against DSSAT-CSM (BSD-3) and RZWQM2 outputs. A model is a state plus an ordered list of processes, so trying a new formula means writing one process.
+Agri-JAX's DSSAT model is translated from the DSSAT-CSM v4.8.6 source code (BSD-3; notice retained) into pure JAX process functions, and validated against DSSAT-CSM outputs. A model is a state plus an ordered list of processes, so trying a new formula means writing one process.
 
 This tutorial takes a leaf-area expansion formula (logistic growth in thermal time, scaled by water stress, then senescence) from a few lines of NumPy to a process that runs in a model, passes the project's automated checks and could be merged. The coefficient values are illustrative, not a calibrated crop.
 

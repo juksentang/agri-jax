@@ -28,8 +28,8 @@ crop-status codes, the 24 hours of the hourly thermal-time sum, integer powers (
 (``1e-6``, ``1e-12``) the port adds for finite gradients.
 
 DSSAT-CSM is distributed under the BSD 3-clause licence (Copyright 1998-2026 DSSAT Foundation,
-University of Florida, International Fertilizer Development Center); this is an independent
-re-implementation of its published equations.
+University of Florida, International Fertilizer Development Center); this code is
+translated from its source code (notice retained in ``THIRD_PARTY_NOTICES.md``).
 """
 
 from __future__ import annotations

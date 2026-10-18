@@ -9,7 +9,7 @@ en = """
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial.ipynb) · [中文版](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial_zh.ipynb)
 
-Agri-JAX re-implements the DSSAT-CSM v4.8.6 maize model (soil water, evapotranspiration, root water uptake, CERES-Maize) from its published equations in JAX, and reads DSSAT's own experiment files; we use the original DSSAT program only as the reference to check against. It is an independent implementation from published equations, validated against DSSAT-CSM (BSD-3) and RZWQM2 outputs. DSSAT-CSM, its data and the example experiment are the work of the DSSAT Foundation and its contributors (BSD-3); this tutorial stands on that work.
+Agri-JAX translates the DSSAT-CSM v4.8.6 maize model (soil water, evapotranspiration, root water uptake, CERES-Maize) from its source code (BSD-3; notice retained) into pure JAX process functions, and reads DSSAT's own experiment files; we use the original DSSAT program only as the reference to check against. It is validated against DSSAT-CSM outputs. DSSAT-CSM, its data and the example experiment are the work of the DSSAT Foundation and its contributors (BSD-3); this tutorial stands on that work.
 
 The example is DSSAT's experiment **UFGA8201** (Gainesville, Florida, 1982), treatment 4 (irrigated, high nitrogen); the model runs **nitrogen off**.
 
@@ -26,7 +26,7 @@ zh = """
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial_zh.ipynb) · [English Version](https://colab.research.google.com/github/juksentang/agri-jax/blob/main/tutorial/agrijax_tutorial.ipynb)
 
-Agri-JAX 基于已发表文献中的数学方程，在 JAX 中重新实现了 DSSAT-CSM v4.8.6 玉米模型（土壤水分、蒸腾蒸发、根系吸水、CERES-Maize），并可直接读取 DSSAT 原生试验文件；我们仅将 DSSAT 原始程序用作基准对齐与校验工具。本项目是基于已发表方程的独立实现，其模拟输出已通过 DSSAT-CSM（BSD-3 协议）和 RZWQM2 的对照验证。DSSAT-CSM 及其数据与示例试验归属于 DSSAT 基金会及各位贡献者（BSD-3 协议）；本教程建立在他们的工作基础之上。
+Agri-JAX 依据开源 DSSAT-CSM v4.8.6 源码（BSD-3，保留署名声明），将其玉米模型（土壤水分、蒸腾蒸发、根系吸水、CERES-Maize）翻译并重构为 JAX 过程函数，并可直接读取 DSSAT 原生试验文件；我们仅将 DSSAT 原始程序用作基准对齐与校验工具。其模拟输出以 DSSAT-CSM 输出验证。DSSAT-CSM 及其数据与示例试验归属于 DSSAT 基金会及各位贡献者（BSD-3 协议）；本教程建立在他们的工作基础之上。
 
 本教程选用的示例为 DSSAT 经典试验 **UFGA8201**（佛罗里达州盖恩斯维尔，1982 年）的处理 4（充分灌溉、高氮）；模型在**关闭氮素模拟**（nitrogen off）状态下运行。
 

@@ -1,6 +1,6 @@
 # Agri-JAX
 
-**Differentiable, batch-parallel field-scale crop–soil models in JAX** — an independent implementation from published equations, validated against DSSAT-CSM (BSD-3) and RZWQM2 outputs.
+**Differentiable, batch-parallel field-scale crop–soil models in JAX** — translated from the DSSAT-CSM v4.8.6 source code (BSD-3; notice retained) into pure JAX process functions, and validated against DSSAT-CSM outputs; RZWQM2 outputs serve only as an external comparison for the Richards soil-water module.
 
 [中文](README.zh.md) · [Showcase](https://juksentang.github.io/agri-jax/)
 
@@ -148,7 +148,7 @@ Data-backed tests read from `--data-dir` or `AGRI_JAX_DATA`; the unit tier needs
 
 ## Licence, provenance, acknowledgements, citation
 
-Apache-2.0. CERES-Maize and the DSSAT soil-water balance are implemented independently from the open-source DSSAT-CSM (BSD-3), whose attribution is retained in `THIRD_PARTY_NOTICES.md`. The Richards solver follows published equations (Ahuja et al., 2000; Celia et al., 1990) and the reference ET the ASCE-EWRI (2005) standard. RZWQM2 (USDA-ARS) is used only as an external reference model: its outputs are compared and only the resulting numbers are reported. No RZWQM2 source code or data, and no code derived from its source, is included.
+Apache-2.0. CERES-Maize and the DSSAT soil-water balance are translated from the open-source DSSAT-CSM (BSD-3) source code, whose attribution is retained in `THIRD_PARTY_NOTICES.md`. The Richards solver follows published equations (Ahuja et al., 2000; Celia et al., 1990) and the reference ET the ASCE-EWRI (2005) standard. RZWQM2 (USDA-ARS) is used only as an external reference model: its outputs are compared and only the resulting numbers are reported. No RZWQM2 source code or data, and no code derived from its source, is included.
 
 The Newton early-stopping experiment for the Richards solver (`scripts/bench/collab/`) is by Jiaqi Zhang (pull request #1). This research was enabled in part by support provided by [Calcul Québec](https://www.calculquebec.ca) and the [Digital Research Alliance of Canada](https://alliancecan.ca). All GPU work runs on the rorqual cluster operated by Calcul Québec.
 

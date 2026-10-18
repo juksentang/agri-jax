@@ -1,6 +1,6 @@
 """DSSAT's public data and the DSSAT-CSM reference program: download, cache, verify.
 
-Agri-JAX re-implements the DSSAT-CSM v4.8.6.0 maize model from its published equations and reads
+Agri-JAX translates the DSSAT-CSM v4.8.6.0 maize model from its source code (BSD-3; notice retained) and reads
 DSSAT's own experiment files; it needs no DSSAT program to run. Two kinds of files come from DSSAT
 (BSD-3-Clause, (c) the DSSAT Foundation), none distributed with Agri-JAX:
 

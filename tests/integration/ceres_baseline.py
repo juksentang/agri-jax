@@ -46,8 +46,8 @@ locally)::
     uv run python tests/integration/ceres_baseline.py --force    # write anyway (documented in HISTORY)
 
 DSSAT-CSM is distributed under the BSD 3-clause licence (Copyright 1998-2026 DSSAT Foundation,
-University of Florida, International Fertilizer Development Center); the model here is an
-independent implementation from its published equations.
+University of Florida, International Fertilizer Development Center); the model here is
+translated from its source code (notice retained).
 """
 
 from __future__ import annotations

@@ -152,8 +152,9 @@ NOT_DSSAT_OUT = (
     "layout; those files, too, are written by Agri-JAX and not produced by the DSSAT program)"
 )
 _AGRIJAX_SOURCE = (
-    "Agri-JAX, an independent implementation from published equations, validated against DSSAT-CSM "
-    "(BSD-3) and RZWQM2 outputs; the DSSAT-CSM v4.8.6 maize model (CERES-Maize), nitrogen off"
+    "Agri-JAX, translated from the DSSAT-CSM v4.8.6 source code (BSD-3; notice retained) into pure JAX "
+    "process functions, and validated against DSSAT-CSM outputs; the DSSAT-CSM v4.8.6 maize model "
+    "(CERES-Maize), nitrogen off"
 )
 _DSSAT_SOURCE = (
     "a DSSAT-CSM v4.8.6.0 (dscsm048) run, its PlantGro.OUT / SoilWat.OUT / Summary.OUT values re-tabulated "

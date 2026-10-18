@@ -9,9 +9,10 @@ growth variants (:mod:`.smoothed`) replace the stage thresholds by logistic gate
 comparator for gradient experiments, never the default. Season boundaries of a
 multi-season run (sowing, the per-season parameter table) are in :mod:`.season`.
 
-An independent implementation from the published equations of DSSAT-CSM ``Plant/CERES-Maize``
-(BSD-3, Copyright 1998-2026 DSSAT Foundation, University of Florida, International Fertilizer
-Development Center), validated against the ``dscsm048`` outputs.
+Translated from the DSSAT-CSM v4.8.6 ``Plant/CERES-Maize`` source code (BSD-3, Copyright 1998-2026
+DSSAT Foundation, University of Florida, International Fertilizer Development Center; notice retained
+in ``THIRD_PARTY_NOTICES.md``) into pure JAX process functions, validated against the ``dscsm048``
+outputs.
 
 The numbers DSSAT hard-codes in these routines are named, documented parameters
 (:mod:`.coefficients`, ``CeresMaizeParams.coefficients``; ``None`` means the DSSAT values).

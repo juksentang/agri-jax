@@ -23,7 +23,7 @@ Three kinds of numbers live here so that the process and kernel code carries no 
 Every default is the DSSAT-CSM v4.8.6.0 literal, as a Python number, so naming it does not change
 a result (same value, same operation order). DSSAT-CSM is distributed under the BSD 3-clause
 licence (Copyright 1998-2026 DSSAT Foundation, University of Florida, International Fertilizer
-Development Center); this is an independent re-implementation of its published equations.
+Development Center); this code is translated from its source code (notice retained).
 """
 
 from __future__ import annotations
