@@ -309,10 +309,7 @@ def test_daily_csv_says_it_is_not_a_dssat_file_and_round_trips(tmp_path):
     assert head[0].startswith("! Agri-JAX export, daily series")
     assert "NOT a DSSAT output file" in text and "not a genuine PlantGro.OUT" in text
     assert "translated from the DSSAT-CSM v4.8.6 source code" in text
-    assert (
-        "validated against DSSAT-CSM outputs" in text
-        and "first" not in text.lower().split()
-    )
+    assert "validated against DSSAT-CSM outputs" in text and "first" not in text.lower().split()
     assert "LAID leaf area index [m2 m-2]" in text and "SWTD soil water in the profile [mm]" in text
     assert (
         p.read_text().splitlines()[len(head)].startswith("RUNNO,TRNO,YEAR,DOY,DAP,L#SD,GSTD,LAID,LWAD,GWAD")
