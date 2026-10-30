@@ -62,7 +62,8 @@ def test_maize_record_points_at_the_maize_implementation():
     # the calibratable coefficients: names in .CUL order declared once (the record), bounds once (the adapter)
     from agrijax.io.dssat.cultivar_write import CUL_COEFFICIENTS
 
-    assert CUL_ORDER is MAIZE.cultivar and CUL_COEFFICIENTS is MAIZE.cultivar
+    assert CUL_ORDER is MAIZE.cultivar
+    assert CUL_COEFFICIENTS == MAIZE.cultivar  # the io row format (the io layer imports no crop record)
     spec = importlib.import_module(MAIZE.calibration).CERES_SPECS
     assert set(MAIZE.cultivar) <= set(spec)
     assert all(
