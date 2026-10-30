@@ -69,6 +69,8 @@ from typing import Any
 
 import numpy as np
 
+from agrijax.crops import MAIZE
+
 __all__ = [
     "CROP_END",
     "CROP_OUT_NAMES",
@@ -96,8 +98,8 @@ __all__ = [
 ]
 
 #: the calibrated coefficients in ``MZCER048.CUL`` column order: the ``theta`` columns of the default
-#: space (:func:`default_space`)
-CUL_ORDER: tuple[str, ...] = ("P1", "P2", "P5", "G2", "G3", "PHINT")
+#: space (:func:`default_space`); declared once, in the maize record (:attr:`agrijax.crops.MAIZE.cultivar`)
+CUL_ORDER: tuple[str, ...] = MAIZE.cultivar
 #: path prefix of a cultivar coefficient in a parameter space (:data:`agrijax.calib.ceres.CERES_SPECS`)
 _CULTIVAR = "cultivar."
 #: gradient mode of every program (``ste``: identity derivative through Fortran's truncations and roundings,

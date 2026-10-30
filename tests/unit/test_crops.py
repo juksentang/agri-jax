@@ -59,8 +59,10 @@ def test_maize_record_points_at_the_maize_implementation():
     assert MAIZE.nitrogen_effect is wf.NITROGEN_STRESS
     assert MAIZE.nitrogen_dates_differ is wf.NITROGEN_DATES_DIFFER
     assert MAIZE.out_of_scope is wf.OUT_OF_SCOPE
-    # the calibratable coefficients: names in .CUL order, bounds declared once in the adapter
-    assert MAIZE.cultivar == CUL_ORDER
+    # the calibratable coefficients: names in .CUL order declared once (the record), bounds once (the adapter)
+    from agrijax.io.dssat.cultivar_write import CUL_COEFFICIENTS
+
+    assert CUL_ORDER is MAIZE.cultivar and CUL_COEFFICIENTS is MAIZE.cultivar
     spec = importlib.import_module(MAIZE.calibration).CERES_SPECS
     assert set(MAIZE.cultivar) <= set(spec)
     assert all(
@@ -84,6 +86,7 @@ def test_facade_maize_names_come_from_the_record():
         MAIZE.model,
         MAIZE.name,
     )
+    assert f"{MAIZE.name.lower()} model ({MAIZE.implementation})" in facade_export._AGRIJAX_SOURCE
 
 
 def _code_strings(path: Path) -> list[tuple[int, str]]:
@@ -104,13 +107,17 @@ def _code_strings(path: Path) -> list[tuple[int, str]]:
     ]
 
 
-@pytest.mark.parametrize("module", ["dssat.py", "facade_export.py", "calib/workflow.py"])
+_FACADE = ["dssat.py", "calib/workflow.py", *sorted(p.name for p in SRC.glob("facade_*.py"))]
+
+
+@pytest.mark.parametrize("module", _FACADE)
 def test_no_maize_literal_in_the_facade_code(module):
     """The facade's crop choice reads the record: no crop code, model, genotype file or FileX
-    extension of maize is spelled in its code (docstrings and comments may name them)."""
+    extension of maize is spelled in the code of the facade modules (docstrings and comments may
+    name them)."""
     bad = [
         (line, v)
         for line, v in _code_strings(SRC / module)
-        if v in ("MZ", "Maize", ".MZX") or "MZCER048" in v or ".MZX" in v
+        if v in ("MZ", "Maize") or "MZCER048" in v or ".MZ" in v
     ]
     assert not bad, f"{module}: maize literals in code {bad}"

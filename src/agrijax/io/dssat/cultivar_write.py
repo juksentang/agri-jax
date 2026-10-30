@@ -48,6 +48,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from agrijax.crops import MAIZE
+
 from ._fixed import read_lines
 
 __all__ = [
@@ -60,8 +62,9 @@ __all__ = [
     "write_cultivar",
 ]
 
-#: coefficients of a DSSAT 4.8 CERES-Maize cultivar row, in file order (``IPVAR``, case MZCER)
-CUL_COEFFICIENTS = ("P1", "P2", "P5", "G2", "G3", "PHINT")
+#: coefficients of a DSSAT 4.8 CERES-Maize cultivar row, in file order (``IPVAR``, case MZCER); declared
+#: once, in the maize record (:attr:`agrijax.crops.MAIZE.cultivar`)
+CUL_COEFFICIENTS = MAIZE.cultivar
 #: ids of the bound rows of a DSSAT cultivar file
 MINIMA_ID, MAXIMA_ID = "999991", "999992"
 

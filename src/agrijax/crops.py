@@ -65,9 +65,11 @@ class CropModel:
     #: the reason), ``NITROGEN_STRESS`` (DSSAT's yield change with nitrogen on, per treatment) and
     #: ``NITROGEN_DATES_DIFFER`` (treatments whose stage dates change with nitrogen on)
     scope: str
-    #: module of the calibration adapter (the bounds, units and sources of the cultivar coefficients)
+    #: module of the calibration adapter (the bounds, units and sources of the cultivar coefficients);
+    #: named, not yet dispatched on: :func:`agrijax.calibrate` and the gradient, weather and execution
+    #: entry points import the CERES-Maize adapter directly while maize is the one registered crop
     calibration: str
-    #: module of the assembled day model
+    #: module of the assembled day model; named, not yet dispatched on (as ``calibration``)
     day: str
 
     @property

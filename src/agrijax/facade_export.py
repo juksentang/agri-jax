@@ -154,8 +154,8 @@ NOT_DSSAT_OUT = (
 )
 _AGRIJAX_SOURCE = (
     "Agri-JAX, translated from the DSSAT-CSM v4.8.6 source code (BSD-3; notice retained) into pure JAX "
-    "process functions, and validated against DSSAT-CSM outputs; the DSSAT-CSM v4.8.6 maize model "
-    "(CERES-Maize), nitrogen off"
+    "process functions, and validated against DSSAT-CSM outputs; the DSSAT-CSM v4.8.6 "
+    f"{MAIZE.name.lower()} model ({MAIZE.implementation}), nitrogen off"
 )
 _DSSAT_SOURCE = (
     "a DSSAT-CSM v4.8.6.0 (dscsm048) run, its PlantGro.OUT / SoilWat.OUT / Summary.OUT values re-tabulated "

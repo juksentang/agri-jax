@@ -96,7 +96,6 @@ import numpy as np
 
 from agrijax.calib.dssat_day import (
     CROP_END,
-    CUL_ORDER,
     E_DATE,
     E_DAY,
     E_FINAL,
@@ -115,7 +114,7 @@ from agrijax.calib.fit import (
     fit_cultivar,
 )
 from agrijax.calib.observations import ObservationError
-from agrijax.crops import MAIZE, CropModel, crop_of_filex
+from agrijax.crops import CROPS, MAIZE, CropModel, UnsupportedCropError, crop_of_filex
 
 __all__ = [
     "BASE_TARGETS",
@@ -368,7 +367,7 @@ class CalibrationResult:
             + (f"; held out: {', '.join(self.holdout['treatments'])}" if self.holdout else ""),
             "coefficient   published   calibrated (written)",
         ]
-        for n in CUL_ORDER:
+        for n in self.params:
             tag = "" if n in self.free else f"   fixed: {self.fixed.get(n, '')}"
             lines.append(f"  {n:<6} {self.published[n]:>12.4g} {self.params[n]:>14.4g}{tag}")
         lo = self.loss
@@ -449,8 +448,6 @@ def _filex_path(exp: str | os.PathLike[str], engine: Path) -> Path:
     """The FileX of ``exp`` (a FileX path, or an example name looked up in the ``example_data`` of
     every implemented crop, :data:`agrijax.crops.CROPS`); :class:`ScopeError` for a crop Agri-JAX does
     not implement."""
-    from agrijax.crops import CROPS, UnsupportedCropError, crop_of_filex
-
     p = Path(exp)
     if p.suffix:
         try:
@@ -923,6 +920,7 @@ def calibrate(
     if len(crops) != 1:
         raise ScopeError(f"one crop per calibration, got {sorted(c.code for c in crops)}")
     (crop,) = crops
+    names = crop.cultivar  # the calibrated coefficients, in the crop's .CUL column order
     cul_src = dssat_data_dir(root) / "Genotype" / crop.cul
     for e in exps:
         if e in crop.out_of_scope:
@@ -1015,7 +1013,7 @@ def calibrate(
 
         with ThreadPoolExecutor(max_workers=max(1, min(len(allt), os.cpu_count() or 1))) as ex:
             runs = list(ex.map(ref, allt))
-        pubs = {tuple(np.round([r.published()[n] for n in CUL_ORDER], 6)) for r in runs}
+        pubs = {tuple(np.round([r.published()[n] for n in names], 6)) for r in runs}
         if len(pubs) != 1:
             raise ScopeError(
                 f"the treatments' DSSAT48.INP hold different coefficients for {cul_name}: {pubs}"
@@ -1082,7 +1080,7 @@ def calibrate(
         def written(theta: np.ndarray) -> np.ndarray:
             return np.asarray(
                 [
-                    [cul_written(dict(zip(CUL_ORDER, row, strict=True)), decimals=dec)[n] for n in CUL_ORDER]
+                    [cul_written(dict(zip(names, row, strict=True)), decimals=dec)[n] for n in names]
                     for row in np.asarray(theta, dtype=float).tolist()
                 ]
             )
@@ -1092,7 +1090,7 @@ def calibrate(
             simulate=sim,
             treatments=tr_list,
             observed=observed,
-            published=np.asarray([published[n] for n in CUL_ORDER]),
+            published=np.asarray([published[n] for n in names]),
             written=written,
             jax_loss=sim.jax_loss,
             stats=sim.stats,
@@ -1108,7 +1106,7 @@ def calibrate(
             budget=budget,
         )
         msgs += res.warnings
-        params_w = dict(zip(CUL_ORDER, res.theta_written.tolist(), strict=True))
+        params_w = dict(zip(names, res.theta_written.tolist(), strict=True))
         # ---------------------------------------------------------------- .CUL row and DSSAT check
         ctx = {
             "filex": dict(filex),
@@ -1147,7 +1145,7 @@ def calibrate(
         cultivar=cul_name,
         treatments=[r.key for r in runs[:n_cal]],
         params=params_w,
-        params_unrounded=dict(zip(CUL_ORDER, res.theta_unrounded.tolist(), strict=True)),
+        params_unrounded=dict(zip(names, res.theta_unrounded.tolist(), strict=True)),
         published=published,
         free=res.free,
         fixed=res.fixed,
