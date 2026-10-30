@@ -158,6 +158,9 @@ def main() -> int:
     parts = set(a.parts.split(","))
     import jax
 
+    # the catpa part calls free_run_inputs directly, outside a facade call: float64 for the whole script
+    jax.config.update("jax_enable_x64", True)
+
     import agrijax as aj
     from agrijax import facade_weather as fw
     from agrijax.port.run_fortran import DSSAT_ENGINE

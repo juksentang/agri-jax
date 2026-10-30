@@ -251,6 +251,44 @@ def test_nitrogen_limited_treatments_warn_once(tmp_path, monkeypatch):
         exp.inputs(2)  # nitrogen does not matter here
 
 
+def test_the_nitrogen_warning_points_at_the_callers_line(tmp_path, monkeypatch):
+    """The warning names the user's file and line, not a line of the library, however many facade
+    wrappers lie between: ``exp.inputs`` directly, through ``exp.run`` and through ``exp.run`` with
+    execution options (``run`` calls itself inside an options block)."""
+    import warnings
+
+    from agrijax import facade_execution as fe
+    from agrijax.calib import workflow as wf
+
+    exp = ajd.experiment("TEST8201", data_root=_engine(tmp_path))
+    monkeypatch.setitem(wf.NITROGEN_STRESS, "TEST8201_t01", -0.308)
+    monkeypatch.setattr(ajd.Experiment, "_build", lambda self, fx, t: object())
+
+    class Stop(Exception):
+        pass
+
+    def stop(*a, **k):
+        raise Stop
+
+    monkeypatch.setattr(fe, "simulate", stop)
+    calls = [
+        lambda: exp.inputs(1),
+        lambda: exp.run(1),
+        lambda: exp.run(1, precision="float32"),
+    ]
+    for call in calls:
+        exp._warned.clear()
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            try:
+                call()
+            except Stop:
+                pass
+        hits = [w for w in rec if issubclass(w.category, ajd.NitrogenWarning)]
+        assert len(hits) == 1
+        assert hits[0].filename == __file__
+
+
 def test_calibration_result_repr_is_short():
     from agrijax.calib.workflow import CalibrationResult
 

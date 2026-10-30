@@ -129,7 +129,6 @@ from __future__ import annotations
 
 import re
 import time
-import warnings
 import weakref
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -137,7 +136,7 @@ from typing import Any
 
 import numpy as np
 
-from agrijax.facade_execution import facade_call
+from agrijax.facade_execution import facade_call, warn_caller
 
 __all__ = [
     "DEFAULT_OUTPUTS",
@@ -909,11 +908,10 @@ def _run(
     table = _tables(raw, lab, p_names, out_names, x, idx, scn_rows, matured)
     if not matured.all():
         late = [int(i) for i in np.nonzero(~matured)[0]]
-        warnings.warn(
+        warn_caller(
             f"scenarios {late} do not reach maturity within their real days: their end values are the "
             "values on the day the crop failed, on the harvest day or on the last day of real weather "
-            "(column 'matured')",
-            stacklevel=3,
+            "(column 'matured')"
         )
     timing = {
         "compile_s": rows.compile_s - c0,

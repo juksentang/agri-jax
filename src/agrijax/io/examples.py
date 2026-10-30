@@ -166,7 +166,8 @@ def _check_replaceable(d: Path, mark: str) -> None:
 def cache_dir() -> Path:
     """Agri-JAX's cache (downloads, the reference program, the facade's compilation cache):
     ``AGRI_JAX_CACHE``, else ``$XDG_CACHE_HOME/agrijax`` (the XDG base-directory rule: an absolute
-    ``XDG_CACHE_HOME`` only), else ``~/.cache/agrijax``."""
+    ``XDG_CACHE_HOME`` only), else ``~/.cache/agrijax``; an existing ``~/.cache/agrijax`` of an earlier
+    version is kept until ``$XDG_CACHE_HOME/agrijax`` exists (:func:`agrijax.port.run_fortran.cache_root`)."""
     from agrijax.port.run_fortran import cache_root
 
     return cache_root()

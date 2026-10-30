@@ -12,8 +12,10 @@ example data only (no instrumented-engine tables, no DSSAT run).
   published values (seed 0): the yield difference of the seasons with a yield (median, 99th
   percentile, largest, the count above 1e-3) and the stage dates.
 
-Each figure is printed (``-s``) so the note can quote this run; the bounds are a few times the
-measured values (they guard the note, they are not the note).
+Each figure is printed (``-s``) so the note can quote this run, and asserted near its quoted value:
+the counts exactly (57 treatments run, 19 refused, one yield difference above 1e-3), the differences
+below about twice the quoted figure (float32 on the CPU is deterministic, so a change of the program
+that moves a figure past its quoted digit fails here and the note is measured again).
 """
 
 from __future__ import annotations
@@ -37,15 +39,22 @@ pytestmark = [
 
 MAIZE = DSSAT_ENGINE / "example_data" / "Maize"
 CPU = {"device": "cpu"}
-#: the seasons: median and largest relative yield / tops-weight difference, float32 against float64
-SEASON_MEDIAN_RTOL = 1e-5
-SEASON_MAX_RTOL = 5e-2
+#: the seasons: treatments run and refused, and bounds near the quoted relative differences of float32
+#: against float64 (yield median 2.7e-7, largest 1.5e-2, one above 1e-3; tops median 5.2e-7, largest 7.0e-3)
+SEASONS_RUN = 57
+SEASONS_REFUSED = 19
+SEASON_YIELD_MEDIAN_RTOL = 5e-7
+SEASON_YIELD_MAX_RTOL = 2e-2
+SEASON_YIELD_ABOVE_1E3 = 1
+SEASON_TOPS_MEDIAN_RTOL = 1e-6
+SEASON_TOPS_MAX_RTOL = 1e-2
 #: the perturbed batch: cultivar samples per weather year, the coefficients perturbed and the bounds
 SAMPLES = 100
 PERTURBED = ("P1", "P5", "G2", "G3", "PHINT")
-BATCH_MEDIAN_RTOL = 1e-5
-BATCH_P99_RTOL = 1e-3
-BATCH_MAX_RTOL = 5e-2
+#: (quoted: median 2.0e-7, 99th percentile 5.8e-6, largest 8.1e-6, none above 1e-3)
+BATCH_MEDIAN_RTOL = 5e-7
+BATCH_P99_RTOL = 1e-5
+BATCH_MAX_RTOL = 2e-5
 YEARS = range(1978, 1988)
 
 
@@ -106,10 +115,11 @@ def test_float32_seasons_on_the_example_treatments(seasons):
     )
     for r in sorted(rows, key=lambda r: -r["yield"])[:5]:
         print(f"  {r['key']}: yield {r['yield']:.2e}, tops {r['tops']:.2e}, HWAM {r['hwam64']:.0f}")
-    assert len(rows) >= 55  # the maize example treatments the facade runs (57 measured, 19 refused)
+    assert len(rows) == SEASONS_RUN and len(seasons["refused"]) == SEASONS_REFUSED
     assert sum(r["dates_differ"] for r in rows) == 0
-    assert np.median(y) < SEASON_MEDIAN_RTOL and np.median(b) < SEASON_MEDIAN_RTOL
-    assert y.max() < SEASON_MAX_RTOL and b.max() < SEASON_MAX_RTOL
+    assert np.median(y) < SEASON_YIELD_MEDIAN_RTOL and y.max() < SEASON_YIELD_MAX_RTOL
+    assert int((y > 1e-3).sum()) == SEASON_YIELD_ABOVE_1E3
+    assert np.median(b) < SEASON_TOPS_MEDIAN_RTOL and b.max() < SEASON_TOPS_MAX_RTOL
 
 
 def test_float32_on_a_perturbed_batch():
@@ -139,4 +149,4 @@ def test_float32_on_a_perturbed_batch():
     assert alive.sum() > len(t64) // 2
     assert dates == 0
     assert np.median(y) < BATCH_MEDIAN_RTOL and np.quantile(y, 0.99) < BATCH_P99_RTOL
-    assert y.max() < BATCH_MAX_RTOL
+    assert y.max() < BATCH_MAX_RTOL and int((y > 1e-3).sum()) == 0

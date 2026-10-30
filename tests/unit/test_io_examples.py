@@ -110,13 +110,27 @@ def test_source_archive_is_unpacked_once(tmp_path, served):
 
 def test_cache_follows_agri_jax_cache_then_xdg(tmp_path, monkeypatch):
     assert ex.cache_dir() == tmp_path / "cache"  # AGRI_JAX_CACHE (the fixture)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("AGRI_JAX_CACHE", "")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     assert ex.cache_dir() == tmp_path / "xdg" / "agrijax"
     monkeypatch.setenv("XDG_CACHE_HOME", "relative/dir")  # not absolute: ignored, as the XDG rule says
-    assert ex.cache_dir() == Path.home() / ".cache" / "agrijax"
+    assert ex.cache_dir() == tmp_path / "home" / ".cache" / "agrijax"
     monkeypatch.delenv("XDG_CACHE_HOME")
-    assert ex.cache_dir() == Path.home() / ".cache" / "agrijax"
+    assert ex.cache_dir() == tmp_path / "home" / ".cache" / "agrijax"
+
+
+def test_an_earlier_cache_in_home_is_kept_until_the_xdg_one_exists(tmp_path, monkeypatch):
+    """Earlier versions cached in ``~/.cache/agrijax`` whatever ``XDG_CACHE_HOME`` said: that cache
+    stays in use (no second download) until ``$XDG_CACHE_HOME/agrijax`` exists."""
+    old = tmp_path / "home" / ".cache" / "agrijax"
+    old.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("AGRI_JAX_CACHE", "")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    assert ex.cache_dir() == old
+    (tmp_path / "xdg" / "agrijax").mkdir(parents=True)
+    assert ex.cache_dir() == tmp_path / "xdg" / "agrijax"
 
 
 def test_the_pinned_engine_is_v4860():

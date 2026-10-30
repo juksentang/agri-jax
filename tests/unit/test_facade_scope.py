@@ -186,6 +186,7 @@ def test_the_off_switch(off, tmp_path, monkeypatch, no_user_cache):
 
 def test_the_default_location_follows_the_cache_dir(tmp_path, monkeypatch):
     monkeypatch.delenv(fe.COMPILE_CACHE_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("AGRI_JAX_CACHE", "")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     assert fe.compile_cache_dir() == tmp_path / "xdg" / "agrijax" / "jax"

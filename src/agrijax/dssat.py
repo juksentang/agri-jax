@@ -43,7 +43,6 @@ import datetime as _dt
 import os
 import tempfile
 import time
-import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,7 +50,7 @@ from typing import Any
 
 import numpy as np
 
-from agrijax.facade_execution import facade_call
+from agrijax.facade_execution import facade_call, warn_caller
 
 __all__ = [
     "BatchResult",
@@ -716,12 +715,11 @@ class Experiment:
         if d is None or abs(d) <= NITROGEN_STRESS_OK or trno in self._warned:
             return
         self._warned.add(trno)
-        warnings.warn(
+        warn_caller(
             f"{self.name} treatment {trno}: the model runs nitrogen off, and DSSAT's yield on this "
             f"treatment changes by {d:+.1%} with nitrogen on; its simulated yield is the "
             "nitrogen-unlimited one (exp.table() lists the treatments where nitrogen matters)",
             NitrogenWarning,
-            stacklevel=4,  # _nitrogen_check <- inputs <- run / scenarios <- the caller
         )
 
     def _run_ref(

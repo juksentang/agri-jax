@@ -84,6 +84,7 @@ import contextvars
 import functools
 import os
 import re
+import sys
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -102,6 +103,7 @@ __all__ = [
     "facade_call",
     "facade_scope",
     "options",
+    "warn_caller",
 ]
 
 _F = TypeVar("_F", bound=Callable[..., Any])
@@ -411,6 +413,22 @@ def facade_call(fn: _F) -> _F:
 
     call.__agrijax_facade_call__ = True  # type: ignore[attr-defined]
     return call  # type: ignore[return-value]
+
+
+_PACKAGE = os.path.dirname(os.path.abspath(__file__)) + os.sep
+
+
+def warn_caller(message: str, category: type[Warning] = UserWarning) -> None:
+    """``warnings.warn(message, category)`` reported at the first frame outside the ``agrijax``
+    package: the user's line, however many facade wrappers (:func:`facade_call`) and internal calls lie
+    between (a fixed ``stacklevel`` would point into the library; ``skip_file_prefixes`` needs Python
+    3.12). The outermost frame when every frame is the package's."""
+    frame = sys._getframe(1)
+    level = 2  # warnings.warn's stacklevel of the frame that called warn_caller
+    while frame.f_back is not None and os.path.abspath(frame.f_code.co_filename).startswith(_PACKAGE):
+        frame = frame.f_back
+        level += 1
+    warnings.warn(message, category, stacklevel=level)
 
 
 @contextlib.contextmanager

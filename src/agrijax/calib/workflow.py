@@ -115,6 +115,7 @@ from agrijax.calib.fit import (
     fit_cultivar,
 )
 from agrijax.calib.observations import ObservationError
+from agrijax.facade_execution import warn_caller
 
 __all__ = [
     "BASE_TARGETS",
@@ -615,7 +616,8 @@ def _observations(
                 # observation_targets above has read this date (an unreadable one raised
                 # ObservationError there), so it reads here too
                 d = reada_date(float(val), int(days[0]), None)
-                assert d is not None
+                if d is None:
+                    raise ObservationError(f"{run.key}: observed {c} {val:g} is not a readable date")
                 errors.append(
                     {
                         "treatment": run.key,
@@ -912,7 +914,7 @@ def calibrate(
 
     def warn(m: str) -> None:
         msgs.append(m)
-        warnings.warn(m, CalibrationWarning, stacklevel=3)
+        warn_caller(m, CalibrationWarning)
 
     hold = _parse_treatments(holdout, exps, "holdout")
     asked = (

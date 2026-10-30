@@ -56,7 +56,6 @@ from __future__ import annotations
 
 import math
 import time
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -76,6 +75,7 @@ from agrijax.calib.dssat_day import (
     Entry,
 )
 from agrijax.calib.methods import TRUST_SCAN, CalibrationWarning
+from agrijax.facade_execution import warn_caller
 
 __all__ = [
     "BOX_MARGIN",
@@ -450,7 +450,7 @@ class FitResult:
 
 def _warn(msgs: list[str], msg: str) -> None:
     msgs.append(msg)
-    warnings.warn(msg, CalibrationWarning, stacklevel=3)
+    warn_caller(msg, CalibrationWarning)
 
 
 def _sensitivity(

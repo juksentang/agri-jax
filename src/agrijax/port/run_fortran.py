@@ -88,13 +88,18 @@ RZWQM_BINARY = RZWQM_TOOL / "main_ryzen5_avx512"
 def cache_root() -> Path:
     """Agri-JAX's cache directory (:func:`agrijax.io.examples.cache_dir`): ``AGRI_JAX_CACHE``, else
     ``$XDG_CACHE_HOME/agrijax`` (an absolute ``XDG_CACHE_HOME`` only, as the XDG base-directory
-    specification says), else ``~/.cache/agrijax``."""
+    specification says), else ``~/.cache/agrijax``. An existing ``~/.cache/agrijax`` (the location of
+    earlier versions, which did not read ``XDG_CACHE_HOME``) is kept while ``$XDG_CACHE_HOME/agrijax``
+    does not exist, so its downloads are not fetched again."""
     own = os.environ.get("AGRI_JAX_CACHE")
     if own:
         return Path(own).expanduser()
+    home = Path.home() / ".cache" / "agrijax"
     xdg = os.environ.get("XDG_CACHE_HOME", "")
-    base = Path(xdg) if xdg and Path(xdg).is_absolute() else Path.home() / ".cache"
-    return base / "agrijax"
+    if not xdg or not Path(xdg).is_absolute():
+        return home
+    there = Path(xdg) / "agrijax"
+    return home if not there.exists() and home.is_dir() else there
 
 
 #: where :func:`agrijax.dssat.install_reference` unpacks the DSSAT-CSM reference program by default
