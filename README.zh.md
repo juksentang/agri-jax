@@ -39,7 +39,7 @@ season.compare_summary(ref)                                                     
 res.check_dssat()                                                               # 在 DSSAT 中运行校准后的品种参数行
 ```
 
-Agri-JAX 从 DSSAT 自身的文件（FileX、`.SOL`、`.WTH`、`.CUL` / `.ECO` / `.SPE`）构建全部输入；这些文件按固定版本从 DSSAT 仓库一次性下载。只有对比调用（`exp.reference`、`check_dssat`）需要 DSSAT 程序。如果某个处理需要 Agri-JAX 尚未实现的 DSSAT 过程，程序会拒绝运行并说明原因（见“局限”）。由于模型在 float64 下验证，`aj.options(...)` 之外的调用会将 JAX 切换为 float64，并在当前进程后续运行中保持这一设置。Agri-JAX 写出的 `.OUT` 文件会在文件头中注明来源。[教程](tutorial/agrijax_tutorial_zh.ipynb)逐一介绍上述用法；校准细节见 [docs/calibration.md](docs/calibration.md)。
+Agri-JAX 从 DSSAT 自身的文件（FileX、`.SOL`、`.WTH`、`.CUL` / `.ECO` / `.SPE`）构建全部输入；这些文件按固定版本从 DSSAT 仓库一次性下载。只有对比调用（`exp.reference`、`check_dssat`）需要 DSSAT 程序。如果某个处理需要 Agri-JAX 尚未实现的 DSSAT 过程，程序会拒绝运行并说明原因（见“局限”）。由于模型在 float64 下验证，每次调用都在 float64 下运行，并在返回时恢复用户原有的 JAX 设置（包括 `jax_enable_x64`）；编译后的程序保存在持久编译缓存中（`$XDG_CACHE_HOME/agrijax/jax` 或 `~/.cache/agrijax/jax`；用户自行设置的 `JAX_COMPILATION_CACHE_DIR` 优先，`AGRI_JAX_COMPILE_CACHE=0` 可将其关闭）。Agri-JAX 写出的 `.OUT` 文件会在文件头中注明来源。[教程](tutorial/agrijax_tutorial_zh.ipynb)逐一介绍上述用法；校准细节见 [docs/calibration.md](docs/calibration.md)。
 
 ## 验证
 
@@ -82,7 +82,7 @@ Agri-JAX 从 DSSAT 自身的文件（FileX、`.SOL`、`.WTH`、`.CUL` / `.ECO` /
 | 10⁵ 个生长季，仅运行一次，整台 192 核节点 | 均可 | 首次运行 0.85 倍，热启动 1.6 倍 |
 | 相同数组形状下多次调用（校准、敏感性分析、集合模拟） | Agri-JAX，CPU 节点或 GPU | 在 1–192 核上，重复调用 10⁵ 个生长季比 DSSAT 快 22–29 倍；整节点 0.66 s，H100 0.42 s。将参数作为实参传入，并将样本数填充到少数几种固定大小：新的形状会触发重新编译 |
 | 一次 GPU 运行，或少量梯度步骤 | `AGRI_JAX_DEPTH_UNROLL=0` | 展开循环使每次前向调用快 3.1 倍，但首次运行增加约 45 s（10⁵ 个生长季；约 50 次重复调用后抵消开销），反向模式编译增加 251 s（10⁴ 个生长季，315.6 s 对 64.2 s；约 80 次梯度调用后抵消开销） |
-| 仅前向运行，大批量 | float32 | H100 为 1.83–2.15 倍，CPU 节点为 1.15–1.23 倍。与 float64 相比，产量相对差异中位数为 3.3e-7，在 65 个验证生长季中的一个达到 1.5 %；10 000 个扰动样本中，9076 个有籽粒生长季有 13 个差异超过 0.1 %，最大 1.15 %。尚未测量梯度或校准 |
+| 仅前向运行，大批量 | float32 | H100 为 1.83–2.15 倍，CPU 节点为 1.15–1.23 倍。与 float64 相比，产量相对差异中位数为 2.7e-7，在 Agri-JAX 可运行的 57 个 DSSAT 玉米示例处理中有一个达到 1.5 %；1 000 个扰动生长季中最大差异为 8.1e-6（`tests/integration/test_facade_float32_examples.py`）。尚未测量梯度或校准 |
 
 尚未测量，因此不提供耗时比：10⁶ 个及更多生长季、T4 或 Colab GPU、笔记本电脑。Agri-JAX 一侧的基准脚本为 `scripts/bench/d4_jax_scaling.py`。
 

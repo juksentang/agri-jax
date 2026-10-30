@@ -170,6 +170,8 @@ from typing import Any
 
 import numpy as np
 
+from agrijax.facade_execution import facade_call
+
 __all__ = [
     "DAY_STATUSES",
     "LABEL_FAILS",
@@ -934,13 +936,12 @@ class WeatherSensitivity:
     # ---------------------------------------------------------------- companions
     @staticmethod
     def _ready(what: str) -> None:
-        """As the main call: refuse a non-default ``aj.options`` block, and run in float64 (a result made
-        inside ``with aj.options():`` keeps working after the block put ``jax_enable_x64`` back)."""
-        from agrijax.dssat import _x64
+        """As the main call: refuse a non-default ``aj.options`` block (the companions run in float64 in
+        their own :func:`~agrijax.facade_execution.facade_scope`, so a result keeps working whatever
+        ``jax_enable_x64`` is set to by the time it is used)."""
         from agrijax.facade_execution import require_default_options
 
         require_default_options(what)
-        _x64()
 
     def _delta_rows(self, deltas: Sequence[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
         ctx = self._ctx
@@ -951,6 +952,7 @@ class WeatherSensitivity:
         d, s = self._delta_rows(deltas)
         return self._ctx.progs.values(d, s)
 
+    @facade_call
     def phenology_free(self, offsets: Sequence[float] = (-2.0, -1.0, 1.0, 2.0)) -> Any:
         """The companion of the temperature derivatives: ``TMAX`` and ``TMIN`` shifted together by each
         of ``offsets`` [degC] on every simulated day, run with the phenology free (stage days move), in
@@ -994,6 +996,7 @@ class WeatherSensitivity:
         )
         return out
 
+    @facade_call
     def brute_force(
         self,
         variables: Sequence[str] | str | None = None,
@@ -1062,6 +1065,7 @@ class WeatherSensitivity:
         )
         return out
 
+    @facade_call
     def attribution(
         self,
         climatology: Any = None,
@@ -1754,6 +1758,7 @@ def _analyse(
     )
 
 
+@facade_call
 def weather_sensitivity(
     runs: Sequence[Any],
     names: Sequence[str],
@@ -1773,12 +1778,10 @@ def weather_sensitivity(
     ``owner`` / ``key``: keep the compiled programs on ``owner`` (a second call does not compile); a key
     names its runs: a later call under the same key with other run objects raises ``ValueError``."""
     from agrijax.calib.dssat_day import E_DATE, ISTAGE_SILKING, Entry
-    from agrijax.dssat import _x64
     from agrijax.facade_execution import require_default_options
     from agrijax.facade_grad import _entries, _parse_outputs
 
     require_default_options("weather_sensitivity")
-    _x64()
     if len(runs) != len(names) or not runs:
         raise ValueError(f"{len(runs)} runs, {len(names)} names")
     out_names = _parse_outputs(outputs)

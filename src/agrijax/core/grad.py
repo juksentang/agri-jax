@@ -458,9 +458,10 @@ def _divide(y: Array, scale: float) -> Array:
     an approximate reciprocal-based division), so in float32 on GPU the quotient, and with it
     :func:`round_st` with ``decimals > 0``, can differ from IEEE by 1 ulp (measured on an H100
     MIG slice, 2026-09-28: 31,905 of 1e6 quotients, ``round_st(x, 6)`` in 24,831 of 1e6; the
-    free-run DSSAT day in float32 over its 65 validation runs, GPU against CPU: 39 of 65 runs differ
-    by more than 1e-9, at most 2.2e-5 in yield, growth stages identical). Divisions on CPU are
-    correctly rounded; in float64 the GPU run of the same validation equals CPU to 1.4e-15.
+    free-run DSSAT day in float32 on UFGA8201, GPU against CPU,
+    ``tests/integration/test_facade_execution.py``: at most 4.2e-7 in a season's yield and 2.1e-6
+    in a batch of 144 seasons, growth stages identical). Divisions on CPU are correctly rounded; in
+    float64 the GPU run of the free-run validation equals CPU to 1.4e-15.
     """
     return y / (y * 0.0 + scale)
 

@@ -679,7 +679,7 @@ def test_toy_companions(toy):
 
 
 @x64_only
-def test_companions_refuse_options_and_restore_float64(toy):
+def test_companions_refuse_options_and_run_in_float64(toy, monkeypatch):
     from agrijax import facade_execution as fx
 
     ws, _ = toy
@@ -687,10 +687,18 @@ def test_companions_refuse_options_and_restore_float64(toy):
         for call in (ws.phenology_free, ws.brute_force, ws.attribution):
             with pytest.raises(ValueError, match="float64"):
                 call()
-    try:  # a result made inside ``with aj.options():`` after the block reset jax_enable_x64
+    seen: list[bool] = []
+    run_rows = type(ws)._run_rows
+
+    def spy(self: Any, deltas: Any) -> Any:
+        seen.append(bool(jax.config.jax_enable_x64))
+        return run_rows(self, deltas)
+
+    monkeypatch.setattr(type(ws), "_run_rows", spy)
+    try:  # a result used after jax_enable_x64 was switched off: it runs in float64 and puts it back
         jax.config.update("jax_enable_x64", False)
         ws.phenology_free([1.0])
-        assert jax.config.jax_enable_x64
+        assert seen and all(seen) and not jax.config.jax_enable_x64
     finally:
         jax.config.update("jax_enable_x64", True)
 
@@ -867,13 +875,11 @@ def test_variables_parsing_and_facade_signatures():
 
 
 def test_programs_kept_under_a_key_belong_to_their_runs(monkeypatch):
-    from agrijax import dssat
     from agrijax import facade_grad as fg
 
     class Owner:
         pass
 
-    monkeypatch.setattr(dssat, "_x64", lambda: None)  # nothing here computes; keep the pass's precision
     monkeypatch.setattr(fg, "_entries", lambda names, run: [])
     run_a, run_b = SimpleNamespace(name="a"), SimpleNamespace(name="b")
     own = Owner()

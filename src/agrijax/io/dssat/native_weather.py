@@ -38,6 +38,7 @@ from agrijax.forcing.dssat_weather import (
     wind_at_2m,
 )
 
+from ._f77 import nint
 from ._fixed import read_lines
 from .wth import read_wth
 
@@ -70,6 +71,21 @@ class WeatherInputCoefficients(Coefficients):
         "MJ m-2 d-1",
         "a daily radiation below this is raised to it",
         _p(f"{IPWTH}:1344", "DailyWeatherCheck"),
+        calibrate=False,
+    )
+    srad_max: float = coef(
+        100.0,
+        "MJ m-2 d-1",
+        "a daily radiation above this is an error in the weather data (DSSAT stops, ErrCode 2)",
+        _p(f"{IPWTH}:1284", "DailyWeatherCheck", "IF (SRAD > 100.) ErrCode = 2"),
+        calibrate=False,
+    )
+    temp_zero_scale: float = coef(
+        100.0,
+        "degC-1",
+        "TMAX and TMIN are compared with 0 at this resolution: NINT(T * 100.) = 0 for both is a record of "
+        "zeros (DSSAT stops, ErrCode 4)",
+        _p(f"{IPWTH}:1287", "DailyWeatherCheck", "NINT(TMAX * 100.) .EQ. 0 .AND. NINT(TMIN * 100.) .EQ. 0"),
         calibrate=False,
     )
     windht_default: float = coef(
@@ -215,6 +231,35 @@ class DailyWeatherRecord:
     files: tuple[str, ...]
 
 
+def _check_daily(
+    want: Sequence[date],
+    files: Sequence[str],
+    srad: np.ndarray,
+    tmax: np.ndarray,
+    tmin: np.ndarray,
+    c: WeatherInputCoefficients,
+) -> None:
+    """The other stops of ``DailyWeatherCheck`` on the simulated days (``REAL*4`` values): a daily
+    radiation above :attr:`~WeatherInputCoefficients.srad_max` (ErrCode 2), and ``TMAX`` and ``TMIN``
+    both zero at the hundredth of a degree (``NINT(TMAX*100.) == 0 .AND. NINT(TMIN*100.) == 0``,
+    ErrCode 4: a record of zeros, not weather). Raises ``ValueError`` naming the first such day."""
+    scale = _F(c.temp_zero_scale)
+    zero = np.asarray(
+        [nint(a * scale) == 0 and nint(b * scale) == 0 for a, b in zip(tmax, tmin, strict=True)]
+    )
+    for bad, what in (
+        (srad > _F(c.srad_max), f"SRAD above {c.srad_max:g} MJ m-2 d-1"),
+        (zero, "TMAX = TMIN = 0 (a record of zeros)"),
+    ):
+        if np.any(bad):
+            first = want[int(np.argmax(bad))]
+            raise ValueError(
+                f"{list(files)}: {what} on {int(np.sum(bad))} simulated days, the first {first.isoformat()} "
+                "(DSSAT stops on such a record, IPWTH_alt.for DailyWeatherCheck 1283-1288): check the "
+                "weather file"
+            )
+
+
 def _next_year_file(p: Path, year: int) -> Path:
     name = p.name
     if len(name) >= 12 and name[4:6].isdigit():
@@ -241,8 +286,9 @@ def native_weather(
     files: list[str] = []
     have: dict[date, tuple[int, int]] = {}
     need = set(want)
+    century = want[0].year // 100  # of the first file's YYDDD records; a next-year file names its own
     while True:
-        df = read_wth(path, dssat_spans=True, century=want[0].year // 100)
+        df = read_wth(path, dssat_spans=True, century=century)
         if not site:
             site = dict(df.attrs["site"])
         frames.append(df)
@@ -256,6 +302,7 @@ def native_weather(
         if nxt == path or not nxt.is_file():
             raise FileNotFoundError(f"weather for {missing[0]} not in {files} (next file {nxt.name} missing)")
         path = nxt
+        century = missing[0].year // 100  # UAFD0001.WTH after UAFD9901.WTH holds 2000, not 1900
 
     def col(name: str) -> np.ndarray:
         out = np.full(len(want), np.nan)
@@ -272,8 +319,9 @@ def native_weather(
             raise ValueError(f"{files}: {name} missing on {int(np.sum(~np.isfinite(v)))} simulated days")
     if np.any(rain < 0) or np.any(srad < 0) or np.any(tmax < tmin):
         raise ValueError(f"{files}: negative rain / radiation or TMAX < TMIN (DSSAT stops, IPWTH 1283-1292)")
-    srad32 = np.maximum(srad.astype(_F), _F(c.srad_min)).astype(_F)
     tmax32, tmin32, rain32 = tmax.astype(_F), tmin.astype(_F), rain.astype(_F)
+    _check_daily(want, files, srad.astype(_F), tmax32, tmin32, c)
+    srad32 = np.maximum(srad.astype(_F), _F(c.srad_min)).astype(_F)
     lat = site.get("LAT")
     xlat = _F(lat) if isinstance(lat, (int, float)) else _F(0.0)
     wh = site.get("WNDHT")

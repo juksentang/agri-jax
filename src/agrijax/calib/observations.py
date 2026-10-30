@@ -427,11 +427,14 @@ def observation_targets(
         for b in range(b_n):
             if not have[b]:
                 continue
-            d = reada_date(float(vals[b]), starts[b], fws[b])
-            if d is None:  # defensive: ``have`` kept only finite values with a positive integer part
-                raise ObservationError(
-                    f"{obs.experiment}_t{trn[b]:02d}: observed {m.code} {vals[b]:g} is not a readable date"
-                )
+            try:
+                d = reada_date(float(vals[b]), starts[b], fws[b])
+                why = ""
+            except ValueError as e:  # a day of year outside its year (400, or 366 of a common year), ...
+                d, why = None, f" ({e})"
+            if d is None:  # (``None`` itself does not happen: ``have`` kept positive integer parts)
+                key = f"{obs.experiment}_t{trn[b]:02d}"
+                raise ObservationError(f"{key}: observed {m.code} {vals[b]:g} is not a readable date{why}")
             hit = np.nonzero(days[b] == _yrdoy_int(d))[0]
             if hit.size:
                 idx[b] = float(hit[0])

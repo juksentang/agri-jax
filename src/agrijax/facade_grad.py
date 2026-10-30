@@ -137,6 +137,8 @@ from typing import Any
 
 import numpy as np
 
+from agrijax.facade_execution import facade_call
+
 __all__ = [
     "DEFAULT_OUTPUTS",
     "EXPERIMENTAL",
@@ -926,6 +928,7 @@ def _run(
 
 
 # ------------------------------------------------------------------------------ public functions
+@facade_call
 def gradient(
     experiment: Any,
     treatment: int,
@@ -944,7 +947,10 @@ def gradient(
     any day number). ``params``: coefficients out of ``P1 P2 P5 G2 G3 PHINT`` (default all six).
     ``cultivar``: coefficients moved from the published values to evaluate the derivative elsewhere
     (``{"G2": 700.0}``). ``scan_points``: points of the trust check's line scan over +-10 % of each
-    coefficient's range (more points find narrower jumps, and cost proportionally more).
+    coefficient's range (more points find narrower jumps, and cost proportionally more). The labels hold
+    at that resolution only: the scan points are 20 % of the range / (``scan_points`` - 1) apart (0.1 % of
+    the range at the default 201), and a jump or a flat stretch narrower than that can fall between two
+    of them and go unseen.
 
     **Derivatives through phenology events are experimental**: ``P1``, ``P2``, ``P5`` and ``PHINT``
     are labelled ``"experimental"`` whatever the check finds, and ``G2`` / ``G3`` are validated or fall
@@ -954,11 +960,9 @@ def gradient(
     float64 on JAX's default device only: it refuses an :func:`agrijax.options` block asking for
     float32 or a device (gradients were not tested in float32)."""
     from agrijax import facade_swap
-    from agrijax.dssat import _x64
     from agrijax.facade_execution import require_default_options
 
     require_default_options("exp.gradient")
-    _x64()
     trno = experiment._trno(treatment)
     x = experiment.inputs(trno, soil_evaporation)
     key = ("gradient", trno, facade_swap.swap_code(experiment, trno, soil_evaporation))
@@ -977,6 +981,7 @@ def gradient(
     return Gradient(f"{experiment.name}_t{trno:02d}", point, table, trust, reasons, timing, int(scan_points))
 
 
+@facade_call
 def sensitivity(
     scenarios: Any,
     *,
@@ -994,11 +999,9 @@ def sensitivity(
     :attr:`Sensitivity.summary` counts them. The scenarios of ``scenarios`` are not in the
     validation set (compare them with DSSAT through :meth:`~agrijax.dssat.Scenarios.reference`). Runs
     in float64 on JAX's default device only (it refuses a non-default :func:`agrijax.options` block)."""
-    from agrijax.dssat import _x64
     from agrijax.facade_execution import require_default_options
 
     require_default_options("scen.sensitivity")
-    _x64()
     t = scenarios.table
     scn_rows = [
         {"scenario": i, "year": int(t.loc[i, "year"]), "sowing_shift": int(t.loc[i, "sowing_shift"])}

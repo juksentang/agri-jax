@@ -1,7 +1,9 @@
 """Shared pytest configuration.
 
 * Enables ``jax_enable_x64`` before any test module imports JAX (set ``AGRI_JAX_X64=0``
-  to run the unit tier in float32, as the CI second pass does).
+  to run the unit tier in float32, as the CI second pass does), and switches the facade's own
+  compilation cache off unless ``AGRI_JAX_COMPILE_CACHE`` is set (JAX's ``JAX_COMPILATION_CACHE_DIR``
+  still applies).
 * Adds ``--data-dir`` (default ``~/agri_jax_data``) and the ``data_dir`` fixture used by the
   diff / integration tiers, which skip when the data is absent.
 * Applies the tier marker of each test's directory automatically.
@@ -41,6 +43,9 @@ settings.load_profile("agrijax")
 
 _X64 = os.environ.get("AGRI_JAX_X64", "1").strip().lower() not in {"0", "false", "no", "off"}
 jax.config.update("jax_enable_x64", _X64)
+# the facade's persistent compilation cache stays off in test runs unless asked for (a cluster run names
+# JAX's own directory, which the facade then uses; tests/unit/test_facade_scope.py sets it per test)
+os.environ.setdefault("AGRI_JAX_COMPILE_CACHE", "0")
 
 DEFAULT_DATA_DIR = Path.home() / "agri_jax_data"
 TIERS = ("unit", "diff", "integration", "gpu")

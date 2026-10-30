@@ -612,12 +612,10 @@ def _observations(
             if m.kind == "date":
                 if np.trunc(val) <= 0:
                     continue
+                # observation_targets above has read this date (an unreadable one raised
+                # ObservationError there), so it reads here too
                 d = reada_date(float(val), int(days[0]), None)
-                if d is None:
-                    errors.append(
-                        {"treatment": run.key, "code": c, "observed": float(val), "unreadable": True}
-                    )
-                    continue
+                assert d is not None
                 errors.append(
                     {
                         "treatment": run.key,
@@ -1020,11 +1018,7 @@ def calibrate(
         if errors:
             lines = []
             for e in errors:
-                if e.get("unreadable"):
-                    lines.append(
-                        f"{e['treatment']}: observed {e['code']} {e['observed']:g} is not a readable date"
-                    )
-                elif "last_day" in e:
+                if "last_day" in e:
                     lines.append(
                         f"{e['treatment']}: observed {e['code']} {e['observed']} lies outside the simulated "
                         f"days {e['first_day']}-{e['last_day']} (the reference season, whose input tables "

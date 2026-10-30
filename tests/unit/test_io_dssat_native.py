@@ -31,7 +31,7 @@ from agrijax.io.dssat.native_soil import (
     native_soil,
     swcn_width,
 )
-from agrijax.io.dssat.native_weather import CO2Series, co2_daily, read_co2_series
+from agrijax.io.dssat.native_weather import CO2Series, co2_daily, native_weather, read_co2_series
 from agrijax.io.dssat.sol import SoilProfile
 
 F = np.float32
@@ -213,6 +213,58 @@ def test_co2val_options(tmp_path: Path) -> None:
     )
 
 
+def _wth(path: Path, rows: list[tuple[str, float, float, float, float]]) -> Path:
+    """A ``.WTH`` file of ``rows`` (``YYDDD``, SRAD, TMAX, TMIN, RAIN; values in 5-character columns)."""
+    head = (
+        "*WEATHER DATA : TEST\n\n@ INSI      LAT     LONG  ELEV   TAV   AMP REFHT WNDHT\n"
+        "  XXXX   31.433   73.100   184  24.1  10.8 -99.0 -99.0\n@DATE  SRAD  TMAX  TMIN  RAIN\n"
+    )
+    body = "".join(f"{d}" + "".join(f" {v:>5.5g}" for v in vals) + "\n" for d, *vals in rows)
+    path.write_text(head + body)
+    return path
+
+
+def test_weather_across_1999_to_2000_reads_the_next_files_century(tmp_path: Path) -> None:
+    """A season from December 1999 into January 2000: the next-year file ``XXXX0001.WTH`` holds 2000
+    (its ``YYDDD`` records in the next century), not 1900 (the file was read with the first file's
+    century and the season ended in ``FileNotFoundError``)."""
+    w99 = _wth(
+        tmp_path / "XXXX9901.WTH", [(f"99{d:03d}", 10.0 + d % 3, 20.0, 5.0, 0.0) for d in range(360, 366)]
+    )
+    _wth(tmp_path / "XXXX0001.WTH", [(f"00{d:03d}", 7.0 + d, 18.0, 2.0, 1.0) for d in range(1, 6)])
+    days = [1999000 + d for d in range(362, 366)] + [2000000 + d for d in range(1, 4)]
+    r = native_weather(w99, days, co2_option="W")
+    assert r.files == ("XXXX9901.WTH", "XXXX0001.WTH")
+    np.testing.assert_array_equal(r.srad, F([12.0, 10.0, 11.0, 12.0, 8.0, 9.0, 10.0]))
+    np.testing.assert_array_equal(r.rain, F([0, 0, 0, 0, 1, 1, 1]))
+
+
+@pytest.mark.parametrize(
+    ("row", "what"),
+    [
+        (("82058", 100.1, 25.0, 15.0, 0.0), "SRAD above 100"),
+        (("82058", 15.0, 0.0, 0.0, 0.0), "TMAX = TMIN = 0"),
+        (("82058", 15.0, 0.004, 0.003, 0.0), "TMAX = TMIN = 0"),  # NINT(T * 100.) = 0 for both
+    ],
+)
+def test_weather_records_dssat_stops_on_are_refused(
+    tmp_path: Path, row: tuple[str, float, float, float, float], what: str
+) -> None:
+    ok = [("82056", 15.0, 25.0, 15.0, 0.0), ("82057", 100.0, 25.0, 15.0, 0.0)]  # SRAD 100 is allowed
+    w = _wth(tmp_path / "XXXX8201.WTH", [*ok, row])
+    days = [1982056, 1982057, 1982058]
+    native_weather(w, days[:2], co2_option="W")  # the days before are fine
+    with pytest.raises(ValueError, match=f"{what}.* on 1 simulated days, the first 1982-02-27"):
+        native_weather(w, days, co2_option="W")
+
+
+def test_weather_near_zero_temperatures_that_are_weather_pass(tmp_path: Path) -> None:
+    # TMAX 0.01 (NINT(1.) = 1) and TMIN 0: not a record of zeros
+    w = _wth(tmp_path / "XXXX8201.WTH", [("82056", 15.0, 0.01, 0.0, 0.0), ("82057", 15.0, 0.0, -0.5, 0.0)])
+    r = native_weather(w, [1982056, 1982057], co2_option="W")
+    np.testing.assert_array_equal(r.tmax, F([0.01, 0.0]))
+
+
 # ------------------------------------------------------------------------ management
 def _filex(irrig: str = "R", mi: int = 1, **extra: object) -> dict[str, object]:
     tr = {
@@ -272,6 +324,11 @@ def test_reported_irrigation() -> None:
 
 def test_scope_and_switches() -> None:
     assert unsupported_features(_filex(), 1) == []
+    # a maize cultivar (CR = MZ, any case) is in scope; another crop is refused by name, not a KeyError
+    for cr in ("MZ", "mz"):
+        assert unsupported_features({**_filex(), "CULTIVARS": {1: {"CR": cr, "INGENO": "IB0035"}}}, 1) == []
+    (sb,) = unsupported_features({**_filex(), "CULTIVARS": {1: {"CR": "SB", "INGENO": "IB0011"}}}, 1)
+    assert sb.startswith("crop CR = SB: unsupported crop")
     assert switches(_filex(), 1).mesev == "S" and switches(_filex(), 1).mesol == "2"
     got = unsupported_features(_filex(irrig="A", ME=1, MT=1), 1)
     assert any("IRRIG = A" in g for g in got) and any("WTHMOD" in g for g in got)
@@ -340,6 +397,7 @@ def test_irrigation_listed_after_a_later_event_is_not_applied() -> None:
         (lambda x: x["INITIAL CONDITIONS"][1].update(ICWD=80), "water table"),
         (lambda x: x["FIELDS"][1].update(PMALB=0.2, PMWD=30), "plastic mulch"),
         (lambda x: x["FIELDS"][1].update(FLDD=100), "tile drainage"),
+        (lambda x: x.update(CULTIVARS={1: {"CR": "SB", "INGENO": "IB0011"}}), "unsupported crop"),
         (
             lambda x: (
                 x["TREATMENTS"][0].update(MR=1),

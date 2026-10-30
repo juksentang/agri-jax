@@ -42,8 +42,10 @@ def served(monkeypatch):
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("AGRI_JAX_CACHE", str(tmp_path / "cache"))
-    monkeypatch.setenv("AGRI_JAX_DSSAT", "")  # restored after the test (install_reference sets it)
-    monkeypatch.setattr(run_fortran, "DSSAT_ENGINE", run_fortran.DSSAT_ENGINE)
+    monkeypatch.setenv("AGRI_JAX_DSSAT", "")
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    monkeypatch.setattr(run_fortran, "DSSAT_ENGINE", run_fortran.DSSAT_ENGINE)  # install_reference sets it
+    monkeypatch.setattr(ex, "_installed", None)
 
 
 def _sha(b: bytes) -> str:
@@ -104,6 +106,17 @@ def test_source_archive_is_unpacked_once(tmp_path, served):
     pages[bad.url] = _source_tgz("def456")
     with pytest.raises(ex.ChecksumError):
         ex.fetch_dssat_source(tmp_path / "eng2", bad)
+
+
+def test_cache_follows_agri_jax_cache_then_xdg(tmp_path, monkeypatch):
+    assert ex.cache_dir() == tmp_path / "cache"  # AGRI_JAX_CACHE (the fixture)
+    monkeypatch.setenv("AGRI_JAX_CACHE", "")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    assert ex.cache_dir() == tmp_path / "xdg" / "agrijax"
+    monkeypatch.setenv("XDG_CACHE_HOME", "relative/dir")  # not absolute: ignored, as the XDG rule says
+    assert ex.cache_dir() == Path.home() / ".cache" / "agrijax"
+    monkeypatch.delenv("XDG_CACHE_HOME")
+    assert ex.cache_dir() == Path.home() / ".cache" / "agrijax"
 
 
 def test_the_pinned_engine_is_v4860():
@@ -182,7 +195,9 @@ def test_reference_bundle_is_downloaded_checked_and_cached(tmp_path, served):
     assert (eng / "LICENSE").read_bytes() == b"BSD"
     import os
 
-    assert os.environ["AGRI_JAX_DSSAT"] == str(eng) and run_fortran.DSSAT_ENGINE == eng
+    # the session's engine, without writing the environment
+    assert run_fortran.DSSAT_ENGINE == eng and ex.installed_reference() == eng
+    assert os.environ["AGRI_JAX_DSSAT"] == ""
     ex.install_reference(asset=asset, verbose=False)
     assert asked == [asset.url]  # unpacked once
     # the pinned bundle: the validated build486 on the project's release

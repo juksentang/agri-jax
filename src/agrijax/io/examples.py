@@ -17,9 +17,9 @@ DSSAT's own experiment files; it needs no DSSAT program to run. Two kinds of fil
   licence and a provenance note), or, as a fallback, built from the ``dssat-csm-os`` v4.8.6.0 source
   with CMake and gfortran (:func:`build_dscsm048`).
 
-Everything is cached under :func:`cache_dir` (``AGRI_JAX_CACHE``, default ``~/.cache/agrijax``).
-``AGRI_JAX_DSSAT`` pointing to an engine root that already has ``dscsm048`` (and, for the data, its
-``example_data``) is used as it is, with nothing downloaded.
+Everything is cached under :func:`cache_dir` (``AGRI_JAX_CACHE``, else ``$XDG_CACHE_HOME/agrijax``,
+else ``~/.cache/agrijax``). ``AGRI_JAX_DSSAT`` pointing to an engine root that already has
+``dscsm048`` (and, for the data, its ``example_data``) is used as it is, with nothing downloaded.
 """
 
 from __future__ import annotations
@@ -55,6 +55,7 @@ __all__ = [
     "fetch_dssat_source",
     "fetch_examples",
     "install_reference",
+    "installed_reference",
 ]
 
 
@@ -163,8 +164,12 @@ def _check_replaceable(d: Path, mark: str) -> None:
 
 
 def cache_dir() -> Path:
-    """The download cache: ``AGRI_JAX_CACHE`` or ``~/.cache/agrijax``."""
-    return Path(os.environ.get("AGRI_JAX_CACHE") or Path.home() / ".cache" / "agrijax").expanduser()
+    """Agri-JAX's cache (downloads, the reference program, the facade's compilation cache):
+    ``AGRI_JAX_CACHE``, else ``$XDG_CACHE_HOME/agrijax`` (the XDG base-directory rule: an absolute
+    ``XDG_CACHE_HOME`` only), else ``~/.cache/agrijax``."""
+    from agrijax.port.run_fortran import cache_root
+
+    return cache_root()
 
 
 def sha256_of(path: str | os.PathLike[str]) -> str:
@@ -370,12 +375,23 @@ def fetch_dssat_data(root: str | os.PathLike[str] | None = None, *, verbose: boo
 
 
 def _use(engine: Path) -> None:
-    """Make ``engine`` the session's default DSSAT engine (``AGRI_JAX_DSSAT`` and
-    :data:`agrijax.port.run_fortran.DSSAT_ENGINE`, read by the calls that default to it)."""
+    """Make ``engine`` the session's default DSSAT engine: :data:`agrijax.port.run_fortran.DSSAT_ENGINE`,
+    which the calls that default to an engine read. The environment is left alone (``AGRI_JAX_DSSAT``
+    stays what you set; child processes are given their engine explicitly)."""
     from agrijax.port import run_fortran
 
-    os.environ["AGRI_JAX_DSSAT"] = str(engine)
+    global _installed
+    _installed = engine
     run_fortran.DSSAT_ENGINE = engine
+
+
+#: the engine :func:`install_reference` made the session's default (``None`` before its first call)
+_installed: Path | None = None
+
+
+def installed_reference() -> Path | None:
+    """The root :func:`install_reference` returned last in this process (``None`` before it ran)."""
+    return _installed
 
 
 def unpack_bundle(tgz: str | os.PathLike[str], root: str | os.PathLike[str]) -> Path:
@@ -402,7 +418,8 @@ def install_reference(
     asset: ReleaseAsset | None = None,
 ) -> Path:
     """The root of the DSSAT-CSM v4.8.6.0 reference program ``dscsm048`` (made the session's default,
-    ``AGRI_JAX_DSSAT``), to compare Agri-JAX with DSSAT; Agri-JAX itself does not need it.
+    :data:`agrijax.port.run_fortran.DSSAT_ENGINE`; ``os.environ`` is not changed), to compare Agri-JAX
+    with DSSAT; Agri-JAX itself does not need it.
 
     * ``AGRI_JAX_DSSAT`` set to an engine root that holds ``dscsm048``: that root, nothing downloaded;
     * otherwise the prebuilt bundle :data:`REFERENCE_BUNDLE` (the validated build486, statically
