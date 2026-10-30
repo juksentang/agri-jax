@@ -82,7 +82,7 @@ The two sides do different work. DSSAT writes complete daily files (303 kB of te
 | 10⁵ seasons, once, a whole 192-core node | either | 0.85× first run, 1.6× warm start |
 | Many calls at one array shape (calibration, sensitivity, ensembles) | Agri-JAX, CPU node or GPU | repeated 10⁵-season call 22–29× faster than DSSAT on 1–192 cores; 0.66 s on the node, 0.42 s on the H100. Keep parameters as arguments and pad the sample count to a few sizes: a new shape recompiles |
 | One GPU run or a few gradient steps | `AGRI_JAX_DEPTH_UNROLL=0` | unrolling makes each forward call 3.1× faster but adds about 45 s to a first run (10⁵ seasons; break-even about 50 repeated calls) and 251 s of compile in reverse mode (10⁴ seasons, 315.6 s against 64.2 s; break-even about 80 gradient calls) |
-| Forward runs only, large batches | float32 | H100 1.83–2.15×, CPU node 1.15–1.23×. Yield differs from float64 by 2.7e-7 (median) and by up to 1.5 % in one of the 57 DSSAT maize example treatments Agri-JAX runs; on 1 000 seasons with perturbed cultivar coefficients (cultivar coefficients only) by at most 8.1e-6 (`tests/integration/test_facade_float32_examples.py`). Not measured for gradients or calibration |
+| Forward runs only, large batches | float32 | H100 1.83–2.15×, CPU node 1.15–1.23×. Yield differs from float64 by 2.7e-7 (median) and by up to 1.5 % in one of the 57 DSSAT maize example treatments Agri-JAX runs; on 1 000 seasons with only the cultivar coefficients perturbed by at most 8.1e-6 (`tests/integration/test_facade_float32_examples.py`). Not measured for gradients or calibration |
 
 Not measured, so no ratio is given: 10⁶ or more seasons, T4 or Colab GPUs, laptops. The Agri-JAX side of the benchmark is `scripts/bench/d4_jax_scaling.py`.
 
