@@ -49,6 +49,8 @@ from typing import Any
 
 import numpy as np
 
+from agrijax.crops import MAIZE, CropModel, crop_of_filex
+
 __all__ = [
     "BatchResult",
     "DssatBatch",
@@ -66,8 +68,8 @@ __all__ = [
     "install_reference",
 ]
 
-#: the cultivar coefficients of ``MZCER048.CUL`` (column order)
-CULTIVAR = ("P1", "P2", "P5", "G2", "G3", "PHINT")
+#: the cultivar coefficients of ``MZCER048.CUL`` (column order; :attr:`agrijax.crops.MAIZE.cultivar`)
+CULTIVAR = MAIZE.cultivar
 #: the daily series of a season (column: meaning [unit]); the same names in :attr:`Reference.daily`
 DAILY = {
     "lai": "leaf area index [m2 m-2]",
@@ -81,7 +83,7 @@ _DSSAT_DAILY = {"lai": "LAID", "cwad": "CWAD", "gwad": "GWAD", "swtd": "SWTD"}
 #: yield and tops weight at maturity [kg ha-1]
 SUMMARY = ("ADAT", "MDAT", "HWAM", "CWAM")
 #: stage codes (CERES-Maize ``ISTAGE`` output) of the first day of silking and of maturity
-_SILKING, _MATURITY = 4, 10
+_SILKING, _MATURITY = MAIZE.stages
 #: days simulated past the reference season when the cultivar changes (a later-maturing candidate)
 PAD_DAYS = 60
 
@@ -600,6 +602,8 @@ class Experiment:
     _refs: dict[Any, Reference] = field(default_factory=dict, repr=False)
     _inputs: dict[Any, Any] = field(default_factory=dict, repr=False)
     _warned: set[int] = field(default_factory=set, repr=False)
+    #: the crop model of the experiment's FileX (:func:`agrijax.crops.crop_of_filex`)
+    crop: CropModel = field(default=MAIZE, repr=False)
 
     def __fspath__(self) -> str:
         return str(self.filex)
@@ -619,7 +623,6 @@ class Experiment:
         and DSSAT's measured yield change between nitrogen on and off (the model runs nitrogen off)."""
         import pandas as pd
 
-        from agrijax.calib.workflow import NITROGEN_STRESS
         from agrijax.io.dssat import read_filex
         from agrijax.io.dssat.native_management import unsupported_features
 
@@ -627,7 +630,7 @@ class Experiment:
         rows = []
         for n, tname in self.treatments.items():
             bad = unsupported_features(x, n)
-            ns = NITROGEN_STRESS.get(f"{self.name}_t{n:02d}")
+            ns = self.crop.nitrogen_effect.get(f"{self.name}_t{n:02d}")
             rows.append(
                 {
                     "treatment": n,
@@ -676,9 +679,9 @@ class Experiment:
     def _nitrogen_check(self, trno: int) -> None:
         """A :class:`NitrogenWarning` (once per treatment) when DSSAT's yield of ``trno`` changes by
         more than :data:`~agrijax.calib.workflow.NITROGEN_STRESS_OK` with nitrogen on."""
-        from agrijax.calib.workflow import NITROGEN_STRESS, NITROGEN_STRESS_OK
+        from agrijax.calib.workflow import NITROGEN_STRESS_OK
 
-        d = NITROGEN_STRESS.get(f"{self.name}_t{trno:02d}")
+        d = self.crop.nitrogen_effect.get(f"{self.name}_t{trno:02d}")
         if d is None or abs(d) <= NITROGEN_STRESS_OK or trno in self._warned:
             return
         self._warned.add(trno)
@@ -755,19 +758,19 @@ class Experiment:
         from agrijax.io.dssat.cultivar_write import write_cultivar
         from agrijax.sites.dssat_free_run import dssat_data_dir
 
-        src = dssat_data_dir(self.data) / "Genotype" / "MZCER048.CUL"
+        src = dssat_data_dir(self.data) / "Genotype" / self.crop.cul
         base = self.cultivars[trno]
         d = self._dir(tag)
         ids, table = [], []
         cur = src
         for i, s in enumerate(samples, start=1):
             cid = f"AJ{i:04d}"
-            dest = d / f"cul_{i % 2}" / "MZCER048.CUL"
+            dest = d / f"cul_{i % 2}" / src.name
             w = write_cultivar(cur, dest, cid, f"AgriJAX {base}"[:16], dict(s), base=base, overwrite=True)
             ids.append(cid)
             table.append(dict(w.written))
             cur = dest
-        final = d / "cul" / "MZCER048.CUL"
+        final = d / "cul" / src.name
         final.parent.mkdir(exist_ok=True)
         final.write_bytes(cur.read_bytes())
         return ids, final, table
@@ -1114,6 +1117,7 @@ def experiment(
         culs,
         str(fl.get("ID_SOIL", "")).strip(),
         str(fl.get("WSTA", "")).strip()[:4],
+        crop=crop_of_filex(fx),
     )
 
 

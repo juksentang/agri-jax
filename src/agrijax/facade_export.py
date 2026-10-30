@@ -70,6 +70,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 import agrijax
+from agrijax.crops import MAIZE
 from agrijax.dssat import (
     CULTIVAR,
     DAILY,
@@ -680,7 +681,7 @@ def write_summary_csv(obj: Any, path: str | os.PathLike[str], *, na_rep: str = "
             + " as in Summary.OUT ("
             + "; ".join(f"{c} {_SUMMARY_TEXT[c]}" for c in d.columns if c in SUMMARY_ORDER)
             + f"); {', '.join(fields)}: Agri-JAX scenario and cultivar fields (P1 ... PHINT are the names "
-            "of MZCER048.CUL), not Summary.OUT columns."
+            f"of {MAIZE.cul}), not Summary.OUT columns."
         )
         head = _header("end-of-season values of a batch", _AGRIJAX_SOURCE, text, na_rep)
         timing = getattr(obj, "timing", None) or {}
@@ -694,7 +695,7 @@ def write_summary_csv(obj: Any, path: str | os.PathLike[str], *, na_rep: str = "
     text = (
         "columns follow DSSAT's Summary.OUT where the quantity is the same: RUNNO, TRNO, EXNAME, "
         + "; ".join(f"{c} {_SUMMARY_TEXT[c]}" for c in shown)
-        + ". P1 ... PHINT are the cultivar coefficients (names of MZCER048.CUL) and SOURCE the program, "
+        + f". P1 ... PHINT are the cultivar coefficients (names of {MAIZE.cul}) and SOURCE the program, "
         "neither is a Summary.OUT column. RUNNO numbers the runs in the order given."
     )
     return _write(path, _header("end-of-season values", _source_line(runs), text, na_rep, runs), d, na_rep)
@@ -769,7 +770,7 @@ _SUMMARY_FIELDS: dict[str, _Field] = {
     **{c: _Field(c, 8) for c in SUMMARY_ORDER},
 }
 #: the model Agri-JAX re-implements (DSSAT's names for it): crop code and model name of the run header
-_CROP, _MODEL = "MZ", "MZCER048"
+_CROP, _MODEL, _CROP_NAME = MAIZE.code, MAIZE.model, MAIZE.name
 _SOIL_EVAPORATION = {"R": "Ritchie", "S": "SALUS"}
 #: the columns of dscsm048 v4.8.6's maize ``PlantGro.OUT`` and ``SoilWat.OUT`` (UFGA8201) that
 #: :func:`write_dssat_out` does not write, in their order there
@@ -875,7 +876,7 @@ def _run_block(i: int, r: _Run) -> list[str]:
     trno = -99 if r.trno is None else r.trno
     return [
         f"*RUN {i:>3d}        : {tnam:<25s} {_MODEL:<8s} {r.exname[:8]:<8s}{trno:>5d}",
-        f" MODEL          : {_MODEL} - Maize",
+        f" MODEL          : {_MODEL} - {_CROP_NAME}",
         f" EXPERIMENT     : {_experiment_line(r)}",
         " DATA PATH      :",
         f" TREATMENT{trno:>3d}   : {tnam:<25s} {_MODEL}",

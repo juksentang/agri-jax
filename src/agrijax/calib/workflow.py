@@ -115,6 +115,7 @@ from agrijax.calib.fit import (
     fit_cultivar,
 )
 from agrijax.calib.observations import ObservationError
+from agrijax.crops import MAIZE, CropModel, crop_of_filex
 
 __all__ = [
     "BASE_TARGETS",
@@ -294,7 +295,7 @@ class CalibrationResult:
         or a directory; the file must not exist); returns the row. ``cul_id`` defaults to this
         result's id, else the first free ``AJNNNN``."""
         ctx = self._ctx()
-        dest = _cul_dest(path)
+        dest = _cul_dest(path, ctx["cul_src"].name)
         if dest.exists():
             raise FileExistsError(f"write_cul: {dest} exists (remove it or choose another path)")
         cid, line, warn = _write_row(ctx, self.params, dest, cul_id or self.cul_id)
@@ -313,7 +314,7 @@ class CalibrationResult:
         ctx = self._ctx()
         work = _run_root()
         try:
-            dest = work / "cul" / "MZCER048.CUL"
+            dest = work / "cul" / ctx["cul_src"].name
             cid, _, _ = _write_row(ctx, self.params, dest, self.cul_id)
             if self.cul_id is None:
                 self.cul_id = cid
@@ -445,15 +446,27 @@ class CalibrationResult:
 
 # ------------------------------------------------------------------ inputs
 def _filex_path(exp: str | os.PathLike[str], engine: Path) -> Path:
+    """The FileX of ``exp`` (a FileX path, or an example name looked up in the ``example_data`` of
+    every implemented crop, :data:`agrijax.crops.CROPS`); :class:`ScopeError` for a crop Agri-JAX does
+    not implement."""
+    from agrijax.crops import CROPS, UnsupportedCropError, crop_of_filex
+
     p = Path(exp)
-    if p.suffix.upper() == ".MZX" and p.is_file():
-        return p.resolve()
-    if p.suffix and p.suffix.upper() != ".MZX":
-        raise ScopeError(f"{exp}: only maize experiments (.MZX) are supported")
-    q = engine / "example_data" / "Maize" / f"{p.name.upper()}.MZX"
-    if not q.is_file():
-        raise ScopeError(f"{exp}: no maize experiment file {q.name} in {q.parent} (pass the .MZX path)")
-    return q
+    if p.suffix:
+        try:
+            crop_of_filex(p)
+        except UnsupportedCropError as e:
+            raise ScopeError(f"{exp}: {e}") from e
+        if p.is_file():
+            return p.resolve()
+    tried = []
+    for c in CROPS.values():
+        for x in c.filex:
+            q = engine / "example_data" / c.examples / f"{p.name.upper()}{x}"
+            if q.is_file():
+                return q
+            tried.append(f"no {c.name.lower()} experiment file {q.name} in {q.parent} (pass the {x} path)")
+    raise ScopeError(f"{exp}: " + "; ".join(tried))
 
 
 def _parse_treatments(spec: Any, exps: Sequence[str], what: str) -> list[tuple[str, int]]:
@@ -491,16 +504,22 @@ def _parse_treatments(spec: Any, exps: Sequence[str], what: str) -> list[tuple[s
 
 
 def _scope_reason(
-    exp: str, trno: int, treatments: dict[int, str], data_dir: Path, inputs: str = "tables", filex: Any = None
+    exp: str,
+    trno: int,
+    treatments: dict[int, str],
+    data_dir: Path,
+    inputs: str = "tables",
+    filex: Any = None,
+    crop: CropModel = MAIZE,
 ) -> str | None:
     from agrijax.sites.dssat_free_run import missing_tables, treatment_key
 
-    if exp in OUT_OF_SCOPE:
-        return OUT_OF_SCOPE[exp]
+    if exp in crop.out_of_scope:
+        return crop.out_of_scope[exp]
     if trno not in treatments:
-        return f"no treatment {trno} in {exp}.MZX (treatments {sorted(treatments)})"
+        return f"no treatment {trno} in {exp}{crop.filex[0]} (treatments {sorted(treatments)})"
     key = treatment_key(exp, trno)
-    d = NITROGEN_STRESS.get(key)
+    d = crop.nitrogen_effect.get(key)
     if d is None:
         return (
             "its nitrogen stress is not measured (the model runs nitrogen off; the change of DSSAT's "
@@ -529,19 +548,19 @@ def _scope_reason(
     return None
 
 
-def _nitrogen_warning(key: str) -> str | None:
+def _nitrogen_warning(key: str, crop: CropModel = MAIZE) -> str | None:
     """The warning of an in-scope treatment where nitrogen matters a little: its yield change between
     nitrogen on and off is in the warning band (above :data:`NITROGEN_STRESS_OK`, up to
     :data:`NITROGEN_STRESS_MAX`), or its silking / maturity date changes with nitrogen on
-    (:data:`NITROGEN_DATES_DIFFER`); ``None`` otherwise."""
-    d = NITROGEN_STRESS[key]
+    (:data:`NITROGEN_DATES_DIFFER`); ``None`` otherwise. The tables are ``crop``'s."""
+    d = crop.nitrogen_effect[key]
     why: list[str] = []
     if abs(d) > NITROGEN_STRESS_OK:
         why.append(
             f"DSSAT yield with nitrogen on differs by {d:+.1%} from nitrogen off "
             f"(within the +-{NITROGEN_STRESS_MAX:.0%} limit, above +-{NITROGEN_STRESS_OK:.0%})"
         )
-    if key in NITROGEN_DATES_DIFFER:
+    if key in crop.nitrogen_dates_differ:
         why.append("DSSAT's silking (ADAT) or maturity (MDAT) date changes with nitrogen on")
     if not why:
         return None
@@ -721,10 +740,11 @@ def _dssat_run(
     }
 
 
-def _cul_dest(path: str | os.PathLike[str]) -> Path:
+def _cul_dest(path: str | os.PathLike[str], name: str) -> Path:
+    """``path``, or the file ``name`` (the crop's ``.CUL``) in it when it is a directory."""
     d = Path(path)
     if d.is_dir() or str(path).endswith(("/", os.sep)):
-        d = d / "MZCER048.CUL"
+        d = d / name
     return d
 
 
@@ -890,7 +910,6 @@ def calibrate(
         from agrijax.io.examples import fetch_dssat_data
 
         root = fetch_dssat_data()
-    cul_src = dssat_data_dir(root) / "Genotype" / "MZCER048.CUL"
     data_tab = Path(
         data_dir if data_dir is not None else os.environ.get("AGRI_JAX_DATA", "~/agri_jax_data")
     ).expanduser()
@@ -900,12 +919,17 @@ def calibrate(
         p = _filex_path(e, root)
         filex[p.stem.upper()] = p
     exps = list(filex)
+    crops = {crop_of_filex(p) for p in filex.values()}
+    if len(crops) != 1:
+        raise ScopeError(f"one crop per calibration, got {sorted(c.code for c in crops)}")
+    (crop,) = crops
+    cul_src = dssat_data_dir(root) / "Genotype" / crop.cul
     for e in exps:
-        if e in OUT_OF_SCOPE:
-            raise ScopeError(f"{e} is outside the supported scope: {OUT_OF_SCOPE[e]}")
+        if e in crop.out_of_scope:
+            raise ScopeError(f"{e} is outside the supported scope: {crop.out_of_scope[e]}")
     cul_dest: Path | None = None
     if write_cul is not None:
-        cul_dest = _cul_dest(write_cul)
+        cul_dest = _cul_dest(write_cul, crop.cul)
         if cul_dest.exists():
             raise FileExistsError(f"write_cul: {cul_dest} exists (remove it or choose another path)")
     cults = {e: _cultivars(filex[e]) for e in exps}
@@ -927,7 +951,7 @@ def calibrate(
         raise FileNotFoundError("the table inputs need dscsm048 (set AGRI_JAX_DSSAT or pass engine=)")
 
     def scope(e: str, t: int) -> str | None:
-        return _scope_reason(e, t, cults[e], data_tab, source, filex[e])
+        return _scope_reason(e, t, cults[e], data_tab, source, filex[e], crop)
 
     if treatments is None:
         cand = [(e, t) for e in exps for t in sorted(cults[e])]
@@ -962,7 +986,7 @@ def calibrate(
         )
     (cul_name,) = used_cul
     for e, t in [*cal, *hold]:
-        if (nw := _nitrogen_warning(treatment_key(e, t))) is not None:
+        if (nw := _nitrogen_warning(treatment_key(e, t), crop)) is not None:
             warn(nw)
     # ---------------------------------------------------------------- targets requested
     codes: list[str] | None = None
@@ -1096,7 +1120,7 @@ def calibrate(
         }
         cul_line = cul_path = None
         cid = cul_id
-        dest = cul_dest if cul_dest is not None else work / "cul" / "MZCER048.CUL"
+        dest = cul_dest if cul_dest is not None else work / "cul" / cul_src.name
         if write_cul is not None or dssat_check:
             cid, cul_line, wmsgs = _write_row(ctx, params_w, dest, cid)
             cul_path = dest if write_cul is not None else None
