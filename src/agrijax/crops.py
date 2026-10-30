@@ -12,7 +12,8 @@ A :class:`CropModel` holds what the facade (:mod:`agrijax.dssat`, :func:`agrijax
 :mod:`agrijax.facade_export`) needs to know about a crop: DSSAT's names for it (crop code, model,
 genotype files, FileX extensions, example directory), the cultivar coefficients it varies and
 calibrates, the stage codes of its anthesis and maturity, and where its implementation lives (the
-module of its rejection tables, its calibration adapter, its assembled day model). The values of
+module of its rejection tables, its calibration adapter, its assembled day model, the day simulator
+the calibration fits through). The values of
 those modules are not copied here: the bounds of the cultivar coefficients are declared once in the
 calibration adapter, the nitrogen-effect table once in the rejection-table module.
 
@@ -66,11 +67,15 @@ class CropModel:
     #: ``NITROGEN_DATES_DIFFER`` (treatments whose stage dates change with nitrogen on)
     scope: str
     #: module of the calibration adapter (the bounds, units and sources of the cultivar coefficients);
-    #: named, not yet dispatched on: :func:`agrijax.calibrate` and the gradient, weather and execution
-    #: entry points import the CERES-Maize adapter directly while maize is the one registered crop
+    #: named, not yet dispatched on: the fit (:func:`agrijax.calib.fit.fit_cultivar`) and the gradient,
+    #: weather and execution entry points import the CERES-Maize adapter directly while maize is the
+    #: one registered crop
     calibration: str
     #: module of the assembled day model; named, not yet dispatched on (as ``calibration``)
     day: str
+    #: module of the day simulator the calibration fits through (its ``DaySimulator``):
+    #: :func:`agrijax.calibrate` builds it from the record (:attr:`day_simulator`)
+    simulator: str
 
     @property
     def cul(self) -> str:
@@ -106,6 +111,11 @@ class CropModel:
         """Treatments (``EXP_tNN``) whose stage dates change with nitrogen on."""
         return self._table("NITROGEN_DATES_DIFFER")
 
+    @property
+    def day_simulator(self) -> Any:
+        """The ``simulator`` module's ``DaySimulator`` (read when asked, as the tables)."""
+        return importlib.import_module(self.simulator).DaySimulator
+
     def describe(self) -> str:
         """``MZ Maize (CERES-Maize, .MZX)``."""
         return f"{self.code} {self.name} ({self.implementation}, {', '.join(self.filex)})"
@@ -127,6 +137,7 @@ MAIZE = CropModel(
     scope="agrijax.calib.workflow",
     calibration="agrijax.calib.ceres",
     day="agrijax.models.day_dssat486",
+    simulator="agrijax.calib.dssat_day",
 )
 
 #: the implemented crops by crop code, in lookup order

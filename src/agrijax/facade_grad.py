@@ -137,6 +137,8 @@ from typing import Any
 
 import numpy as np
 
+from agrijax.crops import MAIZE
+
 __all__ = [
     "DEFAULT_OUTPUTS",
     "EXPERIMENTAL",
@@ -931,7 +933,7 @@ def gradient(
     treatment: int,
     *,
     outputs: Sequence[str] | str = DEFAULT_OUTPUTS,
-    params: Sequence[str] | str = ("P1", "P2", "P5", "G2", "G3", "PHINT"),
+    params: Sequence[str] | str = MAIZE.cultivar,
     cultivar: Mapping[str, float] | None = None,
     scan_points: int = SCAN_POINTS,
     soil_evaporation: str | None = None,
@@ -981,7 +983,7 @@ def sensitivity(
     scenarios: Any,
     *,
     outputs: Sequence[str] | str = DEFAULT_OUTPUTS,
-    params: Sequence[str] | str = ("P1", "P2", "P5", "G2", "G3", "PHINT"),
+    params: Sequence[str] | str = MAIZE.cultivar,
     cultivar: Mapping[str, float] | None = None,
     scan_points: int = SCAN_POINTS,
 ) -> Sensitivity:

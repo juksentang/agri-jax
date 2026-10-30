@@ -273,7 +273,7 @@ def stage_filex(filex: Path, mesev: str, dest: Path, what: str | None = None) ->
     with the files next to it that the runs read (``<name>.<CR>*``, ``CR`` the crop code of its
     extension: the observed files, and the ``.SOL`` soil files); returns the staged file."""
     dest.mkdir(parents=True, exist_ok=True)
-    for f in [*filex.parent.glob(filex.stem + filex.suffix[:3] + "*"), *filex.parent.glob("*.SOL")]:
+    for f in [*filex.parent.glob(filex.stem + filex.suffix[:3].upper() + "*"), *filex.parent.glob("*.SOL")]:
         shutil.copy2(f, dest / f.name)
     text = filex.read_bytes().decode("latin-1").split("\x1a", 1)[0]
     staged = dest / filex.name

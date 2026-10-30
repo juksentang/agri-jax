@@ -699,10 +699,9 @@ def _reference_inputs(
     return free_run_inputs(filex, trno, out, data, engine=r, source=source)
 
 
-def _day_simulator(runs: Sequence[Any], entries: Sequence[Sequence[Entry]]) -> Any:
-    from agrijax.calib.dssat_day import DaySimulator
-
-    return DaySimulator(runs, entries)
+def _day_simulator(runs: Sequence[Any], entries: Sequence[Sequence[Entry]], crop: CropModel = MAIZE) -> Any:
+    """The day simulator of ``crop`` (:attr:`agrijax.crops.CropModel.day_simulator`) on ``runs``."""
+    return crop.day_simulator(runs, entries)
 
 
 def _dssat_run(
@@ -1085,7 +1084,7 @@ def calibrate(
                 ]
             )
 
-        sim = _day_simulator(runs, [t.entries for t in tr_list])
+        sim = _day_simulator(runs, [t.entries for t in tr_list], crop)
         problem = CultivarProblem(
             simulate=sim,
             treatments=tr_list,

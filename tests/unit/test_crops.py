@@ -122,3 +122,36 @@ def test_no_maize_literal_in_the_facade_code(module):
         if v in ("MZ", "Maize") or "MZCER048" in v or ".MZ" in v
     ]
     assert not bad, f"{module}: maize literals in code {bad}"
+
+
+@pytest.mark.parametrize("module", _FACADE)
+def test_no_cultivar_name_tuple_in_the_facade_code(module):
+    """The facade's coefficient list is the record's: no tuple or list literal of the maize cultivar
+    names (``gradient`` / ``sensitivity`` default to ``MAIZE.cultivar``)."""
+    bad = [
+        n.lineno
+        for n in ast.walk(ast.parse((SRC / module).read_text()))
+        if isinstance(n, (ast.Tuple, ast.List))
+        and tuple(e.value for e in n.elts if isinstance(e, ast.Constant)) == MAIZE.cultivar
+    ]
+    assert not bad, f"{module}: cultivar-name literals at lines {bad}"
+
+
+def test_calibrate_builds_the_day_simulator_from_the_record():
+    from agrijax.calib.dssat_day import DaySimulator
+
+    assert MAIZE.simulator == "agrijax.calib.dssat_day"
+    assert MAIZE.day_simulator is DaySimulator
+
+
+def test_stage_filex_copies_the_observed_files_of_a_lower_case_filex(tmp_path):
+    from agrijax.facade_swap import stage_filex
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "TWIN8201.mzx").write_bytes(b"@N METHODS MESEV\n 1 ME         R\n")
+    for name in ("TWIN8201.MZA", "TWIN8201.MZT", "X.SOL", "TWIN8201.SBA"):
+        (src / name).write_bytes(b"")
+    stage_filex(src / "TWIN8201.mzx", "R", tmp_path / "dest")
+    assert {"TWIN8201.MZA", "TWIN8201.MZT", "X.SOL"} <= {p.name for p in (tmp_path / "dest").iterdir()}
+    assert not (tmp_path / "dest" / "TWIN8201.SBA").exists()

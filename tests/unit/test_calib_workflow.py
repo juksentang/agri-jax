@@ -690,7 +690,7 @@ def _twin_obs(env: float) -> dict:
 class _TwinDay:
     """Stands in for the free-run day simulator (same interface) on the fake runs."""
 
-    def __init__(self, runs, entries):
+    def __init__(self, runs, entries, crop=None):
         e_n = max(len(e) for e in entries)
         self.tab = {n: np.zeros((len(runs), e_n)) for n in ("kind", "out", "t")}
         for b, ent in enumerate(entries):
