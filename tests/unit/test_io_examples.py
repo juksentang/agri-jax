@@ -197,6 +197,19 @@ def test_reference_from_agri_jax_dssat_downloads_nothing(tmp_path, monkeypatch, 
     assert asked == [] and "nothing downloaded" in msgs[0] and run_fortran.DSSAT_ENGINE == eng
 
 
+def test_agri_jax_dssat_set_after_install_reference_wins(tmp_path, monkeypatch):
+    import agrijax.dssat as ajd
+
+    first = _fake_engine(tmp_path / "first", {})
+    later = _fake_engine(tmp_path / "later", {})
+    monkeypatch.setenv("AGRI_JAX_DSSAT", str(first))
+    assert ex.install_reference(verbose=False) == first and ajd.engine() == first
+    monkeypatch.setenv("AGRI_JAX_DSSAT", str(later))  # the user's later setting replaces the session's
+    assert ajd.engine() == later
+    monkeypatch.setenv("AGRI_JAX_DSSAT", "")
+    assert ajd.engine() == first
+
+
 def test_reference_bundle_is_downloaded_checked_and_cached(tmp_path, served):
     pages, asked = served
     blob = _tgz("dssat-x", {"bin/dscsm048": b"ELF", "bin/Genotype/MZCER048.CUL": b"cul", "LICENSE": b"BSD"})

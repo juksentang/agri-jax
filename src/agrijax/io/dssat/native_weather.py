@@ -242,7 +242,14 @@ def _check_daily(
     """The other stops of ``DailyWeatherCheck`` on the simulated days (``REAL*4`` values): a daily
     radiation above :attr:`~WeatherInputCoefficients.srad_max` (ErrCode 2), and ``TMAX`` and ``TMIN``
     both zero at the hundredth of a degree (``NINT(TMAX*100.) == 0 .AND. NINT(TMIN*100.) == 0``,
-    ErrCode 4: a record of zeros, not weather). Raises ``ValueError`` naming the first such day."""
+    ErrCode 4: a record of zeros, not weather). Raises ``ValueError`` naming the first such day.
+
+    Deliberately conservative, like the other checks of :func:`native_weather`: they run on every day
+    built, which includes the days after maturity and the real-weather days added after the season,
+    while DSSAT checks only the days it reads (and on the first day falls back to the next record
+    instead of stopping). A treatment DSSAT completes can therefore be refused for a bad record after
+    its end; the host side cannot know that end before the run, and such a record is an error in the
+    weather file either way."""
     scale = _F(c.temp_zero_scale)
     zero = np.asarray(
         [nint(a * scale) == 0 and nint(b * scale) == 0 for a, b in zip(tmax, tmin, strict=True)]

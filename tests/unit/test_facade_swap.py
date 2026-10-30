@@ -467,6 +467,10 @@ def test_calibrate_with_data_does_not_resolve_the_default(exp, monkeypatch):
     assert calls[0][1]["data"] == exp.data
     with pytest.raises(AssertionError, match="default data directory"):
         ajd.calibrate(str(exp.filex), [1])  # without data= it is resolved
+    ajd.calibrate(str(exp.filex), [1], engine=exp.data)  # engine= only: calib takes the engine's data
+    assert calls[-1][1].get("data") is None and calls[-1][1]["engine"] == exp.data
+    ajd.calibrate(str(exp.filex), [1], engine=exp.data, soil_evaporation="salus")  # the swap stages from it
+    assert fs.own_mesev(calls[-1][0], 1) == "S"
 
 
 def test_calibrate_swap_needs_the_native_inputs(exp, monkeypatch):

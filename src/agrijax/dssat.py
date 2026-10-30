@@ -118,9 +118,9 @@ def data(root: str | os.PathLike[str] | None = None) -> Path:
 
 def engine(root: str | os.PathLike[str] | None = None) -> Path:
     """The root of the DSSAT reference program: ``root`` (must hold ``dscsm048``, else
-    :class:`DssatNotFoundError`), else the one :func:`install_reference` installed in this process,
-    else ``AGRI_JAX_DSSAT`` when it holds one, else :func:`install_reference` (downloads the prebuilt
-    reference program on first use)."""
+    :class:`DssatNotFoundError`), else ``AGRI_JAX_DSSAT`` when it holds one (also when set after
+    :func:`install_reference` ran), else the one :func:`install_reference` installed in this process,
+    else :func:`install_reference` (downloads the prebuilt reference program on first use)."""
     from agrijax.port import run_fortran
 
     if root is not None:
@@ -133,7 +133,7 @@ def engine(root: str | os.PathLike[str] | None = None) -> Path:
         return Path(root)
     from agrijax.io.examples import installed_reference
 
-    for cand in (installed_reference(), os.environ.get("AGRI_JAX_DSSAT"), run_fortran.DSSAT_ENGINE):
+    for cand in (os.environ.get("AGRI_JAX_DSSAT"), installed_reference(), run_fortran.DSSAT_ENGINE):
         if cand and run_fortran.dscsm_paths(Path(cand))[0].is_file():
             return Path(cand)
     return install_reference()
@@ -1178,7 +1178,9 @@ def calibrate(
         kw.setdefault("data", experiment.data)
         if experiment._engine is not None:
             kw.setdefault("engine", experiment._engine)
-    elif kw.get("data") is None:  # data= given: the default data directory is not resolved (no download)
+    elif kw.get("data") is None and kw.get("engine") is None:
+        # data= or engine= given: the default data directory is not resolved (no download); with an
+        # engine only, calib.workflow.calibrate takes the engine's data
         kw["data"] = data()
     kw.setdefault("inputs", "native")
     if soil_evaporation is None:
@@ -1190,7 +1192,11 @@ def calibrate(
             f"soil_evaporation={soil_evaporation!r} needs the native inputs, got inputs={kw['inputs']!r}: "
             "the table inputs hold the experiment's own soil evaporation"
         )
-    staged = facade_swap.calibration_experiment(experiment, Path(kw["data"]), soil_evaporation)
+    root = kw.get("data")
+    if root is None:  # engine= only: its data if it has them (as calib.workflow.calibrate)
+        eng = Path(kw["engine"])
+        root = eng if (eng / "example_data").is_dir() else data()
+    staged = facade_swap.calibration_experiment(experiment, Path(root), soil_evaporation)
     res = _calibrate(staged, treatments, cultivar, **kw)
     res.notes.append(facade_swap.note(soil_evaporation))
     return res

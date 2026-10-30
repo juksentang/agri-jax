@@ -16,7 +16,7 @@ What this adds, as user code that continues the quick start of :mod:`agrijax`::
 DSSAT-CSM. ``"float32"`` is an opt-in for forward runs (a season, a batch of scenarios and cultivar
 samples) where speed and memory matter more than the last digits. What was measured, float32
 against float64 on the same inputs, both on the CPU
-(``tests/integration/test_facade_float32_examples.py``, which prints these figures; a Fir CPU node,
+(``tests/integration/test_facade_float32_examples.py``, which prints these figures; a CPU node,
 JAX 0.10.2, 2026-10-30):
 
 * every DSSAT maize example treatment the facade runs (57 treatments of the ``example_data/Maize``
