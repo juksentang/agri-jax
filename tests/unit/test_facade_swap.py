@@ -100,7 +100,6 @@ def _experiment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str = _FI
     (weather / "UFGA8201.WTH").write_text("")
     e = ajd.experiment("SWAP8201", data_root=tmp_path / "eng")
     monkeypatch.setenv("AGRI_JAX_RUN_ROOT", str(tmp_path / "run"))
-    monkeypatch.setattr(ajd, "_x64", lambda: None)  # nothing here runs a model: leave the JAX setting alone
     monkeypatch.setattr(ajd, "data", lambda root=None: e.data)  # no download of DSSAT's data
     return e
 
@@ -455,6 +454,23 @@ def test_calibrate_by_name_and_path_and_several(exp, monkeypatch):
     ajd.calibrate([exp, str(exp.filex)], [1], soil_evaporation="salus")
     both = calls[2][0]
     assert isinstance(both, list) and [fs.own_mesev(p, 1) for p in both] == ["S", "S"]
+
+
+def test_calibrate_with_data_does_not_resolve_the_default(exp, monkeypatch):
+    calls = _capture_calibrate(monkeypatch)
+
+    def no_default(*_a: Any) -> Any:
+        raise AssertionError("the default data directory was resolved")
+
+    monkeypatch.setattr(ajd, "data", no_default)
+    ajd.calibrate(str(exp.filex), [1], data=exp.data)
+    assert calls[0][1]["data"] == exp.data
+    with pytest.raises(AssertionError, match="default data directory"):
+        ajd.calibrate(str(exp.filex), [1])  # without data= it is resolved
+    ajd.calibrate(str(exp.filex), [1], engine=exp.data)  # engine= only: calib takes the engine's data
+    assert calls[-1][1].get("data") is None and calls[-1][1]["engine"] == exp.data
+    ajd.calibrate(str(exp.filex), [1], engine=exp.data, soil_evaporation="salus")  # the swap stages from it
+    assert fs.own_mesev(calls[-1][0], 1) == "S"
 
 
 def test_calibrate_swap_needs_the_native_inputs(exp, monkeypatch):

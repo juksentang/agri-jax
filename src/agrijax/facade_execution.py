@@ -15,29 +15,28 @@ What this adds, as user code that continues the quick start of :mod:`agrijax`::
 **Precision.** ``"float64"`` (the default) is the precision the model is validated in against
 DSSAT-CSM. ``"float32"`` is an opt-in for forward runs (a season, a batch of scenarios and cultivar
 samples) where speed and memory matter more than the last digits. What was measured, float32
-against float64 on the same inputs (the free-run DSSAT-CSM v4.8.6 maize day of this package: the 65
-acceptance runs, the 58 CERES-Maize treatments and 7 nitrogen-off CA-TPA seasons; JAX 0.10.2, a CPU
-node and an H100; the runs are ``scripts/bench/d4_jax_scaling.py equal --precision f32`` against
-``--precision f64``, the 10 000 samples its ``sweep``; the script that tabulates the differences
-is not part of this release, so these figures are reported, not re-checked by a test here; the
-figures the tests do check follow below):
+against float64 on the same inputs, both on the CPU
+(``tests/integration/test_facade_float32_examples.py``, which prints these figures; a CPU node,
+JAX 0.10.2, 2026-10-30):
 
-* grain yield at maturity: relative difference median 3e-7; 64 of the 65 runs within 1e-3; the
-  largest is 1.5e-2, in one treatment, where a threshold of the model is crossed differently in the
-  last bits (not a drift; in that run the float32 value happens to lie nearer to the DSSAT program's
-  own, which computes in single precision, which is no sign that float32 is more accurate);
-* emergence, silking and maturity dates: unchanged in all 65 runs;
-* on 10 000 samples with the cultivar coefficients P1, P5, G2, G3, PHINT and the soil's curve number
-  and drainage constant SWCON perturbed by +-10 %: yield median 3.5e-7, 99th percentile 3.6e-5,
-  largest 1.2e-2 (13 samples above 1e-3); stage dates unchanged in all 30 000 dates;
+* every DSSAT maize example treatment the facade runs (57 treatments of the ``example_data/Maize``
+  experiments; the 19 others need a DSSAT process Agri-JAX does not implement and are refused): grain
+  yield at the end of the season, relative difference median 2.7e-7, 56 of the 57 within 1e-3, the
+  largest 1.5e-2 in one treatment (BRPI0202 t04; tops weight there 7.0e-3, median 5.2e-7);
+  silking and maturity dates unchanged in all 57;
+* UFGA8201 treatment 4 on its ten weather years 1978-1987 x 100 cultivar samples with P1, P5, G2, G3
+  and PHINT drawn within +-10 % of the published values (1000 seasons): yield median 2.0e-7, 99th
+  percentile 5.8e-6, largest 8.1e-6; stage dates unchanged in all 2000;
 * float32 on a CPU and float32 on a GPU are not bit-identical (XLA's float32 division on a GPU is not
-  correctly rounded): on the 65 runs the yields differ by up to 2.2e-5 relative between the two
-  (growth stages identical; the cause is documented in :mod:`agrijax.core.grad`, ``_divide``).
+  correctly rounded; the cause is documented in :mod:`agrijax.core.grad`, ``_divide``): the figures
+  of a GPU follow below.
 
-Float32 is therefore for point estimates and ensemble statistics; do not use it to calibrate against
-the reference at the 0.1 % level or for gradients (neither was tested for this model in float32), and compare
-float32 results with float64 ones to the tolerance above, not bit for bit. :func:`agrijax.calibrate`
-runs in float64 only and refuses a block with float32 options.
+A single season can move by a percent or so where a threshold of the model is crossed differently in
+the last bits, while the bulk agrees to a few 1e-7. Float32 is therefore for point estimates and
+ensemble statistics; do not use it to calibrate against the reference at the 0.1 % level or for
+gradients (neither was tested for this model in float32), and compare float32 results with float64
+ones to the tolerance above, not bit for bit. :func:`agrijax.calibrate` runs in float64 only and
+refuses a block with float32 options.
 
 The facade's own check on DSSAT's example experiment UFGA8201 is
 ``tests/integration/test_facade_execution.py`` (a CPU node, JAX 0.10.2): treatments 4 and 6 and a
@@ -56,35 +55,63 @@ does see and how to get a GPU build. On a GPU the first call of a batch compiles
 layer loops are unrolled by the backend setting of :mod:`agrijax.core.execution`; the option is not
 repeated here); the compiled programs are kept per precision and device, so a repeated call is fast.
 
-**Your JAX settings stay yours.** Calls with ``precision=`` / ``device=`` (and a ``with
-aj.options(...)`` block) snapshot ``jax_enable_x64`` and ``jax_default_device`` on entry and put them
-back on exit, also when the call raises: the facade's float64 switch (which the plain calls leave on,
-as before) is undone. Float32 runs only inside the call, in a program traced with ``x64`` off, while
-the inputs are built in float64 and rounded once to float32. ``with aj.options():`` with no argument
-is the way to run the defaults and leave your JAX settings as they were. JAX's configuration is
-process-wide: do not change it from another thread while such a call runs.
+**Your JAX settings stay yours.** Every facade call (``exp.run``, ``exp.scenarios``, ``scen.run``,
+``aj.calibrate``, the gradients and sensitivities) switches ``jax_enable_x64`` on for its own duration
+only, when it was off, and switches it off again on return, also when the call raises
+(:func:`facade_scope`). A result that computes later (``scen.run`` on scenarios made earlier, the
+companions of a weather sensitivity) does the same on each call, so it works whatever the setting is
+by then. Calls with ``precision=`` / ``device=`` (and a ``with aj.options(...)`` block) also snapshot
+``jax_default_device`` and put it back. Float32 runs only inside the call, in a program traced with
+``x64`` off, while the inputs are built in float64 and rounded once to float32. JAX's configuration is
+process-wide: do not change it from another thread while a facade call runs.
+
+**The compilation cache.** The facade's programs take seconds to compile; JAX's persistent compilation
+cache keeps them on disk, so a new Python process does not compile them again. Facade calls use it by
+default, in :func:`compile_cache_dir`: ``AGRI_JAX_COMPILE_CACHE`` when it names a directory, else
+``<cache>/jax`` under Agri-JAX's cache (``AGRI_JAX_CACHE``, else ``$XDG_CACHE_HOME/agrijax``, else
+``~/.cache/agrijax``). ``AGRI_JAX_COMPILE_CACHE=0`` switches it off. Your own JAX setting wins: when
+``jax_compilation_cache_dir`` is set (``JAX_COMPILATION_CACHE_DIR`` or ``jax.config.update``) or the
+cache is switched off (``jax_enable_compilation_cache``), the facade uses your setting and changes
+nothing. Otherwise the cache is set for the facade call only and taken away after it, so your own
+compilations outside facade calls are not cached by Agri-JAX. The cache holds compiled programs that
+JAX runs: keep it in your own cache directory, not in one others can write to.
 """
 
 from __future__ import annotations
 
 import contextlib
 import contextvars
+import functools
 import os
 import re
+import sys
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import Any, TypeVar
 
 import numpy as np
 
 __all__ = [
+    "COMPILE_CACHE_ENV",
     "PRECISIONS",
     "DeviceNotFoundError",
     "Options",
     "active",
+    "compile_cache_dir",
+    "facade_call",
+    "facade_scope",
     "options",
+    "warn_caller",
 ]
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+#: the environment variable of the facade's compilation cache: a directory, or ``0`` / ``off`` /
+#: ``false`` / ``no`` to switch it off (unset or empty: the default directory, :func:`compile_cache_dir`)
+COMPILE_CACHE_ENV = "AGRI_JAX_COMPILE_CACHE"
+_OFF = frozenset({"0", "off", "false", "no"})
 
 #: the precisions of a run: the validated default first
 PRECISIONS = ("float64", "float32")
@@ -302,6 +329,106 @@ def _x64(enabled: bool) -> Iterator[None]:
     finally:
         if bool(jax.config.jax_enable_x64) != before:
             jax.config.update("jax_enable_x64", before)
+
+
+# ------------------------------------------------------------------ the scope of a facade call
+#: nested facade scopes in this context: only the outermost changes JAX's settings
+_DEPTH: contextvars.ContextVar[int] = contextvars.ContextVar("agrijax_facade_depth", default=0)
+
+
+def compile_cache_dir() -> Path | None:
+    """The directory of the facade's persistent compilation cache (module docstring): the one
+    ``AGRI_JAX_COMPILE_CACHE`` names, ``None`` when it switches the cache off (``0``, ``off``,
+    ``false``, ``no``), else ``<cache>/jax`` under :func:`agrijax.io.examples.cache_dir`. Used only
+    when your JAX configuration sets no cache directory of its own."""
+    raw = os.environ.get(COMPILE_CACHE_ENV, "").strip()
+    if raw.lower() in _OFF:
+        return None
+    if raw:
+        return Path(raw).expanduser()
+    from agrijax.io.examples import cache_dir
+
+    return cache_dir() / "jax"
+
+
+def _cache_reset() -> Callable[[], None] | None:
+    """JAX's ``reset_cache`` (the cache object is made again at the next compilation), ``None`` when
+    this JAX has none (the facade then leaves the compilation cache alone)."""
+    try:
+        from jax.experimental.compilation_cache import compilation_cache as cc
+    except ImportError:
+        return None
+    return getattr(cc, "reset_cache", None)
+
+
+@contextlib.contextmanager
+def _compile_cache() -> Iterator[None]:
+    """The facade's compilation cache for the block, when your JAX configuration names none and does not
+    switch the cache off (module docstring); then nothing set, as before."""
+    import jax
+
+    mine = jax.config.jax_compilation_cache_dir is None and bool(jax.config.jax_enable_compilation_cache)
+    path = compile_cache_dir() if mine else None
+    reset = _cache_reset() if path is not None else None
+    if path is None or reset is None:
+        yield
+        return
+    jax.config.update("jax_compilation_cache_dir", str(path))
+    reset()  # JAX makes its cache object once, at the first compilation that sees a directory
+    try:
+        yield
+    finally:
+        if jax.config.jax_compilation_cache_dir == str(path):
+            jax.config.update("jax_compilation_cache_dir", None)
+            reset()  # later compilations outside facade calls see no cache, as before the call
+
+
+@contextlib.contextmanager
+def facade_scope() -> Iterator[None]:
+    """The scope of one facade call: ``jax_enable_x64`` on (the facade's day is validated in float64)
+    and the compilation cache of :func:`compile_cache_dir`, both put back as they were on exit, also
+    when the block raises. Nested scopes change nothing (the outermost one owns the settings); an
+    :func:`options` block inside one still switches x64 off for its float32 programs."""
+    depth = _DEPTH.get()
+    token = _DEPTH.set(depth + 1)
+    try:
+        if depth:
+            yield
+            return
+        with _x64(True), _compile_cache():
+            yield
+    finally:
+        _DEPTH.reset(token)
+
+
+def facade_call(fn: _F) -> _F:
+    """``fn`` run in a :func:`facade_scope` (the decorator of every facade entry point and of every
+    result method that runs JAX later): the call sees float64, the caller's JAX settings are back
+    after it."""
+
+    @functools.wraps(fn)
+    def call(*args: Any, **kwargs: Any) -> Any:
+        with facade_scope():
+            return fn(*args, **kwargs)
+
+    call.__agrijax_facade_call__ = True  # type: ignore[attr-defined]
+    return call  # type: ignore[return-value]
+
+
+_PACKAGE = os.path.dirname(os.path.abspath(__file__)) + os.sep
+
+
+def warn_caller(message: str, category: type[Warning] = UserWarning) -> None:
+    """``warnings.warn(message, category)`` reported at the first frame outside the ``agrijax``
+    package: the user's line, however many facade wrappers (:func:`facade_call`) and internal calls lie
+    between (a fixed ``stacklevel`` would point into the library; ``skip_file_prefixes`` needs Python
+    3.12). The outermost frame when every frame is the package's."""
+    frame = sys._getframe(1)
+    level = 2  # warnings.warn's stacklevel of the frame that called warn_caller
+    while frame.f_back is not None and os.path.abspath(frame.f_code.co_filename).startswith(_PACKAGE):
+        frame = frame.f_back
+        level += 1
+    warnings.warn(message, category, stacklevel=level)
 
 
 @contextlib.contextmanager

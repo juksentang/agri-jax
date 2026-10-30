@@ -67,6 +67,7 @@ __all__ = [
     "DscsmResult",
     "FortranRunError",
     "RzwqmResult",
+    "cache_root",
     "check_dscsm_outputs",
     "check_rzwqm_outputs",
     "dscsm_paths",
@@ -82,10 +83,27 @@ DATA_ROOT = Path(os.environ.get("AGRI_JAX_DATA", str(Path.home() / "agri_jax_dat
 RUN_ROOT = Path(os.environ.get("AGRI_JAX_RUN_ROOT", str(DATA_ROOT / "run")))
 RZWQM_TOOL = DATA_ROOT / "narval_mirror" / "RZWQM_Tool"
 RZWQM_BINARY = RZWQM_TOOL / "main_ryzen5_avx512"
+
+
+def cache_root() -> Path:
+    """Agri-JAX's cache directory (:func:`agrijax.io.examples.cache_dir`): ``AGRI_JAX_CACHE``, else
+    ``$XDG_CACHE_HOME/agrijax`` (an absolute ``XDG_CACHE_HOME`` only, as the XDG base-directory
+    specification says), else ``~/.cache/agrijax``. An existing ``~/.cache/agrijax`` (the location of
+    earlier versions, which did not read ``XDG_CACHE_HOME``) is kept while ``$XDG_CACHE_HOME/agrijax``
+    does not exist, so its downloads are not fetched again."""
+    own = os.environ.get("AGRI_JAX_CACHE")
+    if own:
+        return Path(own).expanduser()
+    home = Path.home() / ".cache" / "agrijax"
+    xdg = os.environ.get("XDG_CACHE_HOME", "")
+    if not xdg or not Path(xdg).is_absolute():
+        return home
+    there = Path(xdg) / "agrijax"
+    return home if not there.exists() and home.is_dir() else there
+
+
 #: where :func:`agrijax.dssat.install_reference` unpacks the DSSAT-CSM reference program by default
-DEFAULT_DSSAT_ENGINE = (
-    Path(os.environ.get("AGRI_JAX_CACHE") or Path.home() / ".cache" / "agrijax") / "dssat-4.8.6-build486"
-)
+DEFAULT_DSSAT_ENGINE = cache_root() / "dssat-4.8.6-build486"
 #: DSSAT-CSM engine root; ``AGRI_JAX_DSSAT`` (the name the tests use) or ``AGRI_JAX_DSSAT_ENGINE``,
 #: else :data:`DEFAULT_DSSAT_ENGINE`.
 DSSAT_ENGINE = Path(

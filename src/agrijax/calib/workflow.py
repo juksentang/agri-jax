@@ -115,6 +115,7 @@ from agrijax.calib.fit import (
 )
 from agrijax.calib.observations import ObservationError
 from agrijax.crops import CROPS, MAIZE, CropModel, UnsupportedCropError, crop_of_filex
+from agrijax.facade_execution import warn_caller
 
 __all__ = [
     "BASE_TARGETS",
@@ -628,12 +629,11 @@ def _observations(
             if m.kind == "date":
                 if np.trunc(val) <= 0:
                     continue
+                # observation_targets above has read this date (an unreadable one raised
+                # ObservationError there), so it reads here too
                 d = reada_date(float(val), int(days[0]), None)
                 if d is None:
-                    errors.append(
-                        {"treatment": run.key, "code": c, "observed": float(val), "unreadable": True}
-                    )
-                    continue
+                    raise ObservationError(f"{run.key}: observed {c} {val:g} is not a readable date")
                 errors.append(
                     {
                         "treatment": run.key,
@@ -935,7 +935,7 @@ def calibrate(
 
     def warn(m: str) -> None:
         msgs.append(m)
-        warnings.warn(m, CalibrationWarning, stacklevel=3)
+        warn_caller(m, CalibrationWarning)
 
     hold = _parse_treatments(holdout, exps, "holdout")
     asked = (
@@ -1041,11 +1041,7 @@ def calibrate(
         if errors:
             lines = []
             for e in errors:
-                if e.get("unreadable"):
-                    lines.append(
-                        f"{e['treatment']}: observed {e['code']} {e['observed']:g} is not a readable date"
-                    )
-                elif "last_day" in e:
+                if "last_day" in e:
                     lines.append(
                         f"{e['treatment']}: observed {e['code']} {e['observed']} lies outside the simulated "
                         f"days {e['first_day']}-{e['last_day']} (the reference season, whose input tables "

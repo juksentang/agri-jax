@@ -23,10 +23,12 @@ running DSSAT (:func:`agrijax.sites.dssat_free_run.dssat_free_inputs`: the FileX
 own maturity). Treatments that need a DSSAT process Agri-JAX does not implement are refused with
 the reason (:class:`~agrijax.sites.dssat_free_run.NativeInputError`); a treatment where DSSAT's
 yield changes by more than 2 % with nitrogen on runs with a :class:`NitrogenWarning`. The day runs
-in float64 (it is validated against DSSAT in float64): these calls switch ``jax_enable_x64`` on.
-Opt-in float32 and the choice of device (``run(..., precision="float32", device="gpu")``,
-``with aj.options(...)``), which leave your JAX settings as they were, are in
-:mod:`agrijax.facade_execution`.
+in float64 (it is validated against DSSAT in float64): each call switches ``jax_enable_x64`` on for
+its own duration and puts your setting back after it (results that compute later, such as
+:meth:`Scenarios.run`, do the same on each call); the compiled programs are kept in a persistent
+compilation cache unless your JAX configuration names its own or ``AGRI_JAX_COMPILE_CACHE=0``. Opt-in
+float32, the choice of device (``run(..., precision="float32", device="gpu")``, ``with
+aj.options(...)``) and the details of both are in :mod:`agrijax.facade_execution`.
 
 **DSSAT itself** (``dscsm048`` v4.8.6.0) is only the reference to compare with: :meth:`Experiment.reference`,
 :meth:`Experiment.dssat_batch`, :meth:`Scenarios.reference` and the calibration's DSSAT check run it,
@@ -41,7 +43,6 @@ import datetime as _dt
 import os
 import tempfile
 import time
-import warnings
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +51,7 @@ from typing import Any
 import numpy as np
 
 from agrijax.crops import MAIZE, CropModel, crop_of_filex
+from agrijax.facade_execution import facade_call, warn_caller
 
 __all__ = [
     "BatchResult",
@@ -115,17 +117,11 @@ def data(root: str | os.PathLike[str] | None = None) -> Path:
     return examples.fetch_dssat_data(root)
 
 
-def _x64() -> None:
-    import jax
-
-    if not jax.config.jax_enable_x64:
-        jax.config.update("jax_enable_x64", True)
-
-
 def engine(root: str | os.PathLike[str] | None = None) -> Path:
     """The root of the DSSAT reference program: ``root`` (must hold ``dscsm048``, else
-    :class:`DssatNotFoundError`), else ``AGRI_JAX_DSSAT`` when it holds one, else
-    :func:`install_reference` (downloads the prebuilt reference program on first use)."""
+    :class:`DssatNotFoundError`), else ``AGRI_JAX_DSSAT`` when it holds one (also when set after
+    :func:`install_reference` ran), else the one :func:`install_reference` installed in this process,
+    else :func:`install_reference` (downloads the prebuilt reference program on first use)."""
     from agrijax.port import run_fortran
 
     if root is not None:
@@ -136,9 +132,11 @@ def engine(root: str | os.PathLike[str] | None = None) -> Path:
                 "reference program, or pass the root of an engine that has it"
             )
         return Path(root)
-    eng = Path(os.environ.get("AGRI_JAX_DSSAT") or run_fortran.DSSAT_ENGINE)
-    if run_fortran.dscsm_paths(eng)[0].is_file():
-        return eng
+    from agrijax.io.examples import installed_reference
+
+    for cand in (os.environ.get("AGRI_JAX_DSSAT"), installed_reference(), run_fortran.DSSAT_ENGINE):
+        if cand and run_fortran.dscsm_paths(Path(cand))[0].is_file():
+            return Path(cand)
     return install_reference()
 
 
@@ -185,6 +183,20 @@ class Season:
     #: ``"failed"`` (a crop failure set the end), ``"harvested"`` (not mature by the harvest day) or
     #: ``"censored"`` (not mature by the last day of real weather; :data:`SUMMARY`'s ``MDAT`` is then NaN)
     end: str = "matured"
+
+    def __repr__(self) -> str:
+        d = self.daily
+        span = f"{int(d['yrdoy'].iloc[0])}-{int(d['yrdoy'].iloc[-1])}, {len(d)} days" if len(d) else "no days"
+        sm = self.summary
+
+        def date(k: str) -> str:
+            v = sm.get(k, np.nan)
+            return str(int(v)) if np.isfinite(v) else "-"
+
+        return (
+            f"Season({self.treatment}: {span}, {self.end}; ADAT {date('ADAT')}, MDAT {date('MDAT')}, "
+            f"HWAM {sm.get('HWAM', np.nan):.0f}, CWAM {sm.get('CWAM', np.nan):.0f} kg/ha; {self.precision})"
+        )
 
     def compare_daily(self, reference: Reference) -> Any:
         """Daily differences to ``reference`` (the DSSAT run) on the days both report, per series:
@@ -399,6 +411,23 @@ class Scenarios:
     _exp: Any = field(default=None, repr=False)
     _sim: Any = field(default=None, repr=False)
 
+    def to_frame(self) -> Any:
+        """:func:`agrijax.facade_export.to_frame`: :attr:`table` as a pandas table (a copy)."""
+        from agrijax import facade_export
+
+        return facade_export.to_frame(self)
+
+    def to_pandas(self) -> Any:
+        """:meth:`to_frame` (the same table)."""
+        return self.to_frame()
+
+    def to_xarray(self) -> Any:
+        """:func:`agrijax.facade_export.to_xarray`: an ``xarray.Dataset`` with the dimension ``season``
+        (one per scenario) and the scenario fields as coordinates."""
+        from agrijax import facade_export
+
+        return facade_export.to_xarray(self)
+
     def reference(self) -> Any:
         """``dscsm048`` on every scenario (published cultivar, nitrogen off, one process per scenario;
         the wall time of each run, staging and DSSAT's output files included, in :attr:`dssat_s`):
@@ -425,6 +454,7 @@ class Scenarios:
         self.dssat_s = secs
         return pd.DataFrame(rows)
 
+    @facade_call
     def run(
         self, cultivar: Any = None, *, precision: str | None = None, device: str | None = None
     ) -> BatchResult:
@@ -455,7 +485,6 @@ class Scenarios:
         )
         from agrijax.facade_execution import active, simulator
 
-        _x64()
         t0 = time.perf_counter()
         theta = _samples(cultivar, self.published)
         k, n_s = theta.shape[0], len(self.runs)
@@ -502,6 +531,7 @@ class Scenarios:
         }
         return BatchResult(pd.DataFrame(rows), timing, self.treatment)
 
+    @facade_call
     def sensitivity(
         self,
         outputs: Sequence[str] | str = ("HWAM", "CWAM"),
@@ -521,6 +551,7 @@ class Scenarios:
 
         return sensitivity(self, outputs=outputs, params=params, cultivar=cultivar, scan_points=scan_points)
 
+    @facade_call
     def weather_sensitivity(
         self,
         outputs: Sequence[str] | str = ("HWAM",),
@@ -619,8 +650,9 @@ class Experiment:
         return f"Experiment({self.name}: {self.title}; {len(self.treatments)} treatments)"
 
     def table(self) -> Any:
-        """One row per treatment: name, cultivar, whether the native inputs support it (else why)
-        and DSSAT's measured yield change between nitrogen on and off (the model runs nitrogen off)."""
+        """One row per treatment: name, cultivar, whether Agri-JAX runs it (``"supported"``: ``"yes"``, or
+        the DSSAT processes it would need that Agri-JAX does not implement) and DSSAT's measured yield
+        change between nitrogen on and off (the model runs nitrogen off)."""
         import pandas as pd
 
         from agrijax.io.dssat import read_filex
@@ -636,7 +668,7 @@ class Experiment:
                     "treatment": n,
                     "name": tname,
                     "cultivar": self.cultivars[n],
-                    "native inputs": "yes" if not bad else "; ".join(bad),
+                    "supported": "yes" if not bad else "; ".join(bad),
                     "yield change with nitrogen on": f"{ns:+.1%}" if ns is not None else "not measured",
                 }
             )
@@ -685,12 +717,11 @@ class Experiment:
         if d is None or abs(d) <= NITROGEN_STRESS_OK or trno in self._warned:
             return
         self._warned.add(trno)
-        warnings.warn(
+        warn_caller(
             f"{self.name} treatment {trno}: the model runs nitrogen off, and DSSAT's yield on this "
             f"treatment changes by {d:+.1%} with nitrogen on; its simulated yield is the "
             "nitrogen-unlimited one (exp.table() lists the treatments where nitrogen matters)",
             NitrogenWarning,
-            stacklevel=4,  # _nitrogen_check <- inputs <- run / scenarios <- the caller
         )
 
     def _run_ref(
@@ -775,6 +806,7 @@ class Experiment:
         final.write_bytes(cur.read_bytes())
         return ids, final, table
 
+    @facade_call
     def dssat_batch(self, treatment: int, cultivar: Any, soil_evaporation: str | None = None) -> DssatBatch:
         """``dscsm048`` on ``treatment`` for each cultivar sample (``cultivar`` as in
         :meth:`Scenarios.run`, at most 99 samples), in one batch run (one process): the per-season
@@ -804,6 +836,7 @@ class Experiment:
         return DssatBatch(f"{self.name}_t{trno:02d}", pd.DataFrame(rows), secs, k)
 
     # -------------------------------------------------------------- Agri-JAX runs
+    @facade_call
     def inputs(self, treatment: int, soil_evaporation: str | None = None) -> Any:
         """The treatment's inputs (:class:`~agrijax.sites.dssat_free_run.FreeRunInputs`), built from
         DSSAT's files without running DSSAT, with :data:`PAD_DAYS` days of real weather after the
@@ -823,7 +856,6 @@ class Experiment:
     def _build(self, filex: Path, trno: int) -> Any:
         from agrijax.sites.dssat_free_run import free_run_inputs
 
-        _x64()
         return free_run_inputs(
             filex,
             trno,
@@ -834,6 +866,7 @@ class Experiment:
             extend_days=PAD_DAYS,
         )
 
+    @facade_call
     def run(
         self,
         treatment: int,
@@ -867,7 +900,6 @@ class Experiment:
         from agrijax.facade_execution import active, simulate
         from agrijax.sites.dssat_free_run import _pad
 
-        _x64()
         x = self.inputs(treatment, soil_evaporation)
         pad = PAD_DAYS if cultivar else 0
         o = simulate(x, cultivar, pad_days=pad)
@@ -908,6 +940,7 @@ class Experiment:
         labels = {"experiment": self.title, "treatment": self.treatments.get(int(x.trno), "")}
         return Season(x.key, daily, summary, cul, x, o, active().precision, labels, END_NAMES[status])
 
+    @facade_call
     def scenarios(
         self,
         treatment: int,
@@ -928,7 +961,6 @@ class Experiment:
         from agrijax import facade_swap
         from agrijax.sites.dssat_free_run import shift_filex_dates
 
-        _x64()
         trno = self._trno(treatment)
         swap = facade_swap.swap_code(self, trno, soil_evaporation)
         text = facade_swap.swapped_text(self, trno, swap)
@@ -960,6 +992,7 @@ class Experiment:
             f"{self.name}_t{trno:02d}", pd.DataFrame(rows), runs, base.published(), files, _exp=self
         )
 
+    @facade_call
     def run_batch(
         self,
         treatment: int,
@@ -989,6 +1022,7 @@ class Experiment:
             treatment, years=years, sowing_shift=sowing_shift, soil_evaporation=soil_evaporation
         ).run(cultivar)
 
+    @facade_call
     def gradient(
         self,
         treatment: int,
@@ -1004,7 +1038,9 @@ class Experiment:
         to the cultivar coefficients ``params``, at the published cultivar (or ``cultivar``): a
         :class:`~agrijax.facade_grad.Gradient` (``.table``, ``.trust``). Every coefficient carries a
         trust label (``validated gradient`` / ``falls back`` / ``experimental``); derivatives through
-        phenology events (``P1``, ``P2``, ``P5``, ``PHINT``) are experimental. ``soil_evaporation``
+        phenology events (``P1``, ``P2``, ``P5``, ``PHINT``) are experimental. A label holds at the
+        resolution of its line scan (``scan_points`` over +-10 % of each coefficient's range: 0.1 % of
+        the range apart at 201): a jump narrower than the spacing can go unseen. ``soil_evaporation``
         as in :meth:`run`. Float64 on JAX's default device only. Details: :mod:`agrijax.facade_grad`."""
         from agrijax.facade_grad import gradient
 
@@ -1018,6 +1054,7 @@ class Experiment:
             soil_evaporation=soil_evaporation,
         )
 
+    @facade_call
     def weather_sensitivity(
         self,
         treatment: int,
@@ -1121,6 +1158,7 @@ def experiment(
     )
 
 
+@facade_call
 def calibrate(
     experiment: Any,
     treatments: Any = None,
@@ -1139,13 +1177,14 @@ def calibrate(
     from agrijax.facade_execution import require_default_options
 
     require_default_options("aj.calibrate")
-    _x64()
     if isinstance(experiment, Experiment):
         kw.setdefault("data", experiment.data)
         if experiment._engine is not None:
             kw.setdefault("engine", experiment._engine)
-    else:
-        kw.setdefault("data", data())
+    elif kw.get("data") is None and kw.get("engine") is None:
+        # data= or engine= given: the default data directory is not resolved (no download); with an
+        # engine only, calib.workflow.calibrate takes the engine's data
+        kw["data"] = data()
     kw.setdefault("inputs", "native")
     if soil_evaporation is None:
         return _calibrate(experiment, treatments, cultivar, **kw)
@@ -1156,7 +1195,11 @@ def calibrate(
             f"soil_evaporation={soil_evaporation!r} needs the native inputs, got inputs={kw['inputs']!r}: "
             "the table inputs hold the experiment's own soil evaporation"
         )
-    staged = facade_swap.calibration_experiment(experiment, Path(kw["data"]), soil_evaporation)
+    root = kw.get("data")
+    if root is None:  # engine= only: its data if it has them (as calib.workflow.calibrate)
+        eng = Path(kw["engine"])
+        root = eng if (eng / "example_data").is_dir() else data()
+    staged = facade_swap.calibration_experiment(experiment, Path(root), soil_evaporation)
     res = _calibrate(staged, treatments, cultivar, **kw)
     res.notes.append(facade_swap.note(soil_evaporation))
     return res

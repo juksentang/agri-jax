@@ -347,8 +347,8 @@ def test_run_without_options_is_the_unchanged_float64_call():
     assert x.calls == [
         {"x64": True, "device": jax.config.jax_default_device, "cultivar": None, "pad_days": 0}
     ]
-    # the plain call keeps the facade's float64 switch on, as before; options are how to undo it
-    assert jax.config.jax_enable_x64
+    # the plain call ran in float64 and put the user's setting back (the facade scope)
+    assert not jax.config.jax_enable_x64
 
 
 def test_run_with_device_runs_float64_on_that_device_and_puts_the_settings_back():

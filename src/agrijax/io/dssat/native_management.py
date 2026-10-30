@@ -47,6 +47,7 @@ from .observed import y4k_date
 
 __all__ = [
     "DSSAT_MANAGEMENT_INPUT",
+    "MAIZE_CROP",
     "ManagementInputCoefficients",
     "ResidueParameters",
     "Switches",
@@ -60,6 +61,8 @@ __all__ = [
 
 REF = "dssat-4.8.6.0"
 _F = np.float32
+#: the FileX crop code (``*CULTIVARS`` ``CR``) of the one crop the native inputs build: maize (CERES-Maize)
+MAIZE_CROP = "MZ"
 
 
 def _p(file_line: str, routine: str, note: str = "") -> Provenance:
@@ -374,6 +377,12 @@ def unsupported_features(
     tr = treatment_levels(x, trno)
     sw = switches(x, trno)
     out: list[str] = []
+    cu = x.get("CULTIVARS", {}).get(int(tr.get("CU", 0) or 0), {})
+    crop = str(cu.get("CR", "") or "").strip().upper()
+    if crop and crop != MAIZE_CROP:
+        out.append(
+            f"crop CR = {crop}: unsupported crop (only maize, CR = {MAIZE_CROP}, CERES-Maize, is implemented)"
+        )
     if sw.water != "Y":
         out.append("WATER != Y: the free run simulates the soil water")
     if sw.wther != "M":

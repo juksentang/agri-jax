@@ -360,43 +360,54 @@ def test_observations_outside_the_season_are_loud(tmp_path):
     assert not errors3
 
 
-def _unreadable_in_the_workflow_layer(monkeypatch):
-    """``reada_date`` that reads nothing, in the one place ``workflow._observations`` takes it from.
-
-    ``_observations`` imports ``reada_date`` from ``agrijax.io.dssat.observed`` when it is called, so that
-    is the name to patch for its own check; ``agrijax.calib.observations`` bound the function by name
-    when it was first imported, so a patch of the ``observed`` module does not reach it - unless that
-    first import happens under the patch (a test run alone), which would bind the stub for the rest of
-    the process. This test module therefore imports ``observations`` at the top (``obs_mod``) and the
-    precondition below says so. The layer of ``observations`` has its own test below."""
-    import agrijax.io.dssat.observed as observed_mod
-
-    assert obs_mod.reada_date is observed_mod.reada_date, "observations.reada_date must be the real reader"
-    monkeypatch.setattr(observed_mod, "reada_date", lambda *a, **k: None)
+def _bad_mdat(d: Path, mdat: int) -> None:
+    """The synthetic A file of :func:`_write_observed` with treatment 1's ``MDAT`` replaced."""
+    a = d / "TEST8201.MZA"
+    a.write_text(a.read_text().replace("   132   200 0.300", f"   132 {mdat:5d} 0.300"))
 
 
-def test_unreadable_observed_date_is_an_observation_error(tmp_path, monkeypatch):
-    """An A-file date that cannot be placed and that ``reada_date`` cannot read is reported as
-    "not a readable date" (an ``ObservationError`` naming the treatment and code), never dropped.
-    With the real ``reada_date`` this record is defensive: the function returns ``None`` only for
-    values the preceding positive-date test already skips, so the test substitutes it (in the
-    workflow layer; see :func:`_unreadable_in_the_workflow_layer`)."""
-    obs = read_observed(_write_observed(tmp_path))
-    _unreadable_in_the_workflow_layer(monkeypatch)
-    # treatment 1: MDAT 200 lies after the last simulated day (190), so it is not placed as a target
-    _, errors, _, _, _ = _observations(obs, _run(1), None)
-    assert errors == [{"treatment": "TEST8201_t01", "code": "MDAT", "observed": 200.0, "unreadable": True}]
-    # a code left out of ``targets`` raises nothing
-    _, errors2, _, _, _ = _observations(obs, _run(1), ["HWAM", "ADAT"])
+#: what ``_date_of`` says of day of year 400 in 1982, in the message of the ObservationError
+_DOY_400 = r"\(date 1982400: day of year 400 outside 1\.\.365 of 1982\)"
+
+
+def test_unreadable_observed_date_is_an_observation_error(tmp_path):
+    """An A-file date that cannot be a date (day of year 400) is an ``ObservationError`` naming the
+    treatment, the code and why, never a raw ``ValueError`` and never dropped. ``_observations`` meets
+    it in ``observation_targets`` (the layer below), which reads every A-file date first."""
+    x = _write_observed(tmp_path)
+    _bad_mdat(tmp_path, 400)
+    obs = read_observed(x)
+    with pytest.raises(
+        ObservationError, match=r"^TEST8201_t01: observed MDAT 400 is not a readable date " + _DOY_400
+    ):
+        _observations(obs, _run(1), None)
+    # treatment 2 has readable dates; a code left out of ``targets`` raises nothing
+    _, errors2, _, _, _ = _observations(obs, _run(2), None)
     assert not errors2
+    _, errors3, _, _, _ = _observations(obs, _run(1), ["HWAM", "ADAT"])
+    assert not errors3
+    # day 366 of a common year, as a YYDDD code
+    _write_observed(tmp_path)
+    _bad_mdat(tmp_path, 82366)
+    with pytest.raises(
+        ObservationError, match=r"observed MDAT 82366 is not a readable date .*day of year 366"
+    ):
+        _observations(read_observed(x), _run(1), None)
 
 
 def test_observation_targets_unreadable_date_is_an_observation_error(tmp_path, monkeypatch):
     """The layer below: ``observation_targets`` raises ``ObservationError`` (treatment key and code, the
-    wording of the workflow's) where it used to ``assert``; the stub is patched where it is used
-    (``agrijax.calib.observations.reada_date``), whatever the order of the tests or their imports."""
-    obs = read_observed(_write_observed(tmp_path))
+    wording of the workflow's) for a date ``reada_date`` cannot read (it raises ``ValueError``) and for
+    one it returns nothing for (``None``; the stub is patched where it is used,
+    ``agrijax.calib.observations.reada_date``, whatever the order of the tests or their imports)."""
+    x = _write_observed(tmp_path)
     days = np.asarray(yrdoy_range(1982056, 1982190), dtype=np.int64)
+    _bad_mdat(tmp_path, 400)
+    with pytest.raises(
+        ObservationError, match=r"^TEST8201_t01: observed MDAT 400 is not a readable date " + _DOY_400
+    ):
+        obs_mod.observation_targets(read_observed(x), [1, 2], np.stack([days, days]))
+    obs = read_observed(_write_observed(tmp_path))
     monkeypatch.setattr(obs_mod, "reada_date", lambda *a, **k: None)
     # ADAT 132 and MDAT 200 are positive dates on both treatments: the first one read is treatment 1's ADAT
     with pytest.raises(ObservationError, match=r"^TEST8201_t01: observed ADAT 132 is not a readable date$"):
@@ -422,19 +433,17 @@ def test_calibrate_reports_an_unreadable_date(tmp_path, monkeypatch):
     from agrijax.calib import calibrate
 
     eng, data = _fake_setup(tmp_path, monkeypatch)
-    # treatment 4's observed maturity on day of year 300, after the twin's last day (255)
+    # treatment 4's observed maturity on day of year 400: no date of any year
     mza = eng / "example_data" / "Maize" / "UFGA8201.MZA"
     o = _twin_obs(_ENV[4])
     mza.write_text(
         "*EXP. DATA (A): UFGA8201MZ synthetic\n\n@TRNO   ADAT  MDAT   HWAM   CWAM   H#AM\n"
-        f"{4:6d}{int(_T0 % 1000 + o['ADAT']):6d}{300:6d}{o['HWAM']:7.1f}{o['CWAM']:7.1f}{o['H#AM']:7.1f}\n"
+        f"{4:6d}{int(_T0 % 1000 + o['ADAT']):6d}{400:6d}{o['HWAM']:7.1f}{o['CWAM']:7.1f}{o['H#AM']:7.1f}\n"
     )
-    _unreadable_in_the_workflow_layer(monkeypatch)
     with pytest.raises(
-        ObservationError, match=r"UFGA8201_t04: observed MDAT 300 is not a readable date"
-    ) as exc:
+        ObservationError, match=r"UFGA8201_t04: observed MDAT 400 is not a readable date \(date"
+    ):
         calibrate("UFGA8201", treatments=[4], data_dir=data, engine=eng)
-    assert "nothing is dropped silently" in str(exc.value)
 
 
 # ------------------------------------------------------------------ scope and arguments

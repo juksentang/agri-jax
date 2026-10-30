@@ -62,7 +62,7 @@ from agrijax.io.rzwqm.storms import (
     read_met_modifiers,
     storm_arrays,
 )
-from agrijax.port.run_fortran import DEFAULT_DSSAT_ENGINE
+from agrijax.port import run_fortran
 
 __all__ = [
     "CERES_SPECIES_KEYS",
@@ -201,9 +201,10 @@ class CatpaPaths:
     @classmethod
     def under(cls, data_dir: str | Path | None = None, dssat_engine: str | Path | None = None) -> CatpaPaths:
         """``<data>/narval_mirror/RZWQM_sw_batch/CA-TPA/Scenario`` and the 4.8.6 ecotype file of
-        ``dssat_engine`` (default ``$AGRI_JAX_DSSAT``)."""
+        ``dssat_engine`` (default ``$AGRI_JAX_DSSAT``, else the session's engine
+        :data:`agrijax.port.run_fortran.DSSAT_ENGINE`, which :func:`agrijax.dssat.install_reference` sets)."""
         root = Path(data_dir or os.environ.get("AGRI_JAX_DATA", "~/agri_jax_data")).expanduser()
-        eng = Path(dssat_engine or os.environ.get("AGRI_JAX_DSSAT", str(DEFAULT_DSSAT_ENGINE))).expanduser()
+        eng = Path(dssat_engine or os.environ.get("AGRI_JAX_DSSAT") or run_fortran.DSSAT_ENGINE).expanduser()
         return cls(
             scenario=root / "narval_mirror" / "RZWQM_sw_batch" / "CA-TPA" / "Scenario",
             eco48=eng / "source" / "Data" / "Genotype" / "MZCER048.ECO",

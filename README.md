@@ -39,7 +39,7 @@ season.compare_summary(ref)                        # dates and yield against DSS
 res.check_dssat()                                  # the calibrated row run in DSSAT
 ```
 
-Agri-JAX builds every input from DSSAT's own files (FileX, `.SOL`, `.WTH`, `.CUL` / `.ECO` / `.SPE`), downloaded once from DSSAT's repositories at fixed versions; the DSSAT program is needed only for the comparison calls (`exp.reference`, `check_dssat`). Treatments that need a DSSAT process Agri-JAX does not implement yet are refused with the reason (see Limitations). Calls outside `aj.options(...)` switch JAX to float64 for the rest of the process, since the model is validated in float64. `.OUT` files written by Agri-JAX say so in their header. The [tutorial](tutorial/agrijax_tutorial.ipynb) walks through all of this; calibration details are in [docs/calibration.md](docs/calibration.md).
+Agri-JAX builds every input from DSSAT's own files (FileX, `.SOL`, `.WTH`, `.CUL` / `.ECO` / `.SPE`), downloaded once from DSSAT's repositories at fixed versions; the DSSAT program is needed only for the comparison calls (`exp.reference`, `check_dssat`). Treatments that need a DSSAT process Agri-JAX does not implement yet are refused with the reason (see Limitations). Each call runs in float64, since the model is validated in float64, and puts your JAX settings back when it returns (`jax_enable_x64` included); the compiled programs are kept in a persistent compilation cache (`$XDG_CACHE_HOME/agrijax/jax` or `~/.cache/agrijax/jax`; your own `JAX_COMPILATION_CACHE_DIR` wins, `AGRI_JAX_COMPILE_CACHE=0` switches it off). `.OUT` files written by Agri-JAX say so in their header. The [tutorial](tutorial/agrijax_tutorial.ipynb) walks through all of this; calibration details are in [docs/calibration.md](docs/calibration.md).
 
 ## Validation
 
@@ -82,7 +82,7 @@ The two sides do different work. DSSAT writes complete daily files (303 kB of te
 | 10⁵ seasons, once, a whole 192-core node | either | 0.85× first run, 1.6× warm start |
 | Many calls at one array shape (calibration, sensitivity, ensembles) | Agri-JAX, CPU node or GPU | repeated 10⁵-season call 22–29× faster than DSSAT on 1–192 cores; 0.66 s on the node, 0.42 s on the H100. Keep parameters as arguments and pad the sample count to a few sizes: a new shape recompiles |
 | One GPU run or a few gradient steps | `AGRI_JAX_DEPTH_UNROLL=0` | unrolling makes each forward call 3.1× faster but adds about 45 s to a first run (10⁵ seasons; break-even about 50 repeated calls) and 251 s of compile in reverse mode (10⁴ seasons, 315.6 s against 64.2 s; break-even about 80 gradient calls) |
-| Forward runs only, large batches | float32 | H100 1.83–2.15×, CPU node 1.15–1.23×. Yield differs from float64 by 3.3e-7 (median) and by up to 1.5 % in one of the 65 validation seasons; on 10 000 perturbed samples 13 of the 9076 seasons with grain differ by more than 0.1 %, at most 1.15 %. Not measured for gradients or calibration |
+| Forward runs only, large batches | float32 | H100 1.83–2.15×, CPU node 1.15–1.23×. Yield differs from float64 by 2.7e-7 (median) and by up to 1.5 % in one of the 57 DSSAT maize example treatments Agri-JAX runs; on 1 000 seasons with five cultivar coefficients perturbed (±10 %), yield differs by at most 8.1e-6 (`tests/integration/test_facade_float32_examples.py`). Not measured for gradients or calibration |
 
 Not measured, so no ratio is given: 10⁶ or more seasons, T4 or Colab GPUs, laptops. The Agri-JAX side of the benchmark is `scripts/bench/d4_jax_scaling.py`.
 

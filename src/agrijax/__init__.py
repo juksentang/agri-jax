@@ -20,6 +20,8 @@ The short way in (``import agrijax as aj``; everything below is imported on firs
   ``device=`` keywords of ``run`` (:mod:`agrijax.facade_execution`); your JAX settings are put back.
 """
 
+# pyright: reportUnsupportedDunderAll=false
+# (the names of __all__ are served by __getattr__; type checkers read them from __init__.pyi)
 from __future__ import annotations
 
 import importlib
@@ -54,4 +56,16 @@ def __dir__() -> list[str]:
     return sorted({*globals(), *_LAZY})
 
 
-__all__ = ["__version__"]
+#: the public names: ``__version__`` and those of ``_LAZY`` (``from agrijax import *`` imports them, and
+#: with them JAX); type checkers and IDEs read them from ``__init__.pyi``
+__all__ = [
+    "DeviceNotFoundError",
+    "__version__",
+    "calib",
+    "calibrate",
+    "dssat",
+    "export",
+    "machine",
+    "options",
+    "plot",
+]

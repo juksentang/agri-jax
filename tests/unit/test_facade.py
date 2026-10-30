@@ -55,6 +55,28 @@ def test_import_is_light_and_names_are_lazy():
     assert "JAX" in aj.machine() and "logical cores" in aj.machine()
 
 
+def test_the_type_stub_names_every_lazy_name():
+    """``agrijax/__init__.pyi`` (what IDEs and type checkers read) declares the names ``__init__.py``
+    serves lazily, and ``__all__`` lists them."""
+    import ast
+
+    stub = Path(aj.__file__).with_suffix(".pyi")
+    tree = ast.parse(stub.read_text())
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            names |= {a.asname or a.name for a in node.names if a.asname}
+        elif isinstance(node, ast.Assign | ast.AnnAssign):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names |= {t.id for t in targets if isinstance(t, ast.Name)}
+    lazy = set(aj._LAZY)
+    assert lazy <= names, sorted(lazy - names)
+    assert set(aj.__all__) == lazy | {"__version__"}
+    stub_all = next(n for n in tree.body if isinstance(n, ast.Assign) and n.targets[0].id == "__all__")  # type: ignore[attr-defined]
+    assert set(ast.literal_eval(stub_all.value)) == set(aj.__all__)
+    assert (Path(aj.__file__).parent / "py.typed").is_file()
+
+
 def test_missing_reference_program_says_how_to_get_it(tmp_path):
     with pytest.raises(ajd.DssatNotFoundError, match=r"install_reference\(\)"):
         ajd.engine(tmp_path)
@@ -81,7 +103,8 @@ def test_experiment_description(tmp_path):
     assert exp.soil == "IBMZ910014" and exp.station == "UFGA"
     assert Path(exp) == exp.filex  # os.PathLike: accepted where a path is
     t = exp.table()
-    assert t.loc[1, "native inputs"] == "yes" and "WTHMOD" in t.loc[2, "native inputs"]
+    assert t.loc[1, "supported"] == "yes" and "WTHMOD" in t.loc[2, "supported"]
+    assert list(t.columns) == ["name", "cultivar", "supported", "yield change with nitrogen on"]
     assert t.loc[1, "yield change with nitrogen on"] == "not measured"
     with pytest.raises(ValueError, match="no treatment 7"):
         exp.reference(7)
@@ -156,6 +179,31 @@ def test_season_comparisons():
     assert c.loc["HWAM", "difference"] == pytest.approx(-100 / 10100)
 
 
+def test_season_repr_is_one_short_line():
+    summ = {"ADAT": 1982140.0, "MDAT": float("nan"), "HWAM": 10000.4, "CWAM": 20000.0}
+    s = ajd.Season("T_t01", _daily(100), summ, {"G2": 1.0}, None, {}, end="censored")
+    r = repr(s)
+    assert r == (
+        "Season(T_t01: 1982057-1982156, 100 days, censored; ADAT 1982140, MDAT -, HWAM 10000, CWAM 20000 "
+        "kg/ha; float64)"
+    )
+    assert "\n" not in r and len(r) < 120
+
+
+def test_scenarios_export_their_table():
+    tab = pd.DataFrame({"year": [1980, 1981], "sowing_shift": [0, 0], "PDAT": [1980100, 1981100],
+                        "ADAT": [1980180.0, 1981181.0], "MDAT": [1980230.0, 1981231.0],
+                        "HWAM": [9000.0, 9100.0], "CWAM": [18000.0, 18100.0]})  # fmt: skip
+    sc = ajd.Scenarios("T_t01", tab, [None, None], {})
+    f = sc.to_frame()
+    pd.testing.assert_frame_equal(f, tab)
+    assert f is not tab  # a copy
+    assert sc.to_pandas().equals(f)
+    ds = sc.to_xarray()
+    assert ds.sizes["season"] == 2 and ds["HWAM"].values.tolist() == [9000.0, 9100.0]
+    assert ds["year"].values.tolist() == [1980, 1981]
+
+
 def test_figures_draw_from_tables():
     import matplotlib
 
@@ -201,6 +249,44 @@ def test_nitrogen_limited_treatments_warn_once(tmp_path, monkeypatch):
         warnings.simplefilter("error")
         exp.inputs(1)  # once per treatment
         exp.inputs(2)  # nitrogen does not matter here
+
+
+def test_the_nitrogen_warning_points_at_the_callers_line(tmp_path, monkeypatch):
+    """The warning names the user's file and line, not a line of the library, however many facade
+    wrappers lie between: ``exp.inputs`` directly, through ``exp.run`` and through ``exp.run`` with
+    execution options (``run`` calls itself inside an options block)."""
+    import warnings
+
+    from agrijax import facade_execution as fe
+    from agrijax.calib import workflow as wf
+
+    exp = ajd.experiment("TEST8201", data_root=_engine(tmp_path))
+    monkeypatch.setitem(wf.NITROGEN_STRESS, "TEST8201_t01", -0.308)
+    monkeypatch.setattr(ajd.Experiment, "_build", lambda self, fx, t: object())
+
+    class Stop(Exception):
+        pass
+
+    def stop(*a, **k):
+        raise Stop
+
+    monkeypatch.setattr(fe, "simulate", stop)
+    calls = [
+        lambda: exp.inputs(1),
+        lambda: exp.run(1),
+        lambda: exp.run(1, precision="float32"),
+    ]
+    for call in calls:
+        exp._warned.clear()
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always")
+            try:
+                call()
+            except Stop:
+                pass
+        hits = [w for w in rec if issubclass(w.category, ajd.NitrogenWarning)]
+        assert len(hits) == 1
+        assert hits[0].filename == __file__
 
 
 def test_calibration_result_repr_is_short():

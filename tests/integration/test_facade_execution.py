@@ -39,22 +39,23 @@ pytestmark = [
 
 #: float32 against float64 on UFGA8201: relative difference of the yield and of the biomass at maturity
 #: of one season. Measured (rorqual CPU node, JAX 0.10.2): at most 3.3e-7 over treatments 4 and 6 and a
-#: changed cultivar. The bound is 30 times that; across the 65 free-run acceptance runs the
-#: documented spread is wider (median 3e-7, 64 of 65 within 1e-3, largest 1.5e-2 in one treatment)
+#: changed cultivar. The bound is 30 times that; across the maize example treatments the spread is
+#: wider (tests/integration/test_facade_float32_examples.py: median 2.7e-7, 56 of 57 within 1e-3,
+#: largest 1.5e-2 in one treatment)
 SEASON_RTOL = 1e-5
 #: ... the daily LAI, tops, grain and soil-water series, relative to the series' largest value
 #: (measured at most 2.0e-6)
 DAILY_RTOL = 1e-4
 #: a batch of 144 seasons (9 scenarios x 16 perturbed cultivars): the median yield and biomass
 #: difference (measured 1.6e-7 and 1.5e-7) and the largest yield difference (measured 2.7e-6); no
-#: stage date differs (0 of 288). On 10 000 perturbed samples of the free-run day the documented tail
-#: is longer (99th percentile 3.6e-5, 13 samples above 1e-3), so this bound is for this fixed sample
+#: stage date differs (0 of 288). Over other samples and treatments the tail is longer
+#: (tests/integration/test_facade_float32_examples.py), so this bound is for this fixed sample
 BATCH_MEDIAN_RTOL = 1e-5
 BATCH_MAX_RTOL = 1e-4
 #: float64 on a GPU against float64 on the CPU (the free-run acceptance's GPU bound; measured 1.4e-15)
 GPU_CPU_RTOL = 1e-9
-#: float32 on a GPU against float32 on the CPU (free-run day: up to 2.2e-5 in yield on 65 runs;
-#: measured here on an H100 MIG slice: at most 4.2e-7 in a season, 2.1e-6 in the batch)
+#: float32 on a GPU against float32 on the CPU (measured here on an H100 MIG slice: at most 4.2e-7 in a
+#: season, 2.1e-6 in the batch)
 GPU_CPU_FLOAT32_RTOL = 1e-4
 #: the references and the float32 runs of the comparisons run on the CPU, wherever the test runs
 CPU = {"device": "cpu"}
@@ -265,3 +266,30 @@ def test_gpu_agrees_with_the_cpu(exp, seasons, batches):
 def test_calibrate_refuses_float32(exp):
     with aj.options(precision="float32"), pytest.raises(ValueError, match="float64"):
         aj.calibrate(exp, treatments=[4])
+
+
+def test_plain_calls_leave_x64_off_and_give_the_same_numbers(exp):
+    """With ``jax_enable_x64`` off before them, plain calls (no options) on a fresh experiment leave it
+    off, also a batch run later on scenarios made earlier, and give the numbers of the same calls made
+    with it on, bit for bit (the facade scope, :func:`agrijax.facade_execution.facade_scope`)."""
+    import pandas as pd
+
+    cul = {"G2": [700.0, 800.0], "P1": [200.0, 220.0]}
+    ref = exp.run(treatment=4)
+    ref_b = exp.scenarios(treatment=4, years=[1982], sowing_shift=[0, 14]).run(cul)
+    fresh = aj.dssat.experiment("UFGA8201", data_root=DSSAT_ENGINE)
+    seen = []
+    jax.config.update("jax_enable_x64", False)
+    try:
+        s = fresh.run(treatment=4)
+        seen.append(bool(jax.config.jax_enable_x64))
+        scen = fresh.scenarios(treatment=4, years=[1982], sowing_shift=[0, 14])
+        seen.append(bool(jax.config.jax_enable_x64))
+        b = scen.run(cul)
+        seen.append(bool(jax.config.jax_enable_x64))
+    finally:
+        jax.config.update("jax_enable_x64", True)
+    assert seen == [False, False, False]
+    pd.testing.assert_frame_equal(s.daily, ref.daily, check_exact=True)
+    assert s.summary == ref.summary and s.precision == "float64"
+    pd.testing.assert_frame_equal(b.table, ref_b.table, check_exact=True)
